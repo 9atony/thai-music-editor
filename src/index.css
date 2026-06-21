@@ -1,0 +1,11 @@
+/* src/index.css */
+@import url('https://fonts.googleapis.com/css2?family=TH+Sarabun+New:wght@400;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ตั้งค่าให้ทั้งโปรเจกต์ใช้สารบัญเป็นหลัก (Optional) */
+body {
+  font-family: 'TH Sarabun New', sans-serif;
+}
