@@ -4,9 +4,8 @@ import { preloadSounds, playNote } from '../utils/audioEngine';
 
 export const MusicContext = createContext();
 
-// ⭐ ฟังก์ชันช่วยหาตำแหน่งคอลัมน์ที่แท้จริง
 const getFlattenedCol = (row, rType, targetM, targetC) => {
-  if (!row) return 0;
+  if (!row || rType === 'text' || rType === 'page-break') return 0;
   let col = 0;
   for (let m = 0; m < row.length; m++) {
     if (rType && rType.startsWith('double') && m === 0) continue;
@@ -22,6 +21,10 @@ export const MusicProvider = ({ children }) => {
     Array(4).fill().map(() => Array(8).fill().map(() => Array(4).fill('-')))
   );
   const [rowTypes, setRowTypes] = useState(Array(4).fill('single'));
+  
+  // ⭐ เพิ่ม State สำหรับจำค่า Margin (บน, ล่าง, ซ้าย) ของแต่ละบรรทัด
+  const [rowMargins, setRowMargins] = useState(Array(4).fill({ top: 0, bottom: 0, left: 0 }));
+
   const [selectedCell, setSelectedCell] = useState([0, 0, 0]);
   const [songName, setSongName] = useState("เพลงลาวดวงเดือน");
   const [sectionLabels, setSectionLabels] = useState({});
@@ -55,7 +58,10 @@ export const MusicProvider = ({ children }) => {
     activeSymbol: 'sabat', 
     symbolColor: '#1e293b',
     symbolStrokeWidth: 2.5,
-    symbolHeight: 20
+    symbolHeight: 20,
+    marginTop: 48, marginBottom: 48, marginLeft: 48, marginRight: 48,
+    marginUnit: 'px',
+    textLineHeight: 1.5, textFontSize: 16
   });
 
   const layoutConfigRef = useRef(layoutConfig);
@@ -135,7 +141,7 @@ export const MusicProvider = ({ children }) => {
           }
       };
 
-      if (currentRowTypes[r] === 'page-break') {
+      if (currentRowTypes[r] === 'page-break' || currentRowTypes[r] === 'text') {
           let nextR = r + 1;
           if (nextR >= currentSheetData.length) {
               playbackTimerRef.current = setTimeout(() => stopPlayback(), 500);
@@ -311,17 +317,20 @@ export const MusicProvider = ({ children }) => {
     return count > 0 ? count - 1 : 0;
   };
 
-  const commitChange = (newSheetData, newRowTypes, newSectionLabels, newSymbols) => {
+  // ⭐ อัปเดต commitChange ให้บันทึก rowMargins ลงประวัติด้วย
+  const commitChange = (newSheetData, newRowTypes, newSectionLabels, newSymbols, newRowMargins) => {
     setSheetData(newSheetData);
     if (newRowTypes) setRowTypes(newRowTypes);
     if (newSectionLabels) setSectionLabels(newSectionLabels);
     if (newSymbols) setSymbols(newSymbols);
+    if (newRowMargins) setRowMargins(newRowMargins);
 
     const snapshot = {
       sheetData: JSON.parse(JSON.stringify(newSheetData)),
       rowTypes: newRowTypes ? [...newRowTypes] : [...rowTypes],
       sectionLabels: newSectionLabels ? JSON.parse(JSON.stringify(newSectionLabels)) : JSON.parse(JSON.stringify(sectionLabels)),
-      symbols: newSymbols ? [...newSymbols] : [...symbols]
+      symbols: newSymbols ? [...newSymbols] : [...symbols],
+      rowMargins: newRowMargins ? JSON.parse(JSON.stringify(newRowMargins)) : JSON.parse(JSON.stringify(rowMargins))
     };
 
     setHistory(prev => {
@@ -340,6 +349,7 @@ export const MusicProvider = ({ children }) => {
       setRowTypes(prev.rowTypes);
       setSectionLabels(prev.sectionLabels);
       setSymbols(prev.symbols || []); 
+      setRowMargins(prev.rowMargins || Array(prev.sheetData.length).fill({ top: 0, bottom: 0, left: 0 }));
       setHistoryIndex(historyIndex - 1);
     }
   };
@@ -351,6 +361,7 @@ export const MusicProvider = ({ children }) => {
       setRowTypes(next.rowTypes);
       setSectionLabels(next.sectionLabels);
       setSymbols(next.symbols || []); 
+      setRowMargins(next.rowMargins || Array(next.sheetData.length).fill({ top: 0, bottom: 0, left: 0 }));
       setHistoryIndex(historyIndex + 1);
     }
   };
@@ -370,12 +381,17 @@ export const MusicProvider = ({ children }) => {
         if (data.currentInstrument && INSTRUMENT_CONFIG[data.currentInstrument]) {
           setCurrentInstrument(INSTRUMENT_CONFIG[data.currentInstrument]);
         }
-        commitChange(data.sheetData || sheetData, data.rowTypes || rowTypes, data.sectionLabels || sectionLabels, data.symbols || symbols);
+        
+        // โหลดค่า Margin รายบรรทัด
+        const loadedMargins = data.rowMargins || Array(data.sheetData?.length || 4).fill({ top: 0, bottom: 0, left: 0 });
+        setRowMargins(loadedMargins);
+
+        commitChange(data.sheetData || sheetData, data.rowTypes || rowTypes, data.sectionLabels || sectionLabels, data.symbols || symbols, loadedMargins);
       } catch (error) {
-        commitChange(sheetData, rowTypes, sectionLabels, symbols);
+        commitChange(sheetData, rowTypes, sectionLabels, symbols, rowMargins);
       }
     } else {
-      commitChange(sheetData, rowTypes, sectionLabels, symbols);
+      commitChange(sheetData, rowTypes, sectionLabels, symbols, rowMargins);
     }
     setIsLoaded(true);
   }, []);
@@ -383,10 +399,41 @@ export const MusicProvider = ({ children }) => {
   useEffect(() => {
     if (!isLoaded) return; 
     const projectData = {
-      songName, sheetData, rowTypes, sectionLabels, symbols, layoutConfig, headerDetails, currentInstrument: currentInstrument.id
+      songName, sheetData, rowTypes, sectionLabels, symbols, layoutConfig, headerDetails, currentInstrument: currentInstrument.id, rowMargins
     };
     localStorage.setItem('thaiMusicEditorAutoSave', JSON.stringify(projectData));
-  }, [isLoaded, songName, sheetData, rowTypes, sectionLabels, symbols, layoutConfig, headerDetails, currentInstrument]);
+  }, [isLoaded, songName, sheetData, rowTypes, sectionLabels, symbols, layoutConfig, headerDetails, currentInstrument, rowMargins]);
+
+  // ⭐ อัปเดตฟังก์ชันให้รองรับข้อมูลทั้งจากการกด Tab และจาก Toolbar
+  const updateRowMarginsList = (arg1, arg2, arg3) => {
+    const newRowMargins = [...rowMargins];
+    
+    // กรณีที่รับค่ามาจาก Sheet.jsx (ตอนกด Tab) -> รับเป็น Array
+    if (Array.isArray(arg1)) {
+      const updates = arg1;
+      updates.forEach(update => {
+        newRowMargins[update.index] = { 
+          ...(newRowMargins[update.index] || { top: 0, bottom: 0, left: 0 }), 
+          ...update.changes 
+        };
+      });
+    } 
+    // กรณีที่รับค่ามาจาก MainToolbar -> รับเป็น (minR, maxR, updates)
+    else {
+      const minR = arg1;
+      const maxR = arg2;
+      const updates = arg3;
+      for (let i = minR; i <= maxR; i++) {
+        newRowMargins[i] = { 
+          ...(newRowMargins[i] || { top: 0, bottom: 0, left: 0 }), 
+          ...updates 
+        };
+      }
+    }
+    
+    // บันทึกผ่านระบบ Undo/Redo เพื่อให้ทำงานสมบูรณ์
+    commitChange(sheetData, rowTypes, sectionLabels, symbols, newRowMargins);
+  };
 
   const addSymbol = (type, start, end, options = {}) => {
     const newSymbol = { id: Date.now(), type, start, end, ...options };
@@ -456,7 +503,7 @@ export const MusicProvider = ({ children }) => {
 
     const copiedBlock = [];
     for (let r = minR; r <= maxR; r++) {
-      if (rowTypes[r] === 'page-break') continue;
+      if (rowTypes[r] === 'page-break' || rowTypes[r] === 'text') continue;
       const rowData = [];
       let currentCol = 0;
       for (let m = 0; m < sheetData[r].length; m++) {
@@ -484,7 +531,7 @@ export const MusicProvider = ({ children }) => {
 
     let currentDataRow = 0;
     for (let i = r; i < newData.length && currentDataRow < clipboardData.length; i++) {
-       if (rowTypes[i] === 'page-break') continue;
+       if (rowTypes[i] === 'page-break' || rowTypes[i] === 'text') continue;
        
        const rowToPaste = clipboardData[currentDataRow];
        if (typeof rowToPaste === 'string' || !Array.isArray(rowToPaste)) {
@@ -515,18 +562,15 @@ export const MusicProvider = ({ children }) => {
   const inputNote = (note) => {
     const newData = [...sheetData];
 
-    // ⭐ ดักจับว่าเป็นการ "ลากคลุม" (Block) หรือแค่ "คลิกช่องเดียว"
     let isBlockSelection = false;
     if (selectionRange && selectionRange.start && selectionRange.end) {
         const sr = selectionRange.start[0], sm = selectionRange.start[1], sc = selectionRange.start[2];
         const er = selectionRange.end[0], em = selectionRange.end[1], ec = selectionRange.end[2];
-        // ถ้าระยะคลิกเริ่ม กับ ระยะปล่อยคลิก ไม่ใช่อันเดียวกัน = เป็นการลากคลุมจริงๆ!
         if (sr !== er || sm !== em || sc !== ec) {
             isBlockSelection = true;
         }
     }
 
-    // ถ้าเป็นการลากคลุมหลายช่อง ให้แทนที่ทั้งกล่องสี่เหลี่ยม แล้วหยุด (ไม่เลื่อนช่อง)
     if (isBlockSelection) {
         const sr = selectionRange.start[0], sm = selectionRange.start[1], sc = selectionRange.start[2];
         const er = selectionRange.end[0], em = selectionRange.end[1], ec = selectionRange.end[2];
@@ -540,7 +584,7 @@ export const MusicProvider = ({ children }) => {
         const maxCol = Math.max(startCol, endCol);
 
         for (let r = minR; r <= maxR; r++) {
-          if (rowTypes[r] === 'page-break') continue;
+          if (rowTypes[r] === 'page-break' || rowTypes[r] === 'text') continue; 
           let currentCol = 0;
           for (let m = 0; m < sheetData[r].length; m++) {
             if (rowTypes[r].startsWith('double') && m === 0) continue;
@@ -564,32 +608,29 @@ export const MusicProvider = ({ children }) => {
         return;
     }
 
-    // ⭐ ถ้าคลิกแค่ช่องเดียว หรือกำลังพิมพ์รัวๆ จะเข้าเงื่อนไขนี้ (แทนที่ 1 ช่อง แล้วเด้งเดินหน้า)
     setSelectionRange(null); 
     const [row, meas, cell] = selectedCell;
     
-    // ข้ามบรรทัดถ้าเป็นเส้นหน้ากระดาษ หรือแถบมือซ้ายมือขวา
-    if (rowTypes[row] === 'page-break') return;
+    if (rowTypes[row] === 'page-break' || rowTypes[row] === 'text') return;
     if (rowTypes[row].startsWith('double') && meas === 0) return;
 
     if (note === 'BACKSPACE') {
       newData[row][meas][cell] = '-';
       commitChange(newData);
       
-      // ถอยหลัง แล้วข้ามเส้นตัดหน้าให้อัตโนมัติ
       if (cell > 0) {
           setSelectedCell([row, meas, cell - 1]);
       } else if (meas > 0) {
         if (rowTypes[row].startsWith('double') && meas === 1) {
           let prevR = row - 1;
-          while (prevR >= 0 && rowTypes[prevR] === 'page-break') prevR--;
+          while (prevR >= 0 && (rowTypes[prevR] === 'page-break' || rowTypes[prevR] === 'text')) prevR--;
           if (prevR >= 0) setSelectedCell([prevR, sheetData[prevR].length - 1, sheetData[prevR][sheetData[prevR].length - 1].length - 1]);
         } else {
           setSelectedCell([row, meas - 1, sheetData[row][meas - 1].length - 1]);
         }
       } else {
           let prevR = row - 1;
-          while (prevR >= 0 && rowTypes[prevR] === 'page-break') prevR--;
+          while (prevR >= 0 && (rowTypes[prevR] === 'page-break' || rowTypes[prevR] === 'text')) prevR--;
           if (prevR >= 0) setSelectedCell([prevR, sheetData[prevR].length - 1, sheetData[prevR][sheetData[prevR].length - 1].length - 1]);
       }
     } else {
@@ -597,14 +638,13 @@ export const MusicProvider = ({ children }) => {
       playNote(currentInstrument.id, note, layoutConfig.volume ?? 100);
       commitChange(newData);
       
-      // ⭐ เลื่อนหน้า แล้วข้ามเส้นตัดหน้าให้อัตโนมัติด้วย
       if (cell < sheetData[row][meas].length - 1) {
           setSelectedCell([row, meas, cell + 1]);
       } else if (meas < sheetData[row].length - 1) {
           setSelectedCell([row, meas + 1, 0]);
       } else {
           let nextR = row + 1;
-          while (nextR < sheetData.length && rowTypes[nextR] === 'page-break') nextR++;
+          while (nextR < sheetData.length && (rowTypes[nextR] === 'page-break' || rowTypes[nextR] === 'text')) nextR++;
           if (nextR < sheetData.length) {
               setSelectedCell([nextR, rowTypes[nextR].startsWith('double') ? 1 : 0, 0]);
           }
@@ -612,22 +652,31 @@ export const MusicProvider = ({ children }) => {
     }
   };
 
-  const addRow = () => {
+  const addRow = (insertAtTop = false) => {
     setSelectionRange(null); 
     const rowIdx = selectedCell[0];
     const newData = [...sheetData];
     const newRowTypes = [...rowTypes];
+    const newRowMargins = [...rowMargins]; // ⭐
 
-    let insertIdx = rowIdx + 1;
-    if (rowTypes[rowIdx] === 'double-right' && rowTypes[rowIdx + 1] === 'double-left') {
-      insertIdx = rowIdx + 2;
+    const isTop = insertAtTop === true; 
+    let insertIdx = isTop ? rowIdx : rowIdx + 1;
+    
+    if (isTop) {
+      if (rowTypes[insertIdx] === 'double-left' && rowTypes[insertIdx - 1] === 'double-right') {
+        insertIdx -= 1; 
+      }
+    } else {
+      if (rowTypes[insertIdx - 1] === 'double-right' && rowTypes[insertIdx] === 'double-left') {
+        insertIdx += 1; 
+      }
     }
 
-    const targetVisualIndex = getVisualIndex(rowIdx, rowTypes);
+    const targetVisualIndex = getVisualIndex(insertIdx > 0 ? insertIdx - 1 : 0, rowTypes);
     const newSectionLabels = {};
     Object.keys(sectionLabels).forEach(key => {
       const k = parseInt(key);
-      if (k <= targetVisualIndex) {
+      if (k < targetVisualIndex) {
         newSectionLabels[k] = sectionLabels[k];
       } else {
         newSectionLabels[k + 1] = sectionLabels[k];
@@ -636,6 +685,7 @@ export const MusicProvider = ({ children }) => {
 
     newData.splice(insertIdx, 0, Array(8).fill().map(() => Array(4).fill('-')));
     newRowTypes.splice(insertIdx, 0, 'single');
+    newRowMargins.splice(insertIdx, 0, { top: 0, bottom: 0, left: 0 }); // ⭐ แทรก Margin ว่างๆ ให้บรรทัดใหม่
 
     const newSymbols = symbols.map(sym => {
       const newStartR = sym.start[0] >= insertIdx ? sym.start[0] + 1 : sym.start[0];
@@ -643,25 +693,31 @@ export const MusicProvider = ({ children }) => {
       return { ...sym, start: [newStartR, sym.start[1], sym.start[2]], end: [newEndR, sym.end[1], sym.end[2]] };
     });
 
-    commitChange(newData, newRowTypes, newSectionLabels, newSymbols);
+    commitChange(newData, newRowTypes, newSectionLabels, newSymbols, newRowMargins);
+    if (isTop) setSelectedCell([insertIdx + 1, 0, 0]);
   };
 
-  const addDoubleRow = () => {
+  const addDoubleRow = (insertAtTop = false) => {
     setSelectionRange(null); 
     const rowIdx = selectedCell[0];
     const newData = [...sheetData];
     const newRowTypes = [...rowTypes];
+    const newRowMargins = [...rowMargins]; // ⭐
 
-    let insertIdx = rowIdx + 1;
-    if (rowTypes[rowIdx] === 'double-right' && rowTypes[rowIdx + 1] === 'double-left') {
-      insertIdx = rowIdx + 2;
+    const isTop = insertAtTop === true;
+    let insertIdx = isTop ? rowIdx : rowIdx + 1;
+    
+    if (isTop) {
+      if (rowTypes[insertIdx] === 'double-left' && rowTypes[insertIdx - 1] === 'double-right') insertIdx -= 1;
+    } else {
+      if (rowTypes[insertIdx - 1] === 'double-right' && rowTypes[insertIdx] === 'double-left') insertIdx += 1;
     }
 
-    const targetVisualIndex = getVisualIndex(rowIdx, rowTypes);
+    const targetVisualIndex = getVisualIndex(insertIdx > 0 ? insertIdx - 1 : 0, rowTypes);
     const newSectionLabels = {};
     Object.keys(sectionLabels).forEach(key => {
       const k = parseInt(key);
-      if (k <= targetVisualIndex) {
+      if (k < targetVisualIndex) {
         newSectionLabels[k] = sectionLabels[k];
       } else {
         newSectionLabels[k + 1] = sectionLabels[k];
@@ -670,6 +726,7 @@ export const MusicProvider = ({ children }) => {
 
     newData.splice(insertIdx, 0, [['มือขวา'], ...Array(8).fill().map(() => Array(4).fill('-'))], [['มือซ้าย'], ...Array(8).fill().map(() => Array(4).fill('-'))]);
     newRowTypes.splice(insertIdx, 0, 'double-right', 'double-left');
+    newRowMargins.splice(insertIdx, 0, { top: 0, bottom: 0, left: 0 }, { top: 0, bottom: 0, left: 0 }); // ⭐
 
     const newSymbols = symbols.map(sym => {
       const newStartR = sym.start[0] >= insertIdx ? sym.start[0] + 2 : sym.start[0];
@@ -677,33 +734,29 @@ export const MusicProvider = ({ children }) => {
       return { ...sym, start: [newStartR, sym.start[1], sym.start[2]], end: [newEndR, sym.end[1], sym.end[2]] };
     });
 
-    commitChange(newData, newRowTypes, newSectionLabels, newSymbols);
+    commitChange(newData, newRowTypes, newSectionLabels, newSymbols, newRowMargins);
+    if (isTop) setSelectedCell([insertIdx + 2, 0, 0]);
   };
 
-  const addPageBreak = () => {
+  const addPageBreak = (insertAtTop = false) => {
     setSelectionRange(null);
     const rowIdx = selectedCell[0];
     const newData = [...sheetData];
     const newRowTypes = [...rowTypes];
+    const newRowMargins = [...rowMargins]; // ⭐
 
-    let insertIdx = rowIdx + 1;
-    if (rowTypes[rowIdx] === 'double-right' && rowTypes[rowIdx + 1] === 'double-left') {
-      insertIdx = rowIdx + 2;
+    const isTop = insertAtTop === true;
+    let insertIdx = isTop ? rowIdx : rowIdx + 1;
+    
+    if (isTop) {
+      if (rowTypes[insertIdx] === 'double-left' && rowTypes[insertIdx - 1] === 'double-right') insertIdx -= 1;
+    } else {
+      if (rowTypes[insertIdx - 1] === 'double-right' && rowTypes[insertIdx] === 'double-left') insertIdx += 1;
     }
-
-    const targetVisualIndex = getVisualIndex(rowIdx, rowTypes);
-    const newSectionLabels = {};
-    Object.keys(sectionLabels).forEach(key => {
-      const k = parseInt(key);
-      if (k <= targetVisualIndex) {
-        newSectionLabels[k] = sectionLabels[k];
-      } else {
-        newSectionLabels[k + 1] = sectionLabels[k];
-      }
-    });
 
     newData.splice(insertIdx, 0, Array(8).fill().map(() => Array(4).fill('-')));
     newRowTypes.splice(insertIdx, 0, 'page-break');
+    newRowMargins.splice(insertIdx, 0, { top: 0, bottom: 0, left: 0 }); // ⭐
 
     const newSymbols = symbols.map(sym => {
       const newStartR = sym.start[0] >= insertIdx ? sym.start[0] + 1 : sym.start[0];
@@ -711,8 +764,49 @@ export const MusicProvider = ({ children }) => {
       return { ...sym, start: [newStartR, sym.start[1], sym.start[2]], end: [newEndR, sym.end[1], sym.end[2]] };
     });
 
-    commitChange(newData, newRowTypes, newSectionLabels, newSymbols);
+    const newSectionLabels = { ...sectionLabels };
+    commitChange(newData, newRowTypes, newSectionLabels, newSymbols, newRowMargins);
     setSelectedCell([insertIdx, 0, 0]);
+  };
+
+  const addTextRow = (insertAtTop = false) => {
+    setSelectionRange(null);
+    const rowIdx = selectedCell[0];
+    const newData = [...sheetData];
+    const newRowTypes = [...rowTypes];
+    const newRowMargins = [...rowMargins]; // ⭐
+
+    const isTop = insertAtTop === true;
+    let insertIdx = isTop ? rowIdx : rowIdx + 1;
+    
+    if (isTop) {
+      if (rowTypes[insertIdx] === 'double-left' && rowTypes[insertIdx - 1] === 'double-right') insertIdx -= 1;
+    } else {
+      if (rowTypes[insertIdx - 1] === 'double-right' && rowTypes[insertIdx] === 'double-left') insertIdx += 1;
+    }
+
+    newData.splice(insertIdx, 0, [[""]]); 
+    newRowTypes.splice(insertIdx, 0, 'text');
+    newRowMargins.splice(insertIdx, 0, { top: 0, bottom: 0, left: 0 }); // ⭐
+
+    const newSymbols = symbols.map(sym => {
+      const newStartR = sym.start[0] >= insertIdx ? sym.start[0] + 1 : sym.start[0];
+      const newEndR = sym.end[0] >= insertIdx ? sym.end[0] + 1 : sym.end[0];
+      return { ...sym, start: [newStartR, sym.start[1], sym.start[2]], end: [newEndR, sym.end[1], sym.end[2]] };
+    });
+
+    const newSectionLabels = { ...sectionLabels };
+    commitChange(newData, newRowTypes, newSectionLabels, newSymbols, newRowMargins);
+    
+    setTimeout(() => {
+      setSelectedCell([insertIdx, 0, 0]);
+    }, 10);
+  };
+
+  const updateTextRow = (rIndex, text) => {
+    const newData = [...sheetData];
+    newData[rIndex] = [[text]];
+    setSheetData(newData); 
   };
 
   const removeRow = () => {
@@ -721,11 +815,12 @@ export const MusicProvider = ({ children }) => {
     
     const newData = [...sheetData];
     const newRowTypes = [...rowTypes];
+    const newRowMargins = [...rowMargins]; // ⭐
     
     let deleteCount = 1;
     let startIndex = rowIdx;
 
-    if (rowTypes[rowIdx] === 'single' || rowTypes[rowIdx] === 'page-break') {
+    if (rowTypes[rowIdx] === 'single' || rowTypes[rowIdx] === 'page-break' || rowTypes[rowIdx] === 'text') {
       deleteCount = 1;
     } else if (rowTypes[rowIdx] === 'double-right') {
       deleteCount = 2;
@@ -736,24 +831,35 @@ export const MusicProvider = ({ children }) => {
 
     if (newData.length - deleteCount <= 0) {
       const emptyRow = Array(8).fill().map(() => Array(4).fill('-'));
-      commitChange([emptyRow], ['single'], {}, []); 
+      commitChange([emptyRow], ['single'], {}, [], [{ top: 0, bottom: 0, left: 0 }]); 
       setSelectedCell([0, 0, 0]);
       return;
     }
 
-    const targetVisualIndex = getVisualIndex(startIndex, rowTypes);
+    const isNoteRow = rowTypes[startIndex] === 'single' || rowTypes[startIndex] === 'double-right';
     const newSectionLabels = {};
-    Object.keys(sectionLabels).forEach(key => {
-      const k = parseInt(key);
-      if (k < targetVisualIndex) {
-        newSectionLabels[k] = sectionLabels[k]; 
-      } else if (k > targetVisualIndex) {
-        newSectionLabels[k - 1] = sectionLabels[k]; 
+
+    if (!isNoteRow) {
+      Object.assign(newSectionLabels, sectionLabels);
+    } else {
+      let startVisualIndex = 0;
+      for(let i = 0; i < startIndex; i++) {
+          if (rowTypes[i] === 'single' || rowTypes[i] === 'double-right') startVisualIndex++;
       }
-    });
+
+      Object.keys(sectionLabels).forEach(key => {
+          const k = parseInt(key);
+          if (k < startVisualIndex) {
+              newSectionLabels[k] = sectionLabels[k];
+          } else if (k > startVisualIndex) {
+              newSectionLabels[k - 1] = sectionLabels[k];
+          }
+      });
+    }
 
     newData.splice(startIndex, deleteCount);
     newRowTypes.splice(startIndex, deleteCount);
+    newRowMargins.splice(startIndex, deleteCount); // ⭐
 
     const newSymbols = [];
     symbols.forEach(sym => {
@@ -770,7 +876,7 @@ export const MusicProvider = ({ children }) => {
       }
     });
 
-    commitChange(newData, newRowTypes, newSectionLabels, newSymbols);
+    commitChange(newData, newRowTypes, newSectionLabels, newSymbols, newRowMargins);
 
     let nextRow = startIndex;
     if (nextRow >= newData.length) nextRow = newData.length - 1;
@@ -781,7 +887,7 @@ export const MusicProvider = ({ children }) => {
   const addNoteColumn = () => {
     setSelectionRange(null); 
     const [rowIdx, measIdx, cellIdx] = selectedCell;
-    if (rowTypes[rowIdx] === 'page-break') return;
+    if (rowTypes[rowIdx] === 'page-break' || rowTypes[rowIdx] === 'text') return;
     if (rowTypes[rowIdx].startsWith('double') && measIdx === 0) return; 
     const newData = [...sheetData];
     newData[rowIdx][measIdx].splice(cellIdx + 1, 0, '-');
@@ -791,7 +897,7 @@ export const MusicProvider = ({ children }) => {
   const removeNoteColumn = () => {
     setSelectionRange(null); 
     const [rowIdx, measIdx, cellIdx] = selectedCell;
-    if (rowTypes[rowIdx] === 'page-break') return;
+    if (rowTypes[rowIdx] === 'page-break' || rowTypes[rowIdx] === 'text') return;
     if (rowTypes[rowIdx].startsWith('double') && measIdx === 0) return; 
     if (sheetData[rowIdx][measIdx].length > 1) {
       const newData = [...sheetData];
@@ -804,7 +910,7 @@ export const MusicProvider = ({ children }) => {
   const addMeasure = () => {
     setSelectionRange(null); 
     const [rowIdx, measIdx] = selectedCell;
-    if (rowTypes[rowIdx] === 'page-break') return;
+    if (rowTypes[rowIdx] === 'page-break' || rowTypes[rowIdx] === 'text') return;
     const newData = [...sheetData];
     if (rowTypes[rowIdx] === 'single') newData[rowIdx].splice(measIdx + 1, 0, Array(4).fill('-'));
     else if (rowTypes[rowIdx] === 'double-right') { newData[rowIdx].splice(measIdx + 1, 0, Array(4).fill('-')); newData[rowIdx + 1].splice(measIdx + 1, 0, Array(4).fill('-')); }
@@ -815,7 +921,7 @@ export const MusicProvider = ({ children }) => {
   const removeMeasure = () => {
     setSelectionRange(null); 
     const [rowIdx, measIdx] = selectedCell;
-    if (rowTypes[rowIdx] === 'page-break') return;
+    if (rowTypes[rowIdx] === 'page-break' || rowTypes[rowIdx] === 'text') return;
     if (rowTypes[rowIdx].startsWith('double') && measIdx === 0) return; 
     const minLength = rowTypes[rowIdx].startsWith('double') ? 2 : 1;
     if (sheetData[rowIdx].length > minLength) {
@@ -851,7 +957,7 @@ export const MusicProvider = ({ children }) => {
 
   const saveProject = () => {
     const projectData = {
-      songName, sheetData, rowTypes, sectionLabels, symbols, layoutConfig, headerDetails, currentInstrument: currentInstrument.id
+      songName, sheetData, rowTypes, sectionLabels, symbols, layoutConfig, headerDetails, currentInstrument: currentInstrument.id, rowMargins
     };
     const blob = new Blob([JSON.stringify(projectData, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -878,9 +984,13 @@ export const MusicProvider = ({ children }) => {
         if (data.currentInstrument && INSTRUMENT_CONFIG[data.currentInstrument]) {
           setCurrentInstrument(INSTRUMENT_CONFIG[data.currentInstrument]);
         }
+        
+        const loadedMargins = data.rowMargins || Array(data.sheetData?.length || 4).fill({ top: 0, bottom: 0, left: 0 });
+        setRowMargins(loadedMargins);
+
         setSelectedCell([0, 0, 0]);
         setSelectionRange(null);
-        commitChange(data.sheetData, data.rowTypes, data.sectionLabels, data.symbols);
+        commitChange(data.sheetData, data.rowTypes, data.sectionLabels, data.symbols, loadedMargins);
       } catch (error) {
         alert("ไฟล์ไม่ถูกต้อง หรือไฟล์เสียหายครับ!");
       }
@@ -892,10 +1002,12 @@ export const MusicProvider = ({ children }) => {
     if (window.confirm("คุณต้องการสร้างกระดาษใหม่ใช่หรือไม่? (ข้อมูลที่ยังไม่ได้เซฟจะหายไปทั้งหมด)")) {
       const initialSheet = Array(4).fill().map(() => Array(8).fill().map(() => Array(4).fill('-')));
       const initialRowTypes = Array(4).fill('single');
+      const initialRowMargins = Array(4).fill({ top: 0, bottom: 0, left: 0 });
       
       setSongName("เพลงใหม่");
       setSheetData(initialSheet);
       setRowTypes(initialRowTypes);
+      setRowMargins(initialRowMargins);
       setSectionLabels({});
       setSymbols([]);
       setHeaderDetails([
@@ -909,7 +1021,7 @@ export const MusicProvider = ({ children }) => {
       setHistoryIndex(-1);
       setHistory([]);
       localStorage.removeItem('thaiMusicEditorAutoSave');
-      commitChange(initialSheet, initialRowTypes, {}, []);
+      commitChange(initialSheet, initialRowTypes, {}, [], initialRowMargins);
     }
   };
 
@@ -930,7 +1042,9 @@ export const MusicProvider = ({ children }) => {
       isPlaying, playbackCursor, startPlayback, stopPlayback,
       symbols, addSymbol, updateSymbol, removeSymbol, removeSymbolByCell,
       selectedSymbolId, setSelectedSymbolId,
-      isOctaveMode, setIsOctaveMode 
+      isOctaveMode, setIsOctaveMode,
+      addTextRow, updateTextRow,
+      rowMargins, updateRowMarginsList // ⭐ ส่งออกเครื่องมือจัดการระยะห่างให้ Toolbar เรียกใช้
     }}>
       {children}
     </MusicContext.Provider>

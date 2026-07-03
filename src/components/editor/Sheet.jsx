@@ -2,7 +2,7 @@ import React, { useContext, forwardRef, useMemo, useEffect, useState, useCallbac
 import { MusicContext } from '../../contexts/MusicContext';
 
 const getFlattenedCol = (row, rType, targetM, targetC) => {
-  if (!row) return 0;
+  if (!row || rType === 'text' || rType === 'page-break') return 0; 
   let col = 0;
   for (let m = 0; m < row.length; m++) {
     if (rType && rType.startsWith('double') && m === 0) continue;
@@ -10,6 +10,20 @@ const getFlattenedCol = (row, rType, targetM, targetC) => {
     col += row[m].length;
   }
   return col;
+};
+
+const getVisualIndexForCalc = (rowIndex, types) => {
+  let count = 0;
+  for (let i = 0; i <= rowIndex; i++) {
+    if (types[i] === 'single' || types[i] === 'double-right') count++;
+  }
+  return count > 0 ? count - 1 : 0;
+};
+
+const getMarginPx = (val, unit) => {
+  if (unit === 'cm') return val * 37.795275;
+  if (unit === 'in') return val * 96;
+  return val;
 };
 
 const Sheet = forwardRef((props, ref) => {
@@ -24,9 +38,14 @@ const Sheet = forwardRef((props, ref) => {
     rowTypes,
     startSelection, updateSelection, endSelection, selectionRange,
     playbackCursor,
-    isPlaying, // ⭐ ดึงสถานะการเล่นเพลงมาเพื่อเอาไว้ล็อคปุ่ม
+    isPlaying, 
     symbols = [], addSymbol, removeSymbol,
-    selectedSymbolId, setSelectedSymbolId 
+    selectedSymbolId, setSelectedSymbolId,
+    updateTextRow,
+    removeRow,
+    addTextRow,
+    rowMargins, // ⭐ ดึงค่าหน่วยความจำความห่างรายบรรทัดมาใช้
+    updateRowMarginsList // ⭐ เพิ่มฟังก์ชันอัปเดตระยะเข้ามา
   } = useContext(MusicContext);
 
   const [pageSvgPaths, setPageSvgPaths] = useState({});
@@ -39,6 +58,44 @@ const Sheet = forwardRef((props, ref) => {
     window.addEventListener('mouseup', handleMouseUpGlobal);
     return () => window.removeEventListener('mouseup', handleMouseUpGlobal);
   }, [endSelection]);
+
+  // ⭐ คืนค่าการกดปุ่มให้บรรทัดโน้ต (เอา Tab ออกเพื่อไม่ให้บรรทัดโน้ตขยับ)
+  useEffect(() => {
+    const handleGlobalKeyDown = (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.closest('[contenteditable="true"]')) return;
+      
+      if (e.key === 'Enter') {
+        const [r, m, c] = selectedCell;
+        if (m === 0 && c === 0) {
+          e.preventDefault();
+          addTextRow(true); 
+        }
+      }
+    };
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [selectedCell, addTextRow]);
+
+  useEffect(() => {
+    const [r] = selectedCell;
+    if (rowTypes[r] === 'text') {
+      setTimeout(() => {
+        const textEl = document.getElementById(`text-row-${r}`);
+        if (textEl && document.activeElement !== textEl) {
+          textEl.focus();
+          
+          if (window.getSelection && document.createRange) {
+            const range = document.createRange();
+            const sel = window.getSelection();
+            range.selectNodeContents(textEl);
+            range.collapse(false); 
+            sel.removeAllRanges();
+            sel.addRange(range);
+          }
+        }
+      }, 10); 
+    }
+  }, [selectedCell[0], rowTypes]); 
 
   const displayRowNumbers = useMemo(() => {
     let currentNumber = 0;
@@ -53,9 +110,16 @@ const Sheet = forwardRef((props, ref) => {
 
   const pages = useMemo(() => {
     const A4_HEIGHT_PX = 1122; 
-    const PAGE_PADDING = 64;   
-    const FOOTER_SPACE = 50;   
-    const headerHeight = 40 + (layoutConfig.songNameSize * 1.5) + (headerDetails.length * 25);
+    
+    const mUnit = layoutConfig.marginUnit || 'px';
+    const mTopPx = getMarginPx(layoutConfig.marginTop ?? 48, mUnit);
+    const mBotPx = getMarginPx(layoutConfig.marginBottom ?? 48, mUnit);
+    const PAGE_PADDING = mTopPx + mBotPx;
+    
+    const FOOTER_SPACE = 20;   
+    
+    const headerLines = layoutConfig.detailsAlign === 'between' ? Math.ceil(headerDetails.length / 2) : headerDetails.length;
+    const headerHeight = 40 + (layoutConfig.songNameSize * 1.5) + (headerLines * 25);
 
     const calculatedPages = [];
     let currentRows = [];
@@ -66,6 +130,9 @@ const Sheet = forwardRef((props, ref) => {
       const row = sheetData[i];
       const rType = rowTypes[i];
       const headerSpace = isFirstPage ? headerHeight : 0;
+      
+      const rMarginTop = rowMargins[i]?.top || 0;
+      const rMarginBot = rowMargins[i]?.bottom || 0;
       
       if (rType === 'page-break') {
         if (currentRows.length > 0) {
@@ -78,6 +145,22 @@ const Sheet = forwardRef((props, ref) => {
         continue;
       }
 
+      if (rType === 'text') {
+        const textLineHeight = layoutConfig.textLineHeight || 1.5;
+        const textRowHeight = Math.max(20, (layoutConfig.textFontSize || 16) * textLineHeight) + rMarginTop + rMarginBot; 
+        
+        if ((currentUsedHeight + textRowHeight + headerSpace + PAGE_PADDING + FOOTER_SPACE > A4_HEIGHT_PX) && currentRows.length > 0) {
+          calculatedPages.push({ rows: currentRows, startIndex: i - currentRows.length });
+          currentRows = [row];
+          currentUsedHeight = textRowHeight; 
+          isFirstPage = false;
+        } else {
+          currentRows.push(row);
+          currentUsedHeight += textRowHeight;
+        }
+        continue;
+      }
+
       const isDoubleRight = rType === 'double-right';
       const isDoubleLeft = rType === 'double-left';
       const isDouble = isDoubleRight || isDoubleLeft;
@@ -87,8 +170,8 @@ const Sheet = forwardRef((props, ref) => {
       
       const gridHeight = (layoutConfig.measureHeight * visualLines) + (layoutConfig.rowGap * (visualLines - 1));
       const pb = isDoubleRight ? 0 : layoutConfig.rowGap; 
-      const actualRowHeight = gridHeight + pb;
-
+      
+      const actualRowHeight = gridHeight + pb + rMarginTop + rMarginBot;
       let combinedHeight = actualRowHeight;
       
       if (isDoubleRight && i + 1 < sheetData.length && rowTypes[i + 1] === 'double-left') {
@@ -96,7 +179,11 @@ const Sheet = forwardRef((props, ref) => {
          const nextVisualLines = Math.ceil(nextRow.length / 9);
          const nextGridHeight = (layoutConfig.measureHeight * nextVisualLines) + (layoutConfig.rowGap * (nextVisualLines - 1));
          const nextPb = layoutConfig.rowGap;
-         const nextActualRowHeight = nextGridHeight + nextPb;
+         
+         const nextRMarginTop = rowMargins[i+1]?.top || 0;
+         const nextRMarginBot = rowMargins[i+1]?.bottom || 0;
+         
+         const nextActualRowHeight = nextGridHeight + nextPb + nextRMarginTop + nextRMarginBot;
          combinedHeight += nextActualRowHeight;
       }
 
@@ -115,7 +202,7 @@ const Sheet = forwardRef((props, ref) => {
       calculatedPages.push({ rows: currentRows, startIndex: sheetData.length - currentRows.length });
     }
     return calculatedPages;
-  }, [sheetData, layoutConfig, headerDetails, rowTypes]);
+  }, [sheetData, layoutConfig, headerDetails, rowTypes, sectionLabels, rowMargins]);
 
   const calculatePaths = useCallback(() => {
     const newPagePaths = {};
@@ -150,21 +237,23 @@ const Sheet = forwardRef((props, ref) => {
 
             const color = sym.color || layoutConfig.symbolColor || '#1e293b';
             const strokeW = sym.strokeWidth || layoutConfig.symbolStrokeWidth || 2.5;
+            
             const baseHeight = sym.height !== undefined ? sym.height : (layoutConfig.symbolHeight !== undefined ? layoutConfig.symbolHeight : 20);
+            const safetyHeight = Math.max(5, Math.min(baseHeight, 150)); 
 
             if (Math.abs(dy) < 20) {
-              const height = baseHeight + Math.abs(dx) * 0.15;
+              const height = safetyHeight + Math.abs(dx) * 0.15;
               d = `M ${x1} ${y1} C ${x1 + dx * 0.25} ${y1 - height}, ${x2 - dx * 0.25} ${y2 - height}, ${x2} ${y2}`;
             } else if (dy < 0) {
-              const ctrlX1 = x1 - (baseHeight + 15);
-              const ctrlY1 = y1 - (baseHeight + 20);
-              const ctrlX2 = x2 - (baseHeight);
-              const ctrlY2 = y2 - (baseHeight);
+              const ctrlX1 = x1 - (safetyHeight + 15);
+              const ctrlY1 = y1 - (safetyHeight + 20);
+              const ctrlX2 = x2 - (safetyHeight);
+              const ctrlY2 = y2 - (safetyHeight);
               d = `M ${x1} ${y1} C ${ctrlX1} ${ctrlY1}, ${ctrlX2} ${ctrlY2}, ${x2} ${y2}`;
             } else {
-              const ctrlX1 = x1 + (baseHeight + 10);
-              const ctrlY1 = y1 + (baseHeight + 10);
-              const ctrlX2 = x2 + (baseHeight);
+              const ctrlX1 = x1 + (safetyHeight + 10);
+              const ctrlY1 = y1 + (safetyHeight + 10);
+              const ctrlX2 = x2 + (safetyHeight);
               const ctrlY2 = y2 - 10;
               d = `M ${x1} ${y1} C ${ctrlX1} ${ctrlY1}, ${ctrlX2} ${ctrlY2}, ${x2} ${y2}`;
             }
@@ -302,27 +391,14 @@ const Sheet = forwardRef((props, ref) => {
     });
   };
 
-  let minR = -1, maxR = -1, minCol = -1, maxCol = -1;
-  if (selectionRange && selectionRange.start && selectionRange.end) {
-     const sr = selectionRange.start[0];
-     const sm = selectionRange.start[1];
-     const sc = selectionRange.start[2];
-     const er = selectionRange.end[0];
-     const em = selectionRange.end[1];
-     const ec = selectionRange.end[2];
+  const selectionLimits = useMemo(() => {
+    if (!selectionRange || !selectionRange.start || !selectionRange.end) return { min: -1, max: -1 };
+    return {
+      min: Math.min(selectionRange.start[0], selectionRange.end[0]),
+      max: Math.max(selectionRange.start[0], selectionRange.end[0])
+    };
+  }, [selectionRange]);
 
-     minR = Math.min(sr, er);
-     maxR = Math.max(sr, er);
-
-     const startRowData = sheetData[sr] || [];
-     const endRowData = sheetData[er] || [];
-
-     const startCol = getFlattenedCol(startRowData, rowTypes[sr], sm, sc);
-     const endCol = getFlattenedCol(endRowData, rowTypes[er], em, ec);
-
-     minCol = Math.min(startCol, endCol);
-     maxCol = Math.max(startCol, endCol);
-  }
 
   return (
     <div className="relative w-full h-full flex flex-col flex-1 min-h-0 bg-slate-50/50">
@@ -330,52 +406,24 @@ const Sheet = forwardRef((props, ref) => {
       <style>
         {`
           @media print {
-            @page { 
-              size: A4 portrait; 
-              margin: 0; 
-            }
+            @page { size: A4 portrait; margin: 0; }
             html, body, #root {
-              width: 100% !important;
-              height: auto !important;
-              margin: 0 !important;
-              padding: 0 !important;
-              background: white !important;
-              overflow: visible !important;
+              width: 100% !important; height: auto !important; margin: 0 !important;
+              padding: 0 !important; background: white !important; overflow: visible !important;
             }
-            * {
-              -webkit-print-color-adjust: exact !important;
-              color-adjust: exact !important;
-            }
+            * { -webkit-print-color-adjust: exact !important; color-adjust: exact !important; }
             #sheet-scroll-container {
-              display: block !important;
-              width: 100% !important;
-              max-width: 100% !important;
-              padding: 0 !important; 
-              margin: 0 !important;
-              overflow: visible !important;
-              transform: none !important;
+              display: block !important; width: 100% !important; max-width: 100% !important;
+              padding: 0 !important; margin: 0 !important; overflow: visible !important; transform: none !important;
             }
             .print-page { 
-              display: block !important;
-              width: 100% !important;
-              min-width: 100% !important;
-              max-width: 100% !important;
-              height: 297mm !important; 
-              min-height: 297mm !important;
-              max-height: 297mm !important;
-              margin: 0 auto !important;
-              padding: 15mm 15mm 10mm 15mm !important; 
-              box-shadow: none !important;
-              border: none !important;
-              page-break-inside: avoid !important;
-              page-break-after: always !important; 
-              break-after: page !important; 
-              zoom: 1 !important; 
+              display: block !important; width: 100% !important; min-width: 100% !important; max-width: 100% !important;
+              height: 297mm !important; min-height: 297mm !important; max-height: 297mm !important;
+              margin: 0 auto !important; box-shadow: none !important;
+              border: none !important; page-break-inside: avoid !important; page-break-after: always !important; 
+              break-after: page !important; zoom: 1 !important; 
             }
-            .print-page:last-child { 
-              page-break-after: auto !important; 
-              break-after: auto !important; 
-            }
+            .print-page:last-child { page-break-after: auto !important; break-after: auto !important; }
             .print-hidden { display: none !important; }
           }
           .custom-scrollbar::-webkit-scrollbar { height: 10px; width: 10px; }
@@ -385,7 +433,6 @@ const Sheet = forwardRef((props, ref) => {
         `}
       </style>
 
-      {/* ⭐ ระบบล็อคปุ่ม Zoom อัตโนมัติเมื่อเพลงเล่นอยู่ */}
       <div className={`absolute bottom-8 right-8 z-[60] flex flex-col items-center backdrop-blur-md border border-slate-200 shadow-xl rounded-xl overflow-hidden print:hidden transition-all duration-300 group ${isPlaying ? 'bg-slate-50/90' : 'bg-white/90 hover:shadow-2xl'}`}>
         <button
           onClick={() => !isPlaying && setZoom(z => Math.min(200, z + 10))}
@@ -418,11 +465,21 @@ const Sheet = forwardRef((props, ref) => {
       >
         <div className="flex gap-12 snap-x h-max print:block" style={{ zoom: `${zoom}%` }}>
           {pages.map((page, pIndex) => (
-            <div key={pIndex} id={`page-${pIndex}`} className="print-page relative bg-white w-[210mm] min-w-[210mm] h-[297mm] min-h-[297mm] shadow-xl border border-slate-200 pt-12 px-12 pb-4 flex flex-col text-slate-800 shrink-0 snap-center print:shadow-none print:border-none print:m-0 print:pt-[15mm] print:px-[15mm] print:pb-[10mm] transition-shadow hover:shadow-2xl" style={{ fontFamily: "'TH Sarabun New', sans-serif", boxSizing: 'border-box' }}>
+            <div 
+              key={pIndex} 
+              id={`page-${pIndex}`} 
+              className="print-page relative bg-white w-[210mm] min-w-[210mm] h-[297mm] min-h-[297mm] shadow-xl border border-slate-200 flex flex-col text-slate-800 shrink-0 snap-center print:shadow-none print:border-none print:m-0 transition-shadow hover:shadow-2xl" 
+              style={{ 
+                fontFamily: "'TH Sarabun New', sans-serif", 
+                boxSizing: 'border-box',
+                paddingTop: `${getMarginPx(layoutConfig.marginTop ?? 48, layoutConfig.marginUnit || 'px')}px`,
+                paddingBottom: `${getMarginPx(layoutConfig.marginBottom ?? 48, layoutConfig.marginUnit || 'px')}px`,
+                paddingLeft: `${getMarginPx(layoutConfig.marginLeft ?? 48, layoutConfig.marginUnit || 'px')}px`,
+                paddingRight: `${getMarginPx(layoutConfig.marginRight ?? 48, layoutConfig.marginUnit || 'px')}px`,
+              }}
+            >
               
-              <svg 
-                className="absolute top-0 left-0 w-full h-full pointer-events-none z-30 print:z-30 print:w-full print:max-w-full" 
-              >
+              <svg className="absolute top-0 left-0 w-full h-full pointer-events-none z-30 print:z-30 print:w-full print:max-w-full">
                 {(pageSvgPaths[pIndex] || []).map(p => {
                   const isSelected = p.id === selectedSymbolId;
                   return (
@@ -436,15 +493,9 @@ const Sheet = forwardRef((props, ref) => {
                         }}
                       />
                       {isSelected && (
-                        <path 
-                          d={p.d} fill="none" stroke="#f59e0b" strokeWidth={p.strokeW + 4} strokeLinecap="round" 
-                          opacity="0.4" className="pointer-events-none print:hidden"
-                        />
+                        <path d={p.d} fill="none" stroke="#f59e0b" strokeWidth={p.strokeW + 4} strokeLinecap="round" opacity="0.4" className="pointer-events-none print:hidden" />
                       )}
-                      <path 
-                        d={p.d} fill="none" stroke={isSelected ? '#d97706' : p.color} strokeWidth={p.strokeW} strokeLinecap="round" 
-                        className="pointer-events-none drop-shadow-sm transition-all duration-200"
-                      />
+                      <path d={p.d} fill="none" stroke={isSelected ? '#d97706' : p.color} strokeWidth={p.strokeW} strokeLinecap="round" className="pointer-events-none drop-shadow-sm transition-all duration-200" />
                     </g>
                   );
                 })}
@@ -461,11 +512,30 @@ const Sheet = forwardRef((props, ref) => {
                 </div>
               )}
 
-              <div className="flex flex-col w-full pb-12 print:pb-[15mm]">
+              <div className="flex flex-col w-full pb-12 print:pb-[15mm] h-full relative">
                 {page.rows.map((row, localIndex) => {
                   const rIndex = page.startIndex + localIndex;
                   const rType = rowTypes[rIndex];
                   const isCursor = selectedCell[0] === rIndex;
+                  
+                  const rMarginTop = rowMargins[rIndex]?.top || 0;
+                  const rMarginBot = rowMargins[rIndex]?.bottom || 0;
+                  const rIndent = rowMargins[rIndex]?.left || 0;
+
+                  let minR = -1, maxR = -1, minCol = -1, maxCol = -1;
+                  if (selectionRange?.start && selectionRange?.end) {
+                    const sr = selectionRange.start[0];
+                    const er = selectionRange.end[0];
+                    minR = Math.min(sr, er);
+                    maxR = Math.max(sr, er);
+
+                    const startRowData = sheetData[sr] || [];
+                    const endRowData = sheetData[er] || [];
+                    const startCol = getFlattenedCol(startRowData, rowTypes[sr], selectionRange.start[1], selectionRange.start[2]);
+                    const endCol = getFlattenedCol(endRowData, rowTypes[er], selectionRange.end[1], selectionRange.end[2]);
+                    minCol = Math.min(startCol, endCol);
+                    maxCol = Math.max(startCol, endCol);
+                  }
 
                   if (rType === 'page-break') {
                      return (
@@ -484,6 +554,86 @@ const Sheet = forwardRef((props, ref) => {
                      );
                   }
 
+                  // ⭐ แก้ไขให้ Tab ทำงานเฉพาะกับบรรทัดข้อความ (เหมือนพิมพ์ย่อหน้า Word)
+                  if (rType === 'text') {
+                    let textValue = '';
+                    if (row && row[0] && typeof row[0][0] === 'string') {
+                        textValue = row[0][0];
+                    }
+                    return (
+                      <div 
+                        key={rIndex} 
+                        className="w-full flex items-center my-1 relative group print:my-1"
+                        style={{ 
+                          marginTop: `${rMarginTop}px`, 
+                          marginBottom: `${rMarginBot}px`, 
+                          paddingLeft: `calc(1rem + ${rIndent}px)`,
+                          paddingRight: '1rem',
+                          zIndex: (rMarginTop < 0 || rMarginBot < 0) ? 20 : 10 
+                        }}
+                      >
+                        <div
+                          id={`text-row-${rIndex}`} 
+                          contentEditable
+                          suppressContentEditableWarning
+                          onMouseDown={(e) => {
+                            e.stopPropagation();
+                            if (selectedCell[0] !== rIndex) {
+                              setSelectedCell([rIndex, 0, 0]); 
+                            }
+                            if (setSelectedSymbolId) setSelectedSymbolId(null);
+                          }}
+                          onInput={(e) => {
+                            if (sheetData[rIndex] && sheetData[rIndex][0]) {
+                              sheetData[rIndex][0][0] = e.target.innerHTML;
+                            }
+                          }}
+                          onBlur={(e) => {
+                            if (updateTextRow) updateTextRow(rIndex, e.target.innerHTML);
+                          }}
+                          onKeyDown={(e) => {
+                            // ดักจับการกด Tab เพื่อดันย่อหน้า (เฉพาะข้อความ)
+                            if (e.key === 'Tab') {
+                              e.preventDefault(); 
+                              if (updateRowMarginsList) {
+                                const currentLeft = rIndent || 0;
+                                const newLeft = e.shiftKey ? Math.max(0, currentLeft - 40) : currentLeft + 40;
+                                updateRowMarginsList([{ index: rIndex, changes: { left: newLeft } }]);
+                              }
+                              return;
+                            }
+
+                            const selection = window.getSelection();
+                            if (e.key === 'Enter') {
+                              e.preventDefault(); 
+                              if (selection.rangeCount > 0) {
+                                const range = selection.getRangeAt(0);
+                                const isAtStart = range.startOffset === 0 && (!range.startContainer.previousSibling || range.startContainer.previousSibling.nodeName === 'BR');
+                                addTextRow(isAtStart); 
+                              } else {
+                                addTextRow(false); 
+                              }
+                            }
+                            else if (e.key === 'Backspace' || e.key === 'Delete') {
+                              const content = e.target.innerHTML.trim();
+                              if (content === '' || content === '<br>') {
+                                e.preventDefault();
+                                if (removeRow) removeRow();
+                              }
+                            }
+                          }}
+                          dangerouslySetInnerHTML={{ __html: textValue }}
+                          className="w-full outline-none text-slate-800 cursor-text bg-transparent min-h-[24px]"
+                          style={{ 
+                            fontSize: `${layoutConfig.textFontSize || 16}px`, 
+                            fontFamily: "'TH Sarabun New', sans-serif",
+                            lineHeight: layoutConfig.textLineHeight || 1.5
+                          }}
+                        />
+                      </div>
+                    );
+                  }
+
                   const isDoubleRight = rType === 'double-right';
                   const isDoubleLeft = rType === 'double-left';
                   const isDouble = isDoubleRight || isDoubleLeft;
@@ -493,10 +643,23 @@ const Sheet = forwardRef((props, ref) => {
                   if (isDoubleLeft && rIndex > 0) {
                     visualRowNumber = displayRowNumbers[rIndex - 1]; 
                   }
-                  const visualIndex = visualRowNumber !== '' && visualRowNumber != null ? visualRowNumber - 1 : null;
-
+                  const visualIndex = visualRowNumber !== '' && visualRowNumber != null ? visualRowNumber - 1 : null;                  
+                  
                   return (
-                    <div key={rIndex} className="flex flex-col w-full" style={{ paddingBottom: `${pb}px` }}>
+                    <div 
+                    key={rIndex} 
+                    // ⭐ ลบ px-4 ออก และเอาสีไฮไลท์บรรทัดออก
+                    className="flex flex-col w-full relative transition-colors" 
+                     style={{ 
+                        paddingBottom: `${pb}px`,
+                        marginTop: `${rMarginTop}px`,
+                        marginBottom: `${rMarginBot}px`,
+                        // ใช้ paddingLeft เพื่อดันบรรทัดให้ขยับตามจริง
+                        paddingLeft: `calc(1rem + ${rIndent}px)`,
+                        paddingRight: '1rem',
+                        zIndex: (rMarginTop < 0 || rMarginBot < 0) ? 20 : 1 
+                        }}
+                  >     
                       <div className="relative w-full">
                         
                         {displayRowNumbers[rIndex] !== '' && (
@@ -619,7 +782,8 @@ const Sheet = forwardRef((props, ref) => {
                 })}
               </div>
 
-              <div className="absolute bottom-[20px] print:bottom-[10mm] left-12 right-12 print:left-[15mm] print:right-[15mm] pt-2 border-t border-slate-200 text-center text-slate-400 text-[12px] print:text-slate-500 z-20 bg-white">
+              {/* ข้อความบอกเลขหน้ากระดาษ */}
+              <div className="absolute bottom-[20px] left-0 right-0 border-t border-slate-200 text-center text-slate-400 text-[12px] print:text-slate-500 z-20 bg-transparent pt-2 mx-12">
                 <p>Thai Music Editor - หน้า {pIndex + 1} / {pages.length}</p>
               </div>
             </div>

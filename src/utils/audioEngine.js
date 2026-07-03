@@ -1,62 +1,72 @@
 import { INSTRUMENT_CONFIG } from './instrumentConfig';
 
-// กล่องเก็บไฟล์เสียงที่โหลดเตรียมไว้ (Cache) จะได้ไม่กระตุกตอนเริ่มกด
-const audioCache = {};
+// สร้าง AudioContext (ถ้าบราวเซอร์บล็อก จะถูกกระตุ้นตอนเริ่มเล่น)
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
-// ⭐ ฟังก์ชันช่วยเติมจุดล่าง/วงกลมบน ให้ตรงกับคีย์บอร์ด
+// กล่องเก็บข้อมูลเสียงที่แปลงเป็น Buffer ไว้ใน RAM เรียบร้อยแล้ว
+const audioBufferCache = {};
+
 const getFormattedNote = (note, eng) => {
   const octave = parseInt(eng.replace(/\D/g, ''));
-  if (octave >= 5) return note + '\u0E4D'; // เสียงสูง เติมวงกลมบน
-  if (octave === 2) return note + '\u0E3A\u200B'; // ⭐ เสียงต่ำพิเศษ เติมจุดล่าง + ตัวอักษรล่องหน (ZWS) ให้โปรแกรมแยกออก
-  if (octave === 3) return note + '\u0E3A'; // เสียงต่ำปกติ เติมจุดล่าง
-  return note; // เสียงกลาง ไม่ต้องเติม
+  if (octave >= 5) return note + '\u0E4D';
+  if (octave === 2) return note + '\u0E3A\u200B';
+  if (octave === 3) return note + '\u0E3A';
+  return note;
 };
 
-// ⭐ โหลดเสียงล่วงหน้า (Preload) ดึงชื่อไฟล์จาก Config อัตโนมัติ
-export const preloadSounds = (instrumentId) => {
+// ⭐ ระบบ Preload แบบใหม่: โหลดไฟล์มาเก็บเป็น Buffer ใน RAM
+export const preloadSounds = async (instrumentId) => {
   const instrument = INSTRUMENT_CONFIG[instrumentId];
   if (!instrument) return;
   
-  if (!audioCache[instrumentId]) {
-    audioCache[instrumentId] = {};
+  if (!audioBufferCache[instrumentId]) {
+    audioBufferCache[instrumentId] = {};
   }
 
-  // วนลูปอ่านข้อมูลทุกปุ่ม
-  instrument.keys.forEach(key => {
-    // ถ้ามีการตั้งค่าไฟล์เสียงไว้ (เช่น audio: '1.wav')
-    if (key.audio) {
-      const finalNoteStr = getFormattedNote(key.thai, key.eng);
-      
-      // ถ้ายังไม่เคยโหลดไฟล์นี้ ให้โหลดมาเก็บไว้
-      if (!audioCache[instrumentId][finalNoteStr]) {
-        // อ้างอิงโฟลเดอร์ตามชื่อเครื่องดนตรี เช่น /sounds/khong-wong-yai/1.wav
-        const audioPath = `/sounds/${instrumentId}/${key.audio}`;
-        const audio = new Audio(audioPath);
-        audio.preload = 'auto'; // สั่งให้เบราว์เซอร์โหลดรอเลย
-        audioCache[instrumentId][finalNoteStr] = audio;
+  // ใช้ Promise.all เพื่อโหลดทุกไฟล์พร้อมกันให้เร็วที่สุด
+  const loadPromises = instrument.keys.filter(k => k.audio).map(async (key) => {
+    const finalNoteStr = getFormattedNote(key.thai, key.eng);
+    
+    if (!audioBufferCache[instrumentId][finalNoteStr]) {
+      try {
+        const response = await fetch(`/sounds/${instrumentId}/${key.audio}`);
+        const arrayBuffer = await response.arrayBuffer();
+        // แปลงไฟล์เสียงให้เป็น AudioBuffer ที่ Web Audio API ใช้งานได้
+        const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+        audioBufferCache[instrumentId][finalNoteStr] = audioBuffer;
+      } catch (err) {
+        console.error("โหลดเสียงไม่สำเร็จ:", key.audio, err);
       }
     }
   });
+
+  await Promise.all(loadPromises);
+  console.log(`เครื่องดนตรี ${instrumentId} โหลดลง RAM เรียบร้อยแล้ว!`);
 };
 
-// ⭐ สั่งเล่นเสียงเมื่อกดปุ่ม หรือตอนเพลงเล่น (เพิ่ม volumeLevel)
+// ⭐ สั่งเล่นเสียงแบบ Web Audio API (รัวได้ไม่มีดีเลย์)
 export const playNote = (instrumentId, noteChar, volumeLevel = 100) => {
   if (!noteChar || noteChar === '-') return;
   
+  // ตรวจสอบสถานะของ AudioContext (บราวเซอร์ต้องการให้ผู้ใช้คลิกก่อนถึงจะเล่นเสียงได้)
+  if (audioCtx.state === 'suspended') {
+    audioCtx.resume();
+  }
+
   const cleanNote = noteChar.trim();
-  const cache = audioCache[instrumentId];
+  const buffer = audioBufferCache[instrumentId]?.[cleanNote];
   
-  // ถ้าเจอไฟล์เสียงที่ตรงกับตัวโน้ต
-  if (cache && cache[cleanNote]) {
-    const audio = cache[cleanNote];
-    // ใช้ cloneNode() ทำให้เล่นเสียงทับกันได้ (ตีรัวๆ ได้เสียงไม่ตัด)
-    const soundClone = audio.cloneNode(); 
+  if (buffer) {
+    // สร้าง Source Node ใหม่ทุกครั้งที่เล่น (เล่นทับกันได้อิสระ)
+    const source = audioCtx.createBufferSource();
+    const gainNode = audioCtx.createGain(); // ใช้สำหรับคุมความดัง
     
-    // ⭐ กำหนดความดังของเสียง (0.0 ถึง 1.0)
-    soundClone.volume = Math.max(0, Math.min(100, volumeLevel)) / 100;
+    source.buffer = buffer;
+    gainNode.gain.value = Math.max(0, Math.min(100, volumeLevel)) / 100;
     
-    soundClone.play().catch(err => {
-      console.log("บราวเซอร์รอให้คลิกหน้าเว็บก่อนเล่นเสียง:", err);
-    });
+    source.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+    
+    source.start(0);
   }
 };
