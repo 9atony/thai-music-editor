@@ -15,6 +15,60 @@ const getFlattenedCol = (row, rType, targetM, targetC) => {
   return col;
 };
 
+const formatInstrumentNote = (key) => {
+  const octave = parseInt(key.eng.replace(/\D/g, ''), 10);
+  if (octave >= 5) return key.thai + '\u0E4D';
+  if (octave === 2) return key.thai + '\u0E3A\u200B';
+  if (octave === 3) return key.thai + '\u0E3A';
+  return key.thai;
+};
+
+const getNoteMeta = (instrument, noteStr) => {
+  if (!instrument?.keys || !noteStr) return null;
+
+  return instrument.keys
+    .map((key) => ({
+      formatted: formatInstrumentNote(key),
+      pitch: key.eng.replace(/\d/g, ''),
+      octave: parseInt(key.eng.replace(/\D/g, ''), 10),
+    }))
+    .find((key) => key.formatted === noteStr) || null;
+};
+
+const getPreferredOctaveDirection = (instrument, noteStr) => {
+  const meta = getNoteMeta(instrument, noteStr);
+  if (!meta) return 'up';
+
+  // ระนาดเอก: ตัวไม่มีสัญลักษณ์ (octave 4) และตัวเสียงสูง (octave 5)
+  // ให้จับคู่ลงด้านล่างก่อน เช่น ด -> ดฺ, ดํ -> ด
+  // ส่วนตัวเสียงต่ำให้จับคู่ขึ้นด้านบนก่อน เช่น ดฺ -> ด
+  return meta.octave >= 4 ? 'down' : 'up';
+};
+
+const getOctavePairNote = (instrument, noteStr, preferredDirection = 'up') => {
+  if (!instrument?.keys || !noteStr) return null;
+
+  const keys = instrument.keys.map((key) => ({
+    formatted: formatInstrumentNote(key),
+    pitch: key.eng.replace(/\d/g, ''),
+    octave: parseInt(key.eng.replace(/\D/g, ''), 10),
+  }));
+
+  const current = keys.find((key) => key.formatted === noteStr);
+  if (!current) return null;
+
+  const directions = preferredDirection === 'down' ? [-1, 1] : [1, -1];
+
+  for (const step of directions) {
+    const pair = keys.find(
+      (key) => key.pitch === current.pitch && key.octave === current.octave + step
+    );
+    if (pair) return pair.formatted;
+  }
+
+  return null;
+};
+
 export const MusicProvider = ({ children }) => {
   const [currentInstrument, setCurrentInstrument] = useState(INSTRUMENT_CONFIG["khong-wong-yai"] || INSTRUMENT_CONFIG["ranat-ek"]);
   const [sheetData, setSheetData] = useState(
@@ -122,21 +176,17 @@ export const MusicProvider = ({ children }) => {
       const currentRowTypes = rowTypesRef.current;
       const currentSymbols = symbolsRef.current; 
       
-      const triggerPlaybackNote = (noteStr, vol) => {
+      const triggerPlaybackNote = (noteStr, vol, options = {}) => {
           if (!noteStr || noteStr === '-') return;
+
+          const { bypassOctaveLayer = false } = options;
           playNote(currentInstrument.id, noteStr, vol);
-          
-          if (isOctaveModeRef.current && currentInstrument.id === 'ranat-ek') {
-              const formattedKeys = currentInstrument.keys.map(k => {
-                 const octave = parseInt(k.eng.replace(/\D/g, ''));
-                 if (octave >= 5) return k.thai + '\u0E4D';
-                 if (octave === 2) return k.thai + '\u0E3A\u200B';
-                 if (octave === 3) return k.thai + '\u0E3A';
-                 return k.thai;
-              });
-              const idx = formattedKeys.indexOf(noteStr);
-              if (idx >= 7) { 
-                  playNote(currentInstrument.id, formattedKeys[idx - 7], vol);
+
+          if (!bypassOctaveLayer && isOctaveModeRef.current && currentInstrument.id === 'ranat-ek') {
+              const preferredDirection = getPreferredOctaveDirection(currentInstrument, noteStr);
+              const octavePairNote = getOctavePairNote(currentInstrument, noteStr, preferredDirection);
+              if (octavePairNote && octavePairNote !== noteStr) {
+                  playNote(currentInstrument.id, octavePairNote, vol);
               }
           }
       };
@@ -282,39 +332,25 @@ const startingSymbols = currentSymbols.filter(s => {
                   const noteA = startNotes.length > 0 ? startNotes[0] : null;
 
                   if (noteA) {
-                      // ⭐ ตรวจสอบและหาคู่ 8
-                      let noteB = noteA; // ถ้าหาคู่ 8 ไม่เจอ จะให้ซ้ำโน้ตเดิมไปก่อน
-                      if (currentInstrument && currentInstrument.keys) {
-                         const formattedKeys = currentInstrument.keys.map(k => {
-                            const octave = parseInt(k.eng.replace(/\D/g, ''));
-                            if (octave >= 5) return k.thai + '\u0E4D';
-                            if (octave === 2) return k.thai + '\u0E3A\u200B';
-                            if (octave === 3) return k.thai + '\u0E3A';
-                            return k.thai;
-                         });
-                         
-                         const indexA = formattedKeys.indexOf(noteA);
-                         if (indexA !== -1) {
-                             // ดันเสียงขึ้นไปอีก 7 ตัว (คู่ 8) ถ้าไม่มีเสียงสูงกว่านั้น ให้กดลดลงมาแทน
-                             if (indexA + 7 < formattedKeys.length) {
-                                 noteB = formattedKeys[indexA + 7];
-                             } else if (indexA - 7 >= 0) {
-                                 noteB = formattedKeys[indexA - 7];
-                             }
-                         }
-                      }
+                      // หา "คู่ 8" จากชื่อโน้ตเดียวกันต่างอ็อกเทฟจริง ๆ
+                      // เช่น ซฺ -> ซ, ซ -> ซํ ไม่ใช้การขยับ index คงที่ เพราะระนาดเอกมีช่วงต้น 3 ลูกที่ offset ไม่เท่ากัน
+                      const preferredDirection = getPreferredOctaveDirection(currentInstrument, noteA);
+                      const noteB = getOctavePairNote(currentInstrument, noteA, preferredDirection)
+                        || getOctavePairNote(currentInstrument, noteA, preferredDirection === 'down' ? 'up' : 'down')
+                        || noteA;
 
                       const kroIntervalMs = 80; // ⚡ ความเร็วในการตีสลับ ซ้าย-ขวา (ms)
                       const totalStrokes = Math.max(1, Math.floor(timeUntilEnd / kroIntervalMs));
                       
                       for (let i = 0; i <= totalStrokes; i++) {
                           const playTime = i * kroIntervalMs; 
-                          const noteToPlay = (i % 2 === 0) ? noteA : noteB; // ตีสลับ ซ้าย(ต่ำ), ขวา(คู่ 8)
+                          const noteToPlay = (i % 2 === 0) ? noteA : noteB; // ตีสลับ ซ้าย(ต้นเสียง), ขวา(คู่ 8)
                           let vol = layoutConfigRef.current.volume ?? 100;
                           
                           if (playTime >= 0 && playTime <= timeUntilEnd) {
                               const timer = setTimeout(() => {
-                                  triggerPlaybackNote(noteToPlay, vol);
+                                  // กรอควรมีแค่ 2 เสียงสลับกัน จึงไม่ให้ octave mode ซ้อนเพิ่มอีกชั้น
+                                  triggerPlaybackNote(noteToPlay, vol, { bypassOctaveLayer: true });
                               }, playTime);
                               effectTimersRef.current.push(timer);
                           }
