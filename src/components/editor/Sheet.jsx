@@ -44,8 +44,8 @@ const Sheet = forwardRef((props, ref) => {
     updateTextRow,
     removeRow,
     addTextRow,
-    rowMargins, // ⭐ ดึงค่าหน่วยความจำความห่างรายบรรทัดมาใช้
-    updateRowMarginsList // ⭐ เพิ่มฟังก์ชันอัปเดตระยะเข้ามา
+    rowMargins, 
+    updateRowMarginsList 
   } = useContext(MusicContext);
 
   const [pageSvgPaths, setPageSvgPaths] = useState({});
@@ -59,7 +59,6 @@ const Sheet = forwardRef((props, ref) => {
     return () => window.removeEventListener('mouseup', handleMouseUpGlobal);
   }, [endSelection]);
 
-  // ⭐ คืนค่าการกดปุ่มให้บรรทัดโน้ต (เอา Tab ออกเพื่อไม่ให้บรรทัดโน้ตขยับ)
   useEffect(() => {
     const handleGlobalKeyDown = (e) => {
       if (e.target.tagName === 'INPUT' || e.target.closest('[contenteditable="true"]')) return;
@@ -205,68 +204,86 @@ const Sheet = forwardRef((props, ref) => {
   }, [sheetData, layoutConfig, headerDetails, rowTypes, sectionLabels, rowMargins]);
 
   const calculatePaths = useCallback(() => {
-    const newPagePaths = {};
-    const scale = zoom / 100;
+  const newPagePaths = {};
+  const scale = zoom / 100;
 
-    symbols.forEach(sym => {
+  symbols.forEach(sym => {
+    const isKro = sym.type === 'kro';
+
+    // ถ้าเป็นกรอ และมีการข้ามบรรทัด (sym.start[0] !== sym.end[0])
+    if (isKro && sym.start[0] !== sym.end[0]) {
+      const color = sym.color || '#3b82f6';
+      const strokeW = sym.strokeWidth || 2.5;
+
+      // วนลูปตามจำนวนบรรทัดที่ครอบคลุม
+      for (let r = sym.start[0]; r <= sym.end[0]; r++) {
+        // หาบรรทัดนั้นๆ ในหน้ากระดาษ
+        const pageIndex = pages.findIndex(p => r >= p.startIndex && r < p.startIndex + p.rows.length);
+        if (pageIndex === -1) continue;
+
+        // หาจุดเริ่มต้นและจุดสิ้นสุดในบรรทัดนั้นๆ
+        const rowStartCell = (r === sym.start[0]) ? sym.start : [r, 0, 0];
+        const rowEndCell = (r === sym.end[0]) ? sym.end : [r, sheetData[r].length - 1, sheetData[r][sheetData[r].length - 1].length - 1];
+
+        const startEl = document.getElementById(`note-${rowStartCell[0]}-${rowStartCell[1]}-${rowStartCell[2]}`);
+        const endEl = document.getElementById(`note-${rowEndCell[0]}-${rowEndCell[1]}-${rowEndCell[2]}`);
+
+        if (startEl && endEl) {
+          const pageEl = document.getElementById(`page-${pageIndex}`);
+          const pRect = pageEl.getBoundingClientRect();
+          const sRect = startEl.getBoundingClientRect();
+          const eRect = endEl.getBoundingClientRect();
+
+          const x1 = (sRect.left - pRect.left + (sRect.width / 2)) / scale;
+          const y1 = (sRect.top - pRect.top) / scale + 30; // วางใต้บรรทัด
+          const x2 = (eRect.left - pRect.left + (eRect.width / 2)) / scale;
+          const y2 = (eRect.top - pRect.top) / scale + 30;
+
+          const d = `M ${x1} ${y1} L ${x2} ${y2}`;
+          if (!newPagePaths[pageIndex]) newPagePaths[pageIndex] = [];
+          // ใช้ id ที่แตกต่างกันในแต่ละบรรทัดเพื่อให้วาดได้ครบ
+          newPagePaths[pageIndex].push({ id: `${sym.id}-${r}`, type: 'kro', d, color, strokeW });
+        }
+      }
+    } else {
+      // โค้ดเดิมสำหรับ "สะบัด" หรือ "กรอในบรรทัดเดียว"
       const startEl = document.getElementById(`note-${sym.start[0]}-${sym.start[1]}-${sym.start[2]}`);
       const endEl = document.getElementById(`note-${sym.end[0]}-${sym.end[1]}-${sym.end[2]}`);
 
       if (startEl && endEl) {
         const pageIndex = pages.findIndex(p => sym.start[0] >= p.startIndex && sym.start[0] < p.startIndex + p.rows.length);
-        
         if (pageIndex !== -1) {
           const pageEl = document.getElementById(`page-${pageIndex}`);
-          if (pageEl) {
-            const pRect = pageEl.getBoundingClientRect(); 
-            const sRect = startEl.getBoundingClientRect(); 
-            const eRect = endEl.getBoundingClientRect();   
+          const pRect = pageEl.getBoundingClientRect();
+          const sRect = startEl.getBoundingClientRect();
+          const eRect = endEl.getBoundingClientRect();
 
-            const yOffset = 4;
-            const x1 = (sRect.left - pRect.left + (sRect.width / 2)) / scale;
-            const y1 = (sRect.top - pRect.top) / scale + yOffset;
+          const x1 = (sRect.left - pRect.left + (sRect.width / 2)) / scale;
+          const y1 = (sRect.top - pRect.top) / scale + 4;
+          const x2 = (eRect.left - pRect.left + (eRect.width / 2)) / scale;
+          const y2 = (eRect.top - pRect.top) / scale + 4;
+          
+          let d = "";
+          const color = sym.color || layoutConfig.symbolColor || '#1e293b';
+          const strokeW = sym.strokeWidth || layoutConfig.symbolStrokeWidth || 2.5;
 
-            const x2 = (eRect.left - pRect.left + (eRect.width / 2)) / scale;
-            const y2 = (eRect.top - pRect.top) / scale + yOffset;
-
-            let d = "";
-            const dx = x2 - x1;
-            const dy = y2 - y1;
-
-            if (dx === 0 && dy === 0) return;
-
-            const color = sym.color || layoutConfig.symbolColor || '#1e293b';
-            const strokeW = sym.strokeWidth || layoutConfig.symbolStrokeWidth || 2.5;
-            
-            const baseHeight = sym.height !== undefined ? sym.height : (layoutConfig.symbolHeight !== undefined ? layoutConfig.symbolHeight : 20);
-            const safetyHeight = Math.max(5, Math.min(baseHeight, 150)); 
-
-            if (Math.abs(dy) < 20) {
-              const height = safetyHeight + Math.abs(dx) * 0.15;
-              d = `M ${x1} ${y1} C ${x1 + dx * 0.25} ${y1 - height}, ${x2 - dx * 0.25} ${y2 - height}, ${x2} ${y2}`;
-            } else if (dy < 0) {
-              const ctrlX1 = x1 - (safetyHeight + 15);
-              const ctrlY1 = y1 - (safetyHeight + 20);
-              const ctrlX2 = x2 - (safetyHeight);
-              const ctrlY2 = y2 - (safetyHeight);
-              d = `M ${x1} ${y1} C ${ctrlX1} ${ctrlY1}, ${ctrlX2} ${ctrlY2}, ${x2} ${y2}`;
-            } else {
-              const ctrlX1 = x1 + (safetyHeight + 10);
-              const ctrlY1 = y1 + (safetyHeight + 10);
-              const ctrlX2 = x2 + (safetyHeight);
-              const ctrlY2 = y2 - 10;
-              d = `M ${x1} ${y1} C ${ctrlX1} ${ctrlY1}, ${ctrlX2} ${ctrlY2}, ${x2} ${y2}`;
-            }
-
-            if (!newPagePaths[pageIndex]) newPagePaths[pageIndex] = [];
-            newPagePaths[pageIndex].push({ id: sym.id, d, color, strokeW });
+          if (isKro) {
+              d = `M ${x1} ${y1 + 30} L ${x2} ${y2 + 30}`;
+          } else {
+              // ... โค้ดสะบัดเดิมของคุณหนุ่ม ...
+              const baseHeight = sym.height ?? 20;
+              const height = baseHeight + Math.abs(x2 - x1) * 0.15;
+              d = `M ${x1} ${y1} C ${x1 + (x2 - x1) * 0.25} ${y1 - height}, ${x2 - (x2 - x1) * 0.25} ${y2 - height}, ${x2} ${y2}`;
           }
+
+          if (!newPagePaths[pageIndex]) newPagePaths[pageIndex] = [];
+          newPagePaths[pageIndex].push({ id: sym.id, type: sym.type, d, color, strokeW });
         }
       }
-    });
-
-    setPageSvgPaths(newPagePaths);
-  }, [symbols, layoutConfig, pages, zoom]);
+    }
+  });
+  setPageSvgPaths(newPagePaths);
+}, [symbols, layoutConfig, pages, zoom, sheetData]); // เพิ่ม sheetData เข้าไปใน dependency
 
   useEffect(() => {
     if (playbackCursor !== null) return; 
@@ -318,6 +335,7 @@ const Sheet = forwardRef((props, ref) => {
     };
   }, [calculatePaths]);
 
+ // ⭐ อัปเดตคีย์ลัดคลิกขวาให้เชื่อมกับ Toolbar
   const handleRightClick = (e, rIndex, mIndex, cIndex) => {
     e.preventDefault(); 
     const existingSymbol = symbols.find(s => 
@@ -330,12 +348,14 @@ const Sheet = forwardRef((props, ref) => {
     } 
     else if (selectedCell && (selectedCell[0] !== rIndex || selectedCell[1] !== mIndex || selectedCell[2] !== cIndex)) {
       if (addSymbol) {
+         const symType = layoutConfig.activeSymbol || 'sabat'; // ⭐ ดึงค่าจาก Toolbar มาใช้
+         
          addSymbol(
-           layoutConfig.activeSymbol || 'sabat', 
+           symType, 
            selectedCell, 
            [rIndex, mIndex, cIndex],
            {
-             color: layoutConfig.symbolColor || '#1e293b',
+             color: symType === 'kro' ? '#3b82f6' : (layoutConfig.symbolColor || '#1e293b'), // สีฟ้าถ้าเป็นกรอ
              strokeWidth: layoutConfig.symbolStrokeWidth || 2.5,
              height: layoutConfig.symbolHeight !== undefined ? layoutConfig.symbolHeight : 20
            }
@@ -343,7 +363,7 @@ const Sheet = forwardRef((props, ref) => {
       }
     }
   };
-
+  
   const renderSheetNote = (note) => {
     if (note === '-') return <span>-</span>;
     return (
@@ -479,14 +499,16 @@ const Sheet = forwardRef((props, ref) => {
               }}
             >
               
+              {/* ⭐ แก้ไขการแสดงผล SVG ให้รองรับคลาสซ่อนตอนพรินต์ */}
               <svg className="absolute top-0 left-0 w-full h-full pointer-events-none z-30 print:z-30 print:w-full print:max-w-full">
                 {(pageSvgPaths[pIndex] || []).map(p => {
                   const isSelected = p.id === selectedSymbolId;
+                  const isKro = p.type === 'kro';
                   return (
                     <g key={p.id}>
                       <path 
                         d={p.d} fill="none" stroke="transparent" strokeWidth="20" 
-                        className="pointer-events-auto cursor-pointer print:pointer-events-none"
+                        className={`pointer-events-auto cursor-pointer ${isKro ? 'print:hidden' : 'print:pointer-events-none'}`}
                         onMouseDown={(e) => { 
                           e.stopPropagation(); 
                           if (setSelectedSymbolId) setSelectedSymbolId(p.id); 
@@ -495,7 +517,15 @@ const Sheet = forwardRef((props, ref) => {
                       {isSelected && (
                         <path d={p.d} fill="none" stroke="#f59e0b" strokeWidth={p.strokeW + 4} strokeLinecap="round" opacity="0.4" className="pointer-events-none print:hidden" />
                       )}
-                      <path d={p.d} fill="none" stroke={isSelected ? '#d97706' : p.color} strokeWidth={p.strokeW} strokeLinecap="round" className="pointer-events-none drop-shadow-sm transition-all duration-200" />
+                      <path 
+                        d={p.d} 
+                        fill="none" 
+                        stroke={isSelected ? '#d97706' : (isKro ? '#3b82f6' : p.color)} 
+                        strokeWidth={p.strokeW} 
+                        strokeLinecap="round" 
+                        strokeDasharray={isKro ? "6, 4" : "none"} // เพิ่มความประให้เส้น
+                        className={`pointer-events-none drop-shadow-sm transition-all duration-200 ${isKro ? 'print:hidden' : ''}`} // สั่งซ่อนตอนพรินต์
+                      />
                     </g>
                   );
                 })}
@@ -554,7 +584,6 @@ const Sheet = forwardRef((props, ref) => {
                      );
                   }
 
-                  // ⭐ แก้ไขให้ Tab ทำงานเฉพาะกับบรรทัดข้อความ (เหมือนพิมพ์ย่อหน้า Word)
                   if (rType === 'text') {
                     let textValue = '';
                     if (row && row[0] && typeof row[0][0] === 'string') {
@@ -592,7 +621,6 @@ const Sheet = forwardRef((props, ref) => {
                             if (updateTextRow) updateTextRow(rIndex, e.target.innerHTML);
                           }}
                           onKeyDown={(e) => {
-                            // ดักจับการกด Tab เพื่อดันย่อหน้า (เฉพาะข้อความ)
                             if (e.key === 'Tab') {
                               e.preventDefault(); 
                               if (updateRowMarginsList) {
@@ -648,13 +676,11 @@ const Sheet = forwardRef((props, ref) => {
                   return (
                     <div 
                     key={rIndex} 
-                    // ⭐ ลบ px-4 ออก และเอาสีไฮไลท์บรรทัดออก
                     className="flex flex-col w-full relative transition-colors" 
                      style={{ 
                         paddingBottom: `${pb}px`,
                         marginTop: `${rMarginTop}px`,
                         marginBottom: `${rMarginBot}px`,
-                        // ใช้ paddingLeft เพื่อดันบรรทัดให้ขยับตามจริง
                         paddingLeft: `calc(1rem + ${rIndent}px)`,
                         paddingRight: '1rem',
                         zIndex: (rMarginTop < 0 || rMarginBot < 0) ? 20 : 1 

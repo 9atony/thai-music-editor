@@ -22,7 +22,6 @@ export const MusicProvider = ({ children }) => {
   );
   const [rowTypes, setRowTypes] = useState(Array(4).fill('single'));
   
-  // ⭐ เพิ่ม State สำหรับจำค่า Margin (บน, ล่าง, ซ้าย) ของแต่ละบรรทัด
   const [rowMargins, setRowMargins] = useState(Array(4).fill({ top: 0, bottom: 0, left: 0 }));
 
   const [selectedCell, setSelectedCell] = useState([0, 0, 0]);
@@ -48,6 +47,7 @@ export const MusicProvider = ({ children }) => {
   const playbackTimerRef = useRef(null);
   const effectTimersRef = useRef([]);
   const mutedCellsRef = useRef(new Set());
+  const kroTimerRef = useRef(null);
 
   const [layoutConfig, setLayoutConfig] = useState({
     fontSize: 30, isBold: false, isItalic: false, measureHeight: 48,
@@ -153,7 +153,10 @@ export const MusicProvider = ({ children }) => {
       }
       
       const currentBpm = layoutConfigRef.current.bpm || 80;
-      const msPerCell = Math.floor(15000 / currentBpm); 
+      
+      const cellCountInMeasure = currentSheetData[r][m].length;
+      const standardMsPerCell = 15000 / currentBpm;
+      const msPerCell = Math.floor(standardMsPerCell * (4 / cellCountInMeasure));
 
       setPlaybackCursor([r, m, c]);
 
@@ -169,92 +172,174 @@ export const MusicProvider = ({ children }) => {
       cellsToCheck.forEach(cell => {
           const [cr, cm, cc] = cell;
           
-          const startingSymbols = currentSymbols.filter(s => {
-              let mStart = s.start[1], cStart = s.start[2];
-              let mEnd = s.end[1], cEnd = s.end[2];
-              if (mStart * 4 + cStart > mEnd * 4 + cEnd) {
-                  mStart = s.end[1]; cStart = s.end[2];
-              }
-              return cm === mStart && cc === cStart && (s.start[0] === cr || s.end[0] === cr);
-          });
+          // เปลี่ยนส่วนการ filter startingSymbols เป็นแบบนี้ครับ
+const startingSymbols = currentSymbols.filter(s => {
+    const startIdx = s.start[0] * 1000 + s.start[1] * 10 + s.start[2];
+    const endIdx = s.end[0] * 1000 + s.end[1] * 10 + s.end[2];
+    const currentIdx = cr * 1000 + cm * 10 + cc;
+
+    // ให้ trigger เฉพาะ "จุดเริ่ม" ของ symbol เท่านั้น
+    const actualStartIdx = Math.min(startIdx, endIdx);
+
+    return currentIdx === actualStartIdx;
+});
+
 
           startingSymbols.forEach(sym => {
               if (processedSymbols.has(sym.id)) return;
               processedSymbols.add(sym.id);
 
-              let startPos = sym.start;
-              let endPos = sym.end;
-              if (startPos[1] * 4 + startPos[2] > endPos[1] * 4 + endPos[2]) {
-                  startPos = sym.end;
-                  endPos = sym.start;
+                            let startPos = [...sym.start];
+              let endPos = [...sym.end];
+
+              const startAbs = startPos[0] * 1000 + startPos[1] * 10 + startPos[2];
+              const endAbs = endPos[0] * 1000 + endPos[1] * 10 + endPos[2];
+
+              if (startAbs > endAbs) {
+                  startPos = [...sym.end];
+                  endPos = [...sym.start];
               }
 
-              const isDouble = currentRowTypes[startPos[0]].startsWith('double');
-              const rTop = isDouble ? (currentRowTypes[startPos[0]] === 'double-left' ? startPos[0] - 1 : startPos[0]) : startPos[0];
-              const rBot = isDouble ? rTop + 1 : null;
-
+              let currR = startPos[0];
               let currM = startPos[1];
               let currC = startPos[2];
+
+              const endR = endPos[0];
               const endM = endPos[1];
               const endC = endPos[2];
 
-              let events = []; 
+              let events = [];
               let cellIds = [];
               let dist = 0;
               let failSafe = 0;
 
-              while (failSafe < 200) {
+              while (failSafe < 500) {
+                  const stepRowType = currentRowTypes[currR];
                   let colNotes = [];
-                  if (isDouble) {
-                      const noteTop = currentSheetData[rTop][currM][currC];
-                      const noteBot = currentSheetData[rBot][currM][currC];
-                      if (noteTop !== '-') colNotes.push(noteTop);
-                      if (noteBot !== '-') colNotes.push(noteBot);
-                      cellIds.push(getCellId(rTop, currM, currC));
-                      cellIds.push(getCellId(rBot, currM, currC));
+
+                  if (stepRowType && stepRowType.startsWith('double')) {
+                      const stepTop = stepRowType === 'double-left' ? currR - 1 : currR;
+                      const stepBot = stepTop + 1;
+
+                      const noteTop = currentSheetData[stepTop]?.[currM]?.[currC];
+                      const noteBot = currentSheetData[stepBot]?.[currM]?.[currC];
+
+                      if (noteTop && noteTop !== '-') colNotes.push(noteTop);
+                      if (noteBot && noteBot !== '-') colNotes.push(noteBot);
+
+                      cellIds.push(getCellId(stepTop, currM, currC));
+                      cellIds.push(getCellId(stepBot, currM, currC));
                   } else {
-                      const note = currentSheetData[rTop][currM][currC];
-                      if (note !== '-') colNotes.push(note);
-                      cellIds.push(getCellId(rTop, currM, currC));
+                      const note = currentSheetData[currR]?.[currM]?.[currC];
+                      if (note && note !== '-') colNotes.push(note);
+                      cellIds.push(getCellId(currR, currM, currC));
                   }
 
                   if (colNotes.length > 0) {
                       events.push(colNotes);
                   }
 
-                  if (currM === endM && currC === endC) break;
+                  if (currR === endR && currM === endM && currC === endC) break;
 
                   dist++;
                   currC++;
-                  if (currC >= currentSheetData[rTop][currM].length) {
+
+                  const currentMeasureLength = currentSheetData[currR]?.[currM]?.length ?? 0;
+                  if (currC >= currentMeasureLength) {
                       currC = 0;
                       currM++;
-                      if (currM >= currentSheetData[rTop].length) break;
+
+                      if (currM >= (currentSheetData[currR]?.length ?? 0)) {
+                          let nextR = currR + 1;
+
+                          while (
+                              nextR < currentSheetData.length &&
+                              (currentRowTypes[nextR] === 'page-break' || currentRowTypes[nextR] === 'text')
+                          ) {
+                              nextR++;
+                          }
+
+                          if (nextR >= currentSheetData.length) break;
+
+                          currR = nextR;
+                          currM = currentRowTypes[currR]?.startsWith('double') ? 1 : 0;
+                      }
                   }
+
                   failSafe++;
               }
+
 
               cellIds.forEach(id => mutedCellsRef.current.add(id));
 
               const timeUntilEnd = dist * msPerCell; 
-              const intervalMs = Math.floor(msPerCell * 0.25); 
+              
+             
 
-              events.reverse().forEach((colNotes, revIdx) => {
-                  const playTime = timeUntilEnd - (revIdx * intervalMs);
-                  let vol = layoutConfigRef.current.volume ?? 100;
-                  if (revIdx > 0) vol = Math.max(0, vol * (1 - (revIdx * 0.15)));
+            // ⭐ แยกระบบ Playback ของ "กรอ" และ "สะบัด"
+              if (sym.type === 'kro') {
+                  const startNotes = events[0] ? events[0].filter(n => n !== '-') : [];
+                  const noteA = startNotes.length > 0 ? startNotes[0] : null;
 
-                  colNotes.forEach(n => {
-                      if (playTime >= 0) {
-                          const timer = setTimeout(() => {
-                              triggerPlaybackNote(n, vol); 
-                          }, playTime);
-                          effectTimersRef.current.push(timer);
-                      } else {
-                          triggerPlaybackNote(n, vol);
+                  if (noteA) {
+                      // ⭐ ตรวจสอบและหาคู่ 8
+                      let noteB = noteA; // ถ้าหาคู่ 8 ไม่เจอ จะให้ซ้ำโน้ตเดิมไปก่อน
+                      if (currentInstrument && currentInstrument.keys) {
+                         const formattedKeys = currentInstrument.keys.map(k => {
+                            const octave = parseInt(k.eng.replace(/\D/g, ''));
+                            if (octave >= 5) return k.thai + '\u0E4D';
+                            if (octave === 2) return k.thai + '\u0E3A\u200B';
+                            if (octave === 3) return k.thai + '\u0E3A';
+                            return k.thai;
+                         });
+                         
+                         const indexA = formattedKeys.indexOf(noteA);
+                         if (indexA !== -1) {
+                             // ดันเสียงขึ้นไปอีก 7 ตัว (คู่ 8) ถ้าไม่มีเสียงสูงกว่านั้น ให้กดลดลงมาแทน
+                             if (indexA + 7 < formattedKeys.length) {
+                                 noteB = formattedKeys[indexA + 7];
+                             } else if (indexA - 7 >= 0) {
+                                 noteB = formattedKeys[indexA - 7];
+                             }
+                         }
                       }
+
+                      const kroIntervalMs = 80; // ⚡ ความเร็วในการตีสลับ ซ้าย-ขวา (ms)
+                      const totalStrokes = Math.max(1, Math.floor(timeUntilEnd / kroIntervalMs));
+                      
+                      for (let i = 0; i <= totalStrokes; i++) {
+                          const playTime = i * kroIntervalMs; 
+                          const noteToPlay = (i % 2 === 0) ? noteA : noteB; // ตีสลับ ซ้าย(ต่ำ), ขวา(คู่ 8)
+                          let vol = layoutConfigRef.current.volume ?? 100;
+                          
+                          if (playTime >= 0 && playTime <= timeUntilEnd) {
+                              const timer = setTimeout(() => {
+                                  triggerPlaybackNote(noteToPlay, vol);
+                              }, playTime);
+                              effectTimersRef.current.push(timer);
+                          }
+                      }
+                  }
+              } else {
+                  // ระบบสะบัด (Sabat) แบบดั้งเดิม
+                  const intervalMs = Math.floor(msPerCell * 0.25); 
+                  events.reverse().forEach((colNotes, revIdx) => {
+                      const playTime = timeUntilEnd - (revIdx * intervalMs);
+                      let vol = layoutConfigRef.current.volume ?? 100;
+                      if (revIdx > 0) vol = Math.max(0, vol * (1 - (revIdx * 0.15)));
+
+                      colNotes.forEach(n => {
+                          if (playTime >= 0) {
+                              const timer = setTimeout(() => {
+                                  triggerPlaybackNote(n, vol); 
+                              }, playTime);
+                              effectTimersRef.current.push(timer);
+                          } else {
+                              triggerPlaybackNote(n, vol);
+                          }
+                      });
                   });
-              });
+              }
           });
       });
 
@@ -309,6 +394,33 @@ export const MusicProvider = ({ children }) => {
     mutedCellsRef.current.clear();
   };
 
+    useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.code !== 'Space') return;
+
+      const tag = e.target?.tagName;
+      const isEditable =
+        e.target?.isContentEditable ||
+        tag === 'INPUT' ||
+        tag === 'TEXTAREA' ||
+        tag === 'SELECT';
+
+      if (isEditable) return;
+
+      e.preventDefault();
+
+      if (isPlayingRef.current) {
+        stopPlayback();
+      } else {
+        startPlayback();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [startPlayback, stopPlayback]);
+
+
   const getVisualIndex = (rowIndex, types) => {
     let count = 0;
     for (let i = 0; i <= rowIndex; i++) {
@@ -317,7 +429,6 @@ export const MusicProvider = ({ children }) => {
     return count > 0 ? count - 1 : 0;
   };
 
-  // ⭐ อัปเดต commitChange ให้บันทึก rowMargins ลงประวัติด้วย
   const commitChange = (newSheetData, newRowTypes, newSectionLabels, newSymbols, newRowMargins) => {
     setSheetData(newSheetData);
     if (newRowTypes) setRowTypes(newRowTypes);
@@ -382,7 +493,6 @@ export const MusicProvider = ({ children }) => {
           setCurrentInstrument(INSTRUMENT_CONFIG[data.currentInstrument]);
         }
         
-        // โหลดค่า Margin รายบรรทัด
         const loadedMargins = data.rowMargins || Array(data.sheetData?.length || 4).fill({ top: 0, bottom: 0, left: 0 });
         setRowMargins(loadedMargins);
 
@@ -404,11 +514,8 @@ export const MusicProvider = ({ children }) => {
     localStorage.setItem('thaiMusicEditorAutoSave', JSON.stringify(projectData));
   }, [isLoaded, songName, sheetData, rowTypes, sectionLabels, symbols, layoutConfig, headerDetails, currentInstrument, rowMargins]);
 
-  // ⭐ อัปเดตฟังก์ชันให้รองรับข้อมูลทั้งจากการกด Tab และจาก Toolbar
   const updateRowMarginsList = (arg1, arg2, arg3) => {
     const newRowMargins = [...rowMargins];
-    
-    // กรณีที่รับค่ามาจาก Sheet.jsx (ตอนกด Tab) -> รับเป็น Array
     if (Array.isArray(arg1)) {
       const updates = arg1;
       updates.forEach(update => {
@@ -417,9 +524,7 @@ export const MusicProvider = ({ children }) => {
           ...update.changes 
         };
       });
-    } 
-    // กรณีที่รับค่ามาจาก MainToolbar -> รับเป็น (minR, maxR, updates)
-    else {
+    } else {
       const minR = arg1;
       const maxR = arg2;
       const updates = arg3;
@@ -430,8 +535,6 @@ export const MusicProvider = ({ children }) => {
         };
       }
     }
-    
-    // บันทึกผ่านระบบ Undo/Redo เพื่อให้ทำงานสมบูรณ์
     commitChange(sheetData, rowTypes, sectionLabels, symbols, newRowMargins);
   };
 
@@ -657,7 +760,7 @@ export const MusicProvider = ({ children }) => {
     const rowIdx = selectedCell[0];
     const newData = [...sheetData];
     const newRowTypes = [...rowTypes];
-    const newRowMargins = [...rowMargins]; // ⭐
+    const newRowMargins = [...rowMargins]; 
 
     const isTop = insertAtTop === true; 
     let insertIdx = isTop ? rowIdx : rowIdx + 1;
@@ -685,7 +788,7 @@ export const MusicProvider = ({ children }) => {
 
     newData.splice(insertIdx, 0, Array(8).fill().map(() => Array(4).fill('-')));
     newRowTypes.splice(insertIdx, 0, 'single');
-    newRowMargins.splice(insertIdx, 0, { top: 0, bottom: 0, left: 0 }); // ⭐ แทรก Margin ว่างๆ ให้บรรทัดใหม่
+    newRowMargins.splice(insertIdx, 0, { top: 0, bottom: 0, left: 0 }); 
 
     const newSymbols = symbols.map(sym => {
       const newStartR = sym.start[0] >= insertIdx ? sym.start[0] + 1 : sym.start[0];
@@ -702,7 +805,7 @@ export const MusicProvider = ({ children }) => {
     const rowIdx = selectedCell[0];
     const newData = [...sheetData];
     const newRowTypes = [...rowTypes];
-    const newRowMargins = [...rowMargins]; // ⭐
+    const newRowMargins = [...rowMargins]; 
 
     const isTop = insertAtTop === true;
     let insertIdx = isTop ? rowIdx : rowIdx + 1;
@@ -726,7 +829,7 @@ export const MusicProvider = ({ children }) => {
 
     newData.splice(insertIdx, 0, [['มือขวา'], ...Array(8).fill().map(() => Array(4).fill('-'))], [['มือซ้าย'], ...Array(8).fill().map(() => Array(4).fill('-'))]);
     newRowTypes.splice(insertIdx, 0, 'double-right', 'double-left');
-    newRowMargins.splice(insertIdx, 0, { top: 0, bottom: 0, left: 0 }, { top: 0, bottom: 0, left: 0 }); // ⭐
+    newRowMargins.splice(insertIdx, 0, { top: 0, bottom: 0, left: 0 }, { top: 0, bottom: 0, left: 0 }); 
 
     const newSymbols = symbols.map(sym => {
       const newStartR = sym.start[0] >= insertIdx ? sym.start[0] + 2 : sym.start[0];
@@ -743,7 +846,7 @@ export const MusicProvider = ({ children }) => {
     const rowIdx = selectedCell[0];
     const newData = [...sheetData];
     const newRowTypes = [...rowTypes];
-    const newRowMargins = [...rowMargins]; // ⭐
+    const newRowMargins = [...rowMargins]; 
 
     const isTop = insertAtTop === true;
     let insertIdx = isTop ? rowIdx : rowIdx + 1;
@@ -756,7 +859,7 @@ export const MusicProvider = ({ children }) => {
 
     newData.splice(insertIdx, 0, Array(8).fill().map(() => Array(4).fill('-')));
     newRowTypes.splice(insertIdx, 0, 'page-break');
-    newRowMargins.splice(insertIdx, 0, { top: 0, bottom: 0, left: 0 }); // ⭐
+    newRowMargins.splice(insertIdx, 0, { top: 0, bottom: 0, left: 0 }); 
 
     const newSymbols = symbols.map(sym => {
       const newStartR = sym.start[0] >= insertIdx ? sym.start[0] + 1 : sym.start[0];
@@ -774,7 +877,7 @@ export const MusicProvider = ({ children }) => {
     const rowIdx = selectedCell[0];
     const newData = [...sheetData];
     const newRowTypes = [...rowTypes];
-    const newRowMargins = [...rowMargins]; // ⭐
+    const newRowMargins = [...rowMargins]; 
 
     const isTop = insertAtTop === true;
     let insertIdx = isTop ? rowIdx : rowIdx + 1;
@@ -787,7 +890,7 @@ export const MusicProvider = ({ children }) => {
 
     newData.splice(insertIdx, 0, [[""]]); 
     newRowTypes.splice(insertIdx, 0, 'text');
-    newRowMargins.splice(insertIdx, 0, { top: 0, bottom: 0, left: 0 }); // ⭐
+    newRowMargins.splice(insertIdx, 0, { top: 0, bottom: 0, left: 0 }); 
 
     const newSymbols = symbols.map(sym => {
       const newStartR = sym.start[0] >= insertIdx ? sym.start[0] + 1 : sym.start[0];
@@ -815,7 +918,7 @@ export const MusicProvider = ({ children }) => {
     
     const newData = [...sheetData];
     const newRowTypes = [...rowTypes];
-    const newRowMargins = [...rowMargins]; // ⭐
+    const newRowMargins = [...rowMargins]; 
     
     let deleteCount = 1;
     let startIndex = rowIdx;
@@ -859,7 +962,7 @@ export const MusicProvider = ({ children }) => {
 
     newData.splice(startIndex, deleteCount);
     newRowTypes.splice(startIndex, deleteCount);
-    newRowMargins.splice(startIndex, deleteCount); // ⭐
+    newRowMargins.splice(startIndex, deleteCount); 
 
     const newSymbols = [];
     symbols.forEach(sym => {
@@ -1044,7 +1147,7 @@ export const MusicProvider = ({ children }) => {
       selectedSymbolId, setSelectedSymbolId,
       isOctaveMode, setIsOctaveMode,
       addTextRow, updateTextRow,
-      rowMargins, updateRowMarginsList // ⭐ ส่งออกเครื่องมือจัดการระยะห่างให้ Toolbar เรียกใช้
+      rowMargins, updateRowMarginsList 
     }}>
       {children}
     </MusicContext.Provider>
