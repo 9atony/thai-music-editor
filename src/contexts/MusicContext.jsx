@@ -39,10 +39,10 @@ const getPreferredOctaveDirection = (instrument, noteStr) => {
   const meta = getNoteMeta(instrument, noteStr);
   if (!meta) return 'up';
 
-  // ระนาดเอก: ตัวไม่มีสัญลักษณ์ (octave 4) และตัวเสียงสูง (octave 5)
-  // ให้จับคู่ลงด้านล่างก่อน เช่น ด -> ดฺ, ดํ -> ด
-  // ส่วนตัวเสียงต่ำให้จับคู่ขึ้นด้านบนก่อน เช่น ดฺ -> ด
-  return meta.octave >= 4 ? 'down' : 'up';
+  if (meta.octave >= 4) return 'down';
+  if (meta.octave === 3 && ['G', 'A', 'B'].includes(meta.pitch)) return 'down';
+
+  return 'up';
 };
 
 const getOctavePairNote = (instrument, noteStr, preferredDirection = 'up') => {
@@ -222,32 +222,43 @@ export const MusicProvider = ({ children }) => {
       cellsToCheck.forEach(cell => {
           const [cr, cm, cc] = cell;
           
-          // เปลี่ยนส่วนการ filter startingSymbols เป็นแบบนี้ครับ
-const startingSymbols = currentSymbols.filter(s => {
-    const startIdx = s.start[0] * 1000 + s.start[1] * 10 + s.start[2];
-    const endIdx = s.end[0] * 1000 + s.end[1] * 10 + s.end[2];
-    const currentIdx = cr * 1000 + cm * 10 + cc;
+          const startingSymbols = currentSymbols.filter(s => {
+              let sStart = [...s.start];
+              let sEnd = [...s.end];
+              
+              // ⭐ แปลงบรรทัดล่าง (double-left) ให้เป็นบรรทัดบนเสมอ เพื่อให้รวบยอดคำนวณเป็นชุดเดียวกัน
+              if (currentRowTypes[sStart[0]] === 'double-left') sStart[0] -= 1;
+              if (currentRowTypes[sEnd[0]] === 'double-left') sEnd[0] -= 1;
 
-    // ให้ trigger เฉพาะ "จุดเริ่ม" ของ symbol เท่านั้น
-    const actualStartIdx = Math.min(startIdx, endIdx);
+              const startIdx = sStart[0] * 1000 + sStart[1] * 10 + sStart[2];
+              const endIdx = sEnd[0] * 1000 + sEnd[1] * 10 + sEnd[2];
+              
+              let normalizedCr = cr;
+              if (currentRowTypes[cr] === 'double-left') normalizedCr -= 1;
+              const currentIdx = normalizedCr * 1000 + cm * 10 + cc;
 
-    return currentIdx === actualStartIdx;
-});
-
+              const actualStartIdx = Math.min(startIdx, endIdx);
+              return currentIdx === actualStartIdx;
+          });
 
           startingSymbols.forEach(sym => {
               if (processedSymbols.has(sym.id)) return;
               processedSymbols.add(sym.id);
 
-                            let startPos = [...sym.start];
+              let startPos = [...sym.start];
               let endPos = [...sym.end];
+
+              // ⭐ ทำเหมือนเดิม เพื่อให้จุดจบคำนวณได้ตรงกัน
+              if (currentRowTypes[startPos[0]] === 'double-left') startPos[0] -= 1;
+              if (currentRowTypes[endPos[0]] === 'double-left') endPos[0] -= 1;
 
               const startAbs = startPos[0] * 1000 + startPos[1] * 10 + startPos[2];
               const endAbs = endPos[0] * 1000 + endPos[1] * 10 + endPos[2];
 
               if (startAbs > endAbs) {
-                  startPos = [...sym.end];
-                  endPos = [...sym.start];
+                  let temp = startPos;
+                  startPos = endPos;
+                  endPos = temp;
               }
 
               let currR = startPos[0];
@@ -302,9 +313,12 @@ const startingSymbols = currentSymbols.filter(s => {
                       if (currM >= (currentSheetData[currR]?.length ?? 0)) {
                           let nextR = currR + 1;
 
+                          // ⭐ ข้ามบรรทัด double-left ด้วย เพื่อไม่ให้ประมวลผลซ้ำซ้อน
                           while (
                               nextR < currentSheetData.length &&
-                              (currentRowTypes[nextR] === 'page-break' || currentRowTypes[nextR] === 'text')
+                              (currentRowTypes[nextR] === 'page-break' || 
+                               currentRowTypes[nextR] === 'text' || 
+                               currentRowTypes[nextR] === 'double-left')
                           ) {
                               nextR++;
                           }
@@ -315,49 +329,43 @@ const startingSymbols = currentSymbols.filter(s => {
                           currM = currentRowTypes[currR]?.startsWith('double') ? 1 : 0;
                       }
                   }
-
                   failSafe++;
               }
-
 
               cellIds.forEach(id => mutedCellsRef.current.add(id));
 
               const timeUntilEnd = dist * msPerCell; 
-              
-             
 
-            // ⭐ แยกระบบ Playback ของ "กรอ" และ "สะบัด"
               if (sym.type === 'kro') {
+                  if (window.kroInterval) clearInterval(window.kroInterval);
+
                   const startNotes = events[0] ? events[0].filter(n => n !== '-') : [];
                   const noteA = startNotes.length > 0 ? startNotes[0] : null;
 
                   if (noteA) {
-                      // หา "คู่ 8" จากชื่อโน้ตเดียวกันต่างอ็อกเทฟจริง ๆ
-                      // เช่น ซฺ -> ซ, ซ -> ซํ ไม่ใช้การขยับ index คงที่ เพราะระนาดเอกมีช่วงต้น 3 ลูกที่ offset ไม่เท่ากัน
                       const preferredDirection = getPreferredOctaveDirection(currentInstrument, noteA);
                       const noteB = getOctavePairNote(currentInstrument, noteA, preferredDirection)
                         || getOctavePairNote(currentInstrument, noteA, preferredDirection === 'down' ? 'up' : 'down')
                         || noteA;
 
-                      const kroIntervalMs = 80; // ⚡ ความเร็วในการตีสลับ ซ้าย-ขวา (ms)
+                      const kroIntervalMs = 80; 
                       const totalStrokes = Math.max(1, Math.floor(timeUntilEnd / kroIntervalMs));
+                      let isNoteA = true;
                       
-                      for (let i = 0; i <= totalStrokes; i++) {
-                          const playTime = i * kroIntervalMs; 
-                          const noteToPlay = (i % 2 === 0) ? noteA : noteB; // ตีสลับ ซ้าย(ต้นเสียง), ขวา(คู่ 8)
-                          let vol = layoutConfigRef.current.volume ?? 100;
-                          
-                          if (playTime >= 0 && playTime <= timeUntilEnd) {
-                              const timer = setTimeout(() => {
-                                  // กรอควรมีแค่ 2 เสียงสลับกัน จึงไม่ให้ octave mode ซ้อนเพิ่มอีกชั้น
-                                  triggerPlaybackNote(noteToPlay, vol, { bypassOctaveLayer: true });
-                              }, playTime);
-                              effectTimersRef.current.push(timer);
-                          }
-                      }
+                      window.kroInterval = setInterval(() => {
+                          const noteToPlay = isNoteA ? noteA : noteB;
+                          triggerPlaybackNote(noteToPlay, layoutConfigRef.current.volume ?? 100, { bypassOctaveLayer: true });
+                          isNoteA = !isNoteA;
+                      }, kroIntervalMs);
+
+                      const stopTimer = setTimeout(() => {
+                          clearInterval(window.kroInterval);
+                          window.kroInterval = null;
+                      }, timeUntilEnd);
+                      
+                      effectTimersRef.current.push(stopTimer);
                   }
               } else {
-                  // ระบบสะบัด (Sabat) แบบดั้งเดิม
                   const intervalMs = Math.floor(msPerCell * 0.25); 
                   events.reverse().forEach((colNotes, revIdx) => {
                       const playTime = timeUntilEnd - (revIdx * intervalMs);
@@ -428,34 +436,28 @@ const startingSymbols = currentSymbols.filter(s => {
     effectTimersRef.current.forEach(t => clearTimeout(t));
     effectTimersRef.current = [];
     mutedCellsRef.current.clear();
+    if (window.kroInterval) {
+        clearInterval(window.kroInterval);
+        window.kroInterval = null;
+    }
   };
 
-    useEffect(() => {
+  useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.code !== 'Space') return;
-
       const tag = e.target?.tagName;
-      const isEditable =
-        e.target?.isContentEditable ||
-        tag === 'INPUT' ||
-        tag === 'TEXTAREA' ||
-        tag === 'SELECT';
-
+      const isEditable = e.target?.isContentEditable || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
       if (isEditable) return;
-
       e.preventDefault();
-
       if (isPlayingRef.current) {
         stopPlayback();
       } else {
         startPlayback();
       }
     };
-
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [startPlayback, stopPlayback]);
-
 
   const getVisualIndex = (rowIndex, types) => {
     let count = 0;
@@ -528,10 +530,8 @@ const startingSymbols = currentSymbols.filter(s => {
         if (data.currentInstrument && INSTRUMENT_CONFIG[data.currentInstrument]) {
           setCurrentInstrument(INSTRUMENT_CONFIG[data.currentInstrument]);
         }
-        
         const loadedMargins = data.rowMargins || Array(data.sheetData?.length || 4).fill({ top: 0, bottom: 0, left: 0 });
         setRowMargins(loadedMargins);
-
         commitChange(data.sheetData || sheetData, data.rowTypes || rowTypes, data.sectionLabels || sectionLabels, data.symbols || symbols, loadedMargins);
       } catch (error) {
         commitChange(sheetData, rowTypes, sectionLabels, symbols, rowMargins);
@@ -631,10 +631,8 @@ const startingSymbols = currentSymbols.filter(s => {
     const er = selectionRange.end[0];
     const em = selectionRange.end[1];
     const ec = selectionRange.end[2];
-
     const minR = Math.min(sr, er);
     const maxR = Math.max(sr, er);
-
     const startCol = getFlattenedCol(sheetData[sr], rowTypes[sr], sm, sc);
     const endCol = getFlattenedCol(sheetData[er], rowTypes[er], em, ec);
     const minCol = Math.min(startCol, endCol);
@@ -665,18 +663,15 @@ const startingSymbols = currentSymbols.filter(s => {
     let [r, m, c] = selectedCell;
     const newData = sheetData.map(row => row.map(meas => [...meas])); 
     let lastValidCursor = [r, m, c];
-
     const startCol = getFlattenedCol(newData[r], rowTypes[r], m, c);
-
     let currentDataRow = 0;
+
     for (let i = r; i < newData.length && currentDataRow < clipboardData.length; i++) {
        if (rowTypes[i] === 'page-break' || rowTypes[i] === 'text') continue;
-       
        const rowToPaste = clipboardData[currentDataRow];
        if (typeof rowToPaste === 'string' || !Array.isArray(rowToPaste)) {
            setClipboardData([]); return;
        }
-
        let colIndex = 0;
        let pasteIndex = 0;
        
@@ -693,14 +688,12 @@ const startingSymbols = currentSymbols.filter(s => {
        }
        currentDataRow++;
     }
-
     commitChange(newData); 
     setSelectedCell(lastValidCursor);
   };
 
   const inputNote = (note) => {
     const newData = [...sheetData];
-
     let isBlockSelection = false;
     if (selectionRange && selectionRange.start && selectionRange.end) {
         const sr = selectionRange.start[0], sm = selectionRange.start[1], sc = selectionRange.start[2];
@@ -713,10 +706,8 @@ const startingSymbols = currentSymbols.filter(s => {
     if (isBlockSelection) {
         const sr = selectionRange.start[0], sm = selectionRange.start[1], sc = selectionRange.start[2];
         const er = selectionRange.end[0], em = selectionRange.end[1], ec = selectionRange.end[2];
-
         const minR = Math.min(sr, er);
         const maxR = Math.max(sr, er);
-
         const startCol = getFlattenedCol(sheetData[sr], rowTypes[sr], sm, sc);
         const endCol = getFlattenedCol(sheetData[er], rowTypes[er], em, ec);
         const minCol = Math.min(startCol, endCol);
@@ -749,14 +740,12 @@ const startingSymbols = currentSymbols.filter(s => {
 
     setSelectionRange(null); 
     const [row, meas, cell] = selectedCell;
-    
     if (rowTypes[row] === 'page-break' || rowTypes[row] === 'text') return;
     if (rowTypes[row].startsWith('double') && meas === 0) return;
 
     if (note === 'BACKSPACE') {
       newData[row][meas][cell] = '-';
       commitChange(newData);
-      
       if (cell > 0) {
           setSelectedCell([row, meas, cell - 1]);
       } else if (meas > 0) {
@@ -802,24 +791,17 @@ const startingSymbols = currentSymbols.filter(s => {
     let insertIdx = isTop ? rowIdx : rowIdx + 1;
     
     if (isTop) {
-      if (rowTypes[insertIdx] === 'double-left' && rowTypes[insertIdx - 1] === 'double-right') {
-        insertIdx -= 1; 
-      }
+      if (rowTypes[insertIdx] === 'double-left' && rowTypes[insertIdx - 1] === 'double-right') insertIdx -= 1; 
     } else {
-      if (rowTypes[insertIdx - 1] === 'double-right' && rowTypes[insertIdx] === 'double-left') {
-        insertIdx += 1; 
-      }
+      if (rowTypes[insertIdx - 1] === 'double-right' && rowTypes[insertIdx] === 'double-left') insertIdx += 1; 
     }
 
     const targetVisualIndex = getVisualIndex(insertIdx > 0 ? insertIdx - 1 : 0, rowTypes);
     const newSectionLabels = {};
     Object.keys(sectionLabels).forEach(key => {
       const k = parseInt(key);
-      if (k < targetVisualIndex) {
-        newSectionLabels[k] = sectionLabels[k];
-      } else {
-        newSectionLabels[k + 1] = sectionLabels[k];
-      }
+      if (k < targetVisualIndex) newSectionLabels[k] = sectionLabels[k];
+      else newSectionLabels[k + 1] = sectionLabels[k];
     });
 
     newData.splice(insertIdx, 0, Array(8).fill().map(() => Array(4).fill('-')));
@@ -856,11 +838,8 @@ const startingSymbols = currentSymbols.filter(s => {
     const newSectionLabels = {};
     Object.keys(sectionLabels).forEach(key => {
       const k = parseInt(key);
-      if (k < targetVisualIndex) {
-        newSectionLabels[k] = sectionLabels[k];
-      } else {
-        newSectionLabels[k + 1] = sectionLabels[k];
-      }
+      if (k < targetVisualIndex) newSectionLabels[k] = sectionLabels[k];
+      else newSectionLabels[k + 1] = sectionLabels[k];
     });
 
     newData.splice(insertIdx, 0, [['มือขวา'], ...Array(8).fill().map(() => Array(4).fill('-'))], [['มือซ้าย'], ...Array(8).fill().map(() => Array(4).fill('-'))]);
