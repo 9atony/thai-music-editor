@@ -84,14 +84,14 @@ export const MusicProvider = ({ children }) => {
   const [selectedSymbolId, setSelectedSymbolId] = useState(null);
   const [isOctaveMode, setIsOctaveMode] = useState(false);
 
-  // ⭐ โซนตัวแปรใหม่: ลำดับการเล่น (Sequencer Data)
+  // ⭐ ตัวแปร Sequencer
   const [playbackSequence, setPlaybackSequence] = useState([
     { id: 1, label: 'ท่อน 1', loops: 2 },
     { id: 2, label: 'ท่อน 2', loops: 2 },
     { id: 3, label: 'ท่อน 1', loops: 1 }
-  ]); // ผมจำลองข้อมูลไว้ให้ก่อน เดี๋ยวเราไปแก้ใน UI ทีหลังครับ
-  const [activeSequenceIdx, setActiveSequenceIdx] = useState(0); // ท่อนไหนกำลังเล่นอยู่
-  const [activeLoop, setActiveLoop] = useState(1); // เล่นรอบที่เท่าไหร่แล้ว
+  ]); 
+  const [activeSequenceIdx, setActiveSequenceIdx] = useState(0); 
+  const [activeLoop, setActiveLoop] = useState(1); 
 
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState(null);
@@ -131,10 +131,12 @@ export const MusicProvider = ({ children }) => {
   const isOctaveModeRef = useRef(isOctaveMode); 
   const sectionLabelsRef = useRef(sectionLabels);
 
-  // ⭐ Refs สำหรับ Sequencer
   const playbackSequenceRef = useRef(playbackSequence);
   const activeSequenceIdxRef = useRef(0);
   const activeLoopRef = useRef(1);
+
+  // ⭐ เก็บข้อมูลแผนที่ของท่อนเพลงล่วงหน้า
+  const sheetMapRef = useRef([]);
 
   useEffect(() => { layoutConfigRef.current = layoutConfig; }, [layoutConfig]);
   useEffect(() => { sheetDataRef.current = sheetData; }, [sheetData]);
@@ -165,12 +167,44 @@ export const MusicProvider = ({ children }) => {
     setIsPlaying(true);
     isPlayingRef.current = true;
 
-    // ⭐ เคลียร์และรีเซ็ตค่าคิวเพลงทั้งหมดก่อนเริ่มเล่น
-    activeSequenceIdxRef.current = 0;
-    activeLoopRef.current = 1;
-    setActiveSequenceIdx(0);
-    setActiveLoop(1);
+    const currentSheetData = sheetDataRef.current;
+    const currentRowTypes = rowTypesRef.current;
+    const currentSectionLabels = sectionLabelsRef.current;
 
+    // 🗺️ 1. สร้างแผนที่ (Pre-mapping) ทันทีที่กด Play
+    const sheetSections = [];
+    let lastValidRow = 0;
+
+    for (let r = 0; r < currentSheetData.length; r++) {
+        if (currentRowTypes[r] === 'page-break' || currentRowTypes[r] === 'text') continue;
+        
+        const vIdx = getVisualIndex(r, currentRowTypes);
+        const labels = currentSectionLabels[vIdx] || [];
+        const validLabels = labels.filter(l => !l.text.includes('กลับต้น') && l.text.trim() !== '');
+
+        if (validLabels.length > 0) {
+            // ปิดท้ายท่อนก่อนหน้า (ถ้ามี)
+            if (sheetSections.length > 0) {
+                sheetSections[sheetSections.length - 1].endRow = lastValidRow;
+            }
+            // บันทึกจุดเริ่มท่อนใหม่
+            sheetSections.push({
+                label: validLabels[0].text.trim(),
+                startRow: r,
+                endRow: currentSheetData.length - 1
+            });
+        }
+        lastValidRow = r;
+        if (currentRowTypes[r] === 'double-right') lastValidRow = r + 1;
+    }
+    
+    // อัปเดตบรรทัดจบให้ท่อนสุดท้าย
+    if (sheetSections.length > 0) {
+        sheetSections[sheetSections.length - 1].endRow = lastValidRow;
+    }
+    sheetMapRef.current = sheetSections;
+
+    // เคลียร์ค่าเดิม
     effectTimersRef.current.forEach(t => clearTimeout(t));
     effectTimersRef.current = [];
     mutedCellsRef.current.clear();
@@ -178,23 +212,32 @@ export const MusicProvider = ({ children }) => {
     let currentCursor = [...selectedCell];
     let startR = currentCursor[0];
 
-    if (rowTypesRef.current[startR] === 'double-left') {
+    if (currentRowTypes[startR] === 'double-left') {
       startR -= 1;
       currentCursor[0] = startR;
     }
-    if (rowTypesRef.current[startR].startsWith('double') && currentCursor[1] === 0) {
+    if (currentRowTypes[startR].startsWith('double') && currentCursor[1] === 0) {
       currentCursor[1] = 1; 
     }
+
+    // 🔄 2. Sync คิวเพลงให้ตรงกับตำแหน่งเคอร์เซอร์ (ถ้าคลิกเริ่มเล่นกลางเพลง)
+    let startSeqIdx = 0;
+    const currentMappedSection = sheetSections.find(s => startR >= s.startRow && startR <= s.endRow);
+    if (currentMappedSection) {
+         const foundIdx = playbackSequenceRef.current.findIndex(seq => seq.label.trim() === currentMappedSection.label);
+         if (foundIdx !== -1) startSeqIdx = foundIdx;
+    }
+
+    activeSequenceIdxRef.current = startSeqIdx;
+    activeLoopRef.current = 1;
+    setActiveSequenceIdx(startSeqIdx);
+    setActiveLoop(1);
 
     let expectedNextTick;
 
     const playNextStep = (r, m, c) => {
       if (!isPlayingRef.current) return; 
 
-      const currentSheetData = sheetDataRef.current;
-      const currentRowTypes = rowTypesRef.current;
-      const currentSymbols = symbolsRef.current; 
-      
       const triggerPlaybackNote = (noteStr, vol, options = {}) => {
           if (!noteStr || noteStr === '-') return;
 
@@ -236,6 +279,7 @@ export const MusicProvider = ({ children }) => {
       }
 
       let processedSymbols = new Set();
+      const currentSymbols = symbolsRef.current; 
 
       cellsToCheck.forEach(cell => {
           const [cr, cm, cc] = cell;
@@ -316,15 +360,15 @@ export const MusicProvider = ({ children }) => {
                       currC = 0;
                       currM++;
                       if (currM >= (currentSheetData[currR]?.length ?? 0)) {
-                          let nextR = currR + 1;
+                          let tempR = currR + 1;
                           while (
-                              nextR < currentSheetData.length &&
-                              (currentRowTypes[nextR] === 'page-break' || currentRowTypes[nextR] === 'text' || currentRowTypes[nextR] === 'double-left')
+                              tempR < currentSheetData.length &&
+                              (currentRowTypes[tempR] === 'page-break' || currentRowTypes[tempR] === 'text' || currentRowTypes[tempR] === 'double-left')
                           ) {
-                              nextR++;
+                              tempR++;
                           }
-                          if (nextR >= currentSheetData.length) break;
-                          currR = nextR;
+                          if (tempR >= currentSheetData.length) break;
+                          currR = tempR;
                           currM = currentRowTypes[currR]?.startsWith('double') ? 1 : 0;
                       }
                   }
@@ -346,7 +390,7 @@ export const MusicProvider = ({ children }) => {
                         || getOctavePairNote(currentInstrument, noteA, preferredDirection === 'down' ? 'up' : 'down')
                         || noteA;
 
-                      const kroIntervalMs = 80; 
+                      const kroIntervalMs = 65; 
                       const totalStrokes = Math.max(1, Math.floor(timeUntilEnd / kroIntervalMs));
                       let isNoteA = true;
                       
@@ -396,98 +440,79 @@ export const MusicProvider = ({ children }) => {
 
       let nextC = c + 1;
       let nextM = m;
-      let nextR = r;
+      let nextR = r; // ยังไม่อัปเดต nextR จนกว่าจะเช็คแผนที่เสร็จ
 
-      if (nextC >= currentSheetData[nextR][nextM].length) {
+      if (nextC >= currentSheetData[r][m].length) {
         nextC = 0; nextM++;
-        if (nextM >= currentSheetData[nextR].length) {
+        if (nextM >= currentSheetData[r].length) {
           nextM = 0; 
 
-          // ⭐ ระบบ Sequencer: อ่านค่า "กลับต้น" และค้นหาเส้นทางกระโดดตามตารางคิวเพลง ⭐
-          const visualIdx = getVisualIndex(nextR, currentRowTypes);
-          const labels = sectionLabelsRef.current[visualIdx] || [];
-          const hasGlabTon = labels.some(l => l.text.includes("กลับต้น"));
+          // 🧠 3. สมองกล Sequencer (เช็คแผนที่ว่าจบท่อนหรือยัง)
+          const seq = playbackSequenceRef.current;
+          const currSeqIdx = activeSequenceIdxRef.current;
+          const map = sheetMapRef.current;
 
-          if (hasGlabTon) {
-              const seq = playbackSequenceRef.current;
-              const currSeqIdx = activeSequenceIdxRef.current;
+          let isEndOfSection = false;
+          let currentItem = null;
+          let currentMappedSection = null;
 
-              if (seq && seq.length > 0 && currSeqIdx < seq.length) {
-                  const currentItem = seq[currSeqIdx];
-
-                  if (activeLoopRef.current < currentItem.loops) {
-                      // 🔄 ยังวนไม่ครบ -> กระโดดกลับไปเริ่มที่ท่อนเดิม
-                      activeLoopRef.current += 1;
-                      setActiveLoop(activeLoopRef.current);
-
-                      let targetR = -1;
-                      for (let i = 0; i <= r; i++) {
-                          const vIdx = getVisualIndex(i, currentRowTypes);
-                          const rowLabels = sectionLabelsRef.current[vIdx] || [];
-                          if (rowLabels.some(l => l.text.trim() === currentItem.label)) {
-                              targetR = i;
-                              break;
-                          }
-                      }
-
-                      if (targetR !== -1) {
-                          nextR = targetR;
-                          nextM = currentRowTypes[nextR] && currentRowTypes[nextR].startsWith('double') ? 1 : 0;
-                          nextC = 0;
-                          
-                          expectedNextTick += msPerCell;
-                          const delay = Math.max(0, expectedNextTick - performance.now());
-                          playbackTimerRef.current = setTimeout(() => playNextStep(nextR, nextM, nextC), delay);
-                          return; 
-                      }
-                  } else {
-                      // ➡️ วนครบแล้วรอบแล้ว -> กระโดดข้ามไปท่อนถัดไปใน Sequence
-                      const nextSeqIdx = currSeqIdx + 1;
-                      if (nextSeqIdx < seq.length) {
-                          activeSequenceIdxRef.current = nextSeqIdx;
-                          setActiveSequenceIdx(nextSeqIdx);
-                          activeLoopRef.current = 1;
-                          setActiveLoop(1);
-
-                          const nextItem = seq[nextSeqIdx];
-                          let targetR = -1;
-                          for (let i = 0; i < currentSheetData.length; i++) {
-                              const vIdx = getVisualIndex(i, currentRowTypes);
-                              const rowLabels = sectionLabelsRef.current[vIdx] || [];
-                              if (rowLabels.some(l => l.text.trim() === nextItem.label)) {
-                                  targetR = i;
-                                  break;
-                              }
-                          }
-
-                          if (targetR !== -1) {
-                              nextR = targetR;
-                              nextM = currentRowTypes[nextR] && currentRowTypes[nextR].startsWith('double') ? 1 : 0;
-                              nextC = 0;
-                              
-                              expectedNextTick += msPerCell;
-                              const delay = Math.max(0, expectedNextTick - performance.now());
-                              playbackTimerRef.current = setTimeout(() => playNextStep(nextR, nextM, nextC), delay);
-                              return;
-                          }
-                      } else {
-                          // จบเพลง (เล่นครบทุก Sequence)
-                          stopPlayback();
-                          return;
-                      }
-                  }
+          if (seq && seq.length > 0 && currSeqIdx < seq.length) {
+              currentItem = seq[currSeqIdx];
+              currentMappedSection = map.find(s => s.label === currentItem.label.trim());
+              
+              // เทียบว่า "บรรทัดที่เพิ่งเล่นจบไป (r)" เป็นบรรทัดสุดท้ายของท่อนนี้หรือไม่
+              if (currentMappedSection && r >= currentMappedSection.endRow) {
+                  isEndOfSection = true;
               }
           }
 
-          // ถ้าไม่มีเงื่อนไขพิเศษ ให้ขยับบรรทัดไปตามปกติ
-          if (currentRowTypes[nextR] === 'double-right') nextR += 2;
-          else nextR += 1;
-          
-          if (nextR >= currentSheetData.length) {
-            playbackTimerRef.current = setTimeout(() => stopPlayback(), 500);
-            return; 
+          if (isEndOfSection && currentItem && currentMappedSection) {
+              if (activeLoopRef.current < currentItem.loops) {
+                  // 🔄 วนซ้ำท่อนเดิม
+                  activeLoopRef.current += 1;
+                  setActiveLoop(activeLoopRef.current);
+
+                  nextR = currentMappedSection.startRow;
+                  nextM = currentRowTypes[nextR] && currentRowTypes[nextR].startsWith('double') ? 1 : 0;
+                  nextC = 0;
+              } else {
+                  // ➡️ ครบรอบแล้ว ไปท่อนถัดไป
+                  const nextSeqIdx = currSeqIdx + 1;
+                  if (nextSeqIdx < seq.length) {
+                      activeSequenceIdxRef.current = nextSeqIdx;
+                      setActiveSequenceIdx(nextSeqIdx);
+                      activeLoopRef.current = 1;
+                      setActiveLoop(1);
+
+                      const nextItem = seq[nextSeqIdx];
+                      const nextMappedSection = map.find(s => s.label === nextItem.label.trim());
+                      
+                      if (nextMappedSection) {
+                          nextR = nextMappedSection.startRow;
+                          nextM = currentRowTypes[nextR] && currentRowTypes[nextR].startsWith('double') ? 1 : 0;
+                          nextC = 0;
+                      } else {
+                          // ถ้าหาท่อนเป้าหมายในกระดาษไม่เจอ ให้หยุดเล่นเพื่อความปลอดภัย
+                          stopPlayback();
+                          return;
+                      }
+                  } else {
+                      // จบเพลย์ลิสต์
+                      stopPlayback();
+                      return;
+                  }
+              }
+          } else {
+              // 🚶 เดินหน้าบรรทัดปกติตามโครงสร้างชีท
+              if (currentRowTypes[r] === 'double-right') nextR = r + 2;
+              else nextR = r + 1;
+
+              if (nextR >= currentSheetData.length) {
+                  playbackTimerRef.current = setTimeout(() => stopPlayback(), 500);
+                  return; 
+              }
+              nextM = currentRowTypes[nextR] && currentRowTypes[nextR].startsWith('double') ? 1 : 0;
           }
-          if (currentRowTypes[nextR] && currentRowTypes[nextR].startsWith('double')) nextM = 1; 
         }
       }
 
@@ -589,6 +614,27 @@ export const MusicProvider = ({ children }) => {
     }
   };
 
+  // ⭐ คีย์ลัด Undo / Redo
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      const tag = e.target?.tagName;
+      const isEditable = e.target?.isContentEditable || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+      if (isEditable) return;
+
+      if (e.ctrlKey || e.metaKey) {
+        if (e.code === 'KeyZ') {
+          e.preventDefault();
+          undo();
+        } else if (e.code === 'KeyR') {
+          e.preventDefault();
+          redo();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [undo, redo]);
+
   useEffect(() => {
     const saved = localStorage.getItem('thaiMusicEditorAutoSave');
     if (saved) {
@@ -603,7 +649,6 @@ export const MusicProvider = ({ children }) => {
         if (data.headerDetails) setHeaderDetails(data.headerDetails);
         if (data.currentInstrument && INSTRUMENT_CONFIG[data.currentInstrument]) setCurrentInstrument(INSTRUMENT_CONFIG[data.currentInstrument]);
         
-        // ⭐ โหลดสถานะ sequence เก่าขึ้นมา
         if (data.playbackSequence) setPlaybackSequence(data.playbackSequence);
 
         const loadedMargins = data.rowMargins || Array(data.sheetData?.length || 4).fill({ top: 0, bottom: 0, left: 0 });
@@ -622,7 +667,7 @@ export const MusicProvider = ({ children }) => {
     if (!isLoaded) return; 
     const projectData = {
       songName, sheetData, rowTypes, sectionLabels, symbols, layoutConfig, headerDetails, currentInstrument: currentInstrument.id, rowMargins,
-      playbackSequence // ⭐ Save state ของคิวเพลงไว้ด้วย
+      playbackSequence 
     };
     localStorage.setItem('thaiMusicEditorAutoSave', JSON.stringify(projectData));
   }, [isLoaded, songName, sheetData, rowTypes, sectionLabels, symbols, layoutConfig, headerDetails, currentInstrument, rowMargins, playbackSequence]);
@@ -1241,7 +1286,6 @@ export const MusicProvider = ({ children }) => {
       addTextRow, updateTextRow,
       rowMargins, updateRowMarginsList,
       
-      // ⭐ โซน Export ข้อมูล Sequencer เพื่อให้ UI ใน Keyboard เข้าถึงได้
       playbackSequence, setPlaybackSequence,
       activeSequenceIdx, activeLoop
     }}>
