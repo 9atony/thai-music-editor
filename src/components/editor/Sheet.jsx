@@ -51,6 +51,11 @@ const Sheet = forwardRef((props, ref) => {
   const [pageSvgPaths, setPageSvgPaths] = useState({});
   const [zoom, setZoom] = useState(100);
 
+  const defaultFontFamily = layoutConfig.fontFamily || "'TH Sarabun New', sans-serif";
+  const noteFontFamily = layoutConfig.noteFontFamily || defaultFontFamily;
+  const textFontFamily = layoutConfig.textFontFamily || defaultFontFamily;
+  const pageFontFamily = layoutConfig.pageFontFamily || textFontFamily;
+
   useEffect(() => {
     const handleMouseUpGlobal = () => {
       if (endSelection) endSelection();
@@ -210,18 +215,14 @@ const Sheet = forwardRef((props, ref) => {
   symbols.forEach(sym => {
     const isKro = sym.type === 'kro';
 
-    // ถ้าเป็นกรอ และมีการข้ามบรรทัด (sym.start[0] !== sym.end[0])
     if (isKro && sym.start[0] !== sym.end[0]) {
       const color = sym.color || '#3b82f6';
       const strokeW = sym.strokeWidth || 2.5;
 
-      // วนลูปตามจำนวนบรรทัดที่ครอบคลุม
       for (let r = sym.start[0]; r <= sym.end[0]; r++) {
-        // หาบรรทัดนั้นๆ ในหน้ากระดาษ
         const pageIndex = pages.findIndex(p => r >= p.startIndex && r < p.startIndex + p.rows.length);
         if (pageIndex === -1) continue;
 
-        // หาจุดเริ่มต้นและจุดสิ้นสุดในบรรทัดนั้นๆ
         const rowStartCell = (r === sym.start[0]) ? sym.start : [r, 0, 0];
         const rowEndCell = (r === sym.end[0]) ? sym.end : [r, sheetData[r].length - 1, sheetData[r][sheetData[r].length - 1].length - 1];
 
@@ -235,18 +236,16 @@ const Sheet = forwardRef((props, ref) => {
           const eRect = endEl.getBoundingClientRect();
 
           const x1 = (sRect.left - pRect.left + (sRect.width / 2)) / scale;
-          const y1 = (sRect.top - pRect.top) / scale + 30; // วางใต้บรรทัด
+          const y1 = (sRect.top - pRect.top) / scale + 30; 
           const x2 = (eRect.left - pRect.left + (eRect.width / 2)) / scale;
           const y2 = (eRect.top - pRect.top) / scale + 30;
 
           const d = `M ${x1} ${y1} L ${x2} ${y2}`;
           if (!newPagePaths[pageIndex]) newPagePaths[pageIndex] = [];
-          // ใช้ id ที่แตกต่างกันในแต่ละบรรทัดเพื่อให้วาดได้ครบ
           newPagePaths[pageIndex].push({ id: `${sym.id}-${r}`, type: 'kro', d, color, strokeW });
         }
       }
     } else {
-      // โค้ดเดิมสำหรับ "สะบัด" หรือ "กรอในบรรทัดเดียว"
       const startEl = document.getElementById(`note-${sym.start[0]}-${sym.start[1]}-${sym.start[2]}`);
       const endEl = document.getElementById(`note-${sym.end[0]}-${sym.end[1]}-${sym.end[2]}`);
 
@@ -270,7 +269,6 @@ const Sheet = forwardRef((props, ref) => {
           if (isKro) {
               d = `M ${x1} ${y1 + 30} L ${x2} ${y2 + 30}`;
           } else {
-              // ... โค้ดสะบัดเดิมของคุณหนุ่ม ...
               const baseHeight = sym.height ?? 20;
               const height = baseHeight + Math.abs(x2 - x1) * 0.15;
               d = `M ${x1} ${y1} C ${x1 + (x2 - x1) * 0.25} ${y1 - height}, ${x2 - (x2 - x1) * 0.25} ${y2 - height}, ${x2} ${y2}`;
@@ -283,15 +281,11 @@ const Sheet = forwardRef((props, ref) => {
     }
   });
   setPageSvgPaths(newPagePaths);
-}, [symbols, layoutConfig, pages, zoom, sheetData]); // เพิ่ม sheetData เข้าไปใน dependency
+}, [symbols, layoutConfig, pages, zoom, sheetData]); 
 
   useEffect(() => {
     if (playbackCursor !== null) return; 
-
-    const timerId = setTimeout(() => {
-      calculatePaths();
-    }, 150); 
-
+    const timerId = setTimeout(() => { calculatePaths(); }, 150); 
     return () => clearTimeout(timerId); 
   }, [calculatePaths, sheetData, rowTypes, headerDetails, zoom, playbackCursor]); 
 
@@ -301,7 +295,6 @@ const Sheet = forwardRef((props, ref) => {
       clearTimeout(resizeTimer);
       resizeTimer = setTimeout(calculatePaths, 150);
     };
-    
     window.addEventListener('resize', handleResize);
     return () => {
       window.removeEventListener('resize', handleResize);
@@ -335,7 +328,6 @@ const Sheet = forwardRef((props, ref) => {
     };
   }, [calculatePaths]);
 
- // ⭐ อัปเดตคีย์ลัดคลิกขวาให้เชื่อมกับ Toolbar
   const handleRightClick = (e, rIndex, mIndex, cIndex) => {
     e.preventDefault(); 
     const existingSymbol = symbols.find(s => 
@@ -348,14 +340,13 @@ const Sheet = forwardRef((props, ref) => {
     } 
     else if (selectedCell && (selectedCell[0] !== rIndex || selectedCell[1] !== mIndex || selectedCell[2] !== cIndex)) {
       if (addSymbol) {
-         const symType = layoutConfig.activeSymbol || 'sabat'; // ⭐ ดึงค่าจาก Toolbar มาใช้
-         
+         const symType = layoutConfig.activeSymbol || 'sabat'; 
          addSymbol(
            symType, 
            selectedCell, 
            [rIndex, mIndex, cIndex],
            {
-             color: symType === 'kro' ? '#3b82f6' : (layoutConfig.symbolColor || '#1e293b'), // สีฟ้าถ้าเป็นกรอ
+             color: symType === 'kro' ? '#3b82f6' : (layoutConfig.symbolColor || '#1e293b'),
              strokeWidth: layoutConfig.symbolStrokeWidth || 2.5,
              height: layoutConfig.symbolHeight !== undefined ? layoutConfig.symbolHeight : 20
            }
@@ -369,7 +360,7 @@ const Sheet = forwardRef((props, ref) => {
     return (
       <span 
         className={`leading-none inline-block ${layoutConfig.isBold ? 'font-bold' : 'font-normal'} ${layoutConfig.isItalic ? 'italic' : ''}`} 
-        style={{ fontFamily: "'TH Sarabun New', sans-serif", paddingTop: '0.1em', paddingBottom: '0.1em' }}
+        style={{ fontFamily: noteFontFamily, paddingTop: '0.1em', paddingBottom: '0.1em' }}
       >
         {note}
       </span>
@@ -386,7 +377,7 @@ const Sheet = forwardRef((props, ref) => {
       if (rowType === 'double-right' && label.position.includes('bottom')) return null;
       if (rowType === 'double-left' && label.position.includes('top')) return null;
 
-      let positionStyle = { position: 'absolute', fontWeight: label.isBold ? 'bold' : 'normal', fontSize: `${label.fontSize}px`, color: '#0f172a', whiteSpace: 'nowrap', zIndex: 20, lineHeight: 1 };
+      let positionStyle = { position: 'absolute', fontWeight: label.isBold ? 'bold' : 'normal', fontSize: `${label.fontSize}px`, color: '#0f172a', whiteSpace: 'nowrap', zIndex: 20, lineHeight: 1, fontFamily: label.fontFamily || textFontFamily };
       
       const labelOffset = label.offsetY !== undefined ? label.offsetY : 6;
       
@@ -407,7 +398,7 @@ const Sheet = forwardRef((props, ref) => {
         positionStyle.right = '0'; 
       }
       
-      return <div key={label.id} style={positionStyle} className="font-sans tracking-wide">{label.text}</div>;
+      return <div key={label.id} style={positionStyle} className="tracking-wide">{label.text}</div>;
     });
   };
 
@@ -418,7 +409,6 @@ const Sheet = forwardRef((props, ref) => {
       max: Math.max(selectionRange.start[0], selectionRange.end[0])
     };
   }, [selectionRange]);
-
 
   return (
     <div className="relative w-full h-full flex flex-col flex-1 min-h-0 bg-slate-50/50">
@@ -490,7 +480,7 @@ const Sheet = forwardRef((props, ref) => {
               id={`page-${pIndex}`} 
               className="print-page relative bg-white w-[210mm] min-w-[210mm] h-[297mm] min-h-[297mm] shadow-xl border border-slate-200 flex flex-col text-slate-800 shrink-0 snap-center print:shadow-none print:border-none print:m-0 transition-shadow hover:shadow-2xl" 
               style={{ 
-                fontFamily: "'TH Sarabun New', sans-serif", 
+                fontFamily: pageFontFamily, 
                 boxSizing: 'border-box',
                 paddingTop: `${getMarginPx(layoutConfig.marginTop ?? 48, layoutConfig.marginUnit || 'px')}px`,
                 paddingBottom: `${getMarginPx(layoutConfig.marginBottom ?? 48, layoutConfig.marginUnit || 'px')}px`,
@@ -499,7 +489,6 @@ const Sheet = forwardRef((props, ref) => {
               }}
             >
               
-              {/* ⭐ แก้ไขการแสดงผล SVG ให้รองรับคลาสซ่อนตอนพรินต์ */}
               <svg className="absolute top-0 left-0 w-full h-full pointer-events-none z-30 print:z-30 print:w-full print:max-w-full">
                 {(pageSvgPaths[pIndex] || []).map(p => {
                   const isSelected = p.id === selectedSymbolId;
@@ -523,8 +512,8 @@ const Sheet = forwardRef((props, ref) => {
                         stroke={isSelected ? '#d97706' : (isKro ? '#3b82f6' : p.color)} 
                         strokeWidth={p.strokeW} 
                         strokeLinecap="round" 
-                        strokeDasharray={isKro ? "6, 4" : "none"} // เพิ่มความประให้เส้น
-                        className={`pointer-events-none drop-shadow-sm transition-all duration-200 ${isKro ? 'print:hidden' : ''}`} // สั่งซ่อนตอนพรินต์
+                        strokeDasharray={isKro ? "6, 4" : "none"} 
+                        className={`pointer-events-none drop-shadow-sm transition-all duration-200 ${isKro ? 'print:hidden' : ''}`} 
                       />
                     </g>
                   );
@@ -533,8 +522,8 @@ const Sheet = forwardRef((props, ref) => {
 
               {pIndex === 0 && (
                 <div className="text-center border-b-2 border-slate-900 pb-4 mb-6 shrink-0 relative z-10">
-                  <h1 className="font-bold mb-4 uppercase tracking-tight" style={{ fontSize: `${layoutConfig.songNameSize}px` }}>{songName}</h1>
-                  <div className={`grid gap-x-12 gap-y-1 px-4 ${layoutConfig.detailsAlign === 'between' ? 'grid-cols-2' : 'grid-cols-1'}`} style={{ fontSize: `${layoutConfig.authorSize}px`, textAlign: layoutConfig.detailsAlign === 'between' ? 'left' : layoutConfig.detailsAlign }}>
+                  <h1 className="font-bold mb-4 uppercase tracking-tight" style={{ fontSize: `${layoutConfig.songNameSize}px`, fontFamily: pageFontFamily }}>{songName}</h1>
+                  <div className={`grid gap-x-12 gap-y-1 px-4 ${layoutConfig.detailsAlign === 'between' ? 'grid-cols-2' : 'grid-cols-1'}`} style={{ fontSize: `${layoutConfig.authorSize}px`, textAlign: layoutConfig.detailsAlign === 'between' ? 'left' : layoutConfig.detailsAlign, fontFamily: textFontFamily }}>
                     {headerDetails.map((detail, index) => (
                       <div key={detail.id} className={layoutConfig.detailsAlign === 'between' && index % 2 !== 0 ? "text-right" : ""}><span className="font-bold">{detail.label}:</span> {detail.value}</div>
                     ))}
@@ -551,21 +540,6 @@ const Sheet = forwardRef((props, ref) => {
                   const rMarginTop = rowMargins[rIndex]?.top || 0;
                   const rMarginBot = rowMargins[rIndex]?.bottom || 0;
                   const rIndent = rowMargins[rIndex]?.left || 0;
-
-                  let minR = -1, maxR = -1, minCol = -1, maxCol = -1;
-                  if (selectionRange?.start && selectionRange?.end) {
-                    const sr = selectionRange.start[0];
-                    const er = selectionRange.end[0];
-                    minR = Math.min(sr, er);
-                    maxR = Math.max(sr, er);
-
-                    const startRowData = sheetData[sr] || [];
-                    const endRowData = sheetData[er] || [];
-                    const startCol = getFlattenedCol(startRowData, rowTypes[sr], selectionRange.start[1], selectionRange.start[2]);
-                    const endCol = getFlattenedCol(endRowData, rowTypes[er], selectionRange.end[1], selectionRange.end[2]);
-                    minCol = Math.min(startCol, endCol);
-                    maxCol = Math.max(startCol, endCol);
-                  }
 
                   if (rType === 'page-break') {
                      return (
@@ -618,6 +592,10 @@ const Sheet = forwardRef((props, ref) => {
                             }
                           }}
                           onBlur={(e) => {
+                            // ⭐ หัวใจสำคัญ: ถ้าคลิกไปที่แถบเครื่องมือ ห้ามทำลายกระดาษและห้ามล้างคลุมดำ!
+                            const isToolbar = e.relatedTarget && e.relatedTarget.closest('.playback-controls-container');
+                            if (isToolbar) return; 
+                            
                             if (updateTextRow) updateTextRow(rIndex, e.target.innerHTML);
                           }}
                           onKeyDown={(e) => {
@@ -654,7 +632,7 @@ const Sheet = forwardRef((props, ref) => {
                           className="w-full outline-none text-slate-800 cursor-text bg-transparent min-h-[24px]"
                           style={{ 
                             fontSize: `${layoutConfig.textFontSize || 16}px`, 
-                            fontFamily: "'TH Sarabun New', sans-serif",
+                            fontFamily: textFontFamily,
                             lineHeight: layoutConfig.textLineHeight || 1.5
                           }}
                         />
@@ -689,7 +667,7 @@ const Sheet = forwardRef((props, ref) => {
                       <div className="relative w-full">
                         
                         {displayRowNumbers[rIndex] !== '' && (
-                          <div className={`absolute -left-8 -translate-y-1/2 text-slate-300 font-sans text-[12px] font-bold print-hidden select-none ${isDoubleRight ? 'top-full' : 'top-1/2'}`}>
+                          <div className={`absolute -left-8 -translate-y-1/2 text-slate-300 text-[12px] font-bold print-hidden select-none ${isDoubleRight ? 'top-full' : 'top-1/2'}`} style={{ fontFamily: textFontFamily }}>
                             {displayRowNumbers[rIndex]}
                           </div>
                         )}
@@ -738,12 +716,24 @@ const Sheet = forwardRef((props, ref) => {
                                 }}
                               >
                                 {isLabelMeasure ? (
-                                  <div className="flex items-center justify-center w-full h-full text-[13px] font-bold text-slate-700 tracking-wide select-none">
+                                  <div className="flex items-center justify-center w-full h-full text-[13px] font-bold text-slate-700 tracking-wide select-none" style={{ fontFamily: textFontFamily }}>
                                     {measure[0]}
                                   </div>
                                 ) : (
                                   measure.map((note, cIndex) => {
                                     let isInRange = false;
+                                    let minR = -1, maxR = -1, minCol = -1, maxCol = -1;
+                                    if (selectionRange && selectionRange.start && selectionRange.end) {
+                                      minR = Math.min(selectionRange.start[0], selectionRange.end[0]);
+                                      maxR = Math.max(selectionRange.start[0], selectionRange.end[0]);
+                                      const startRowData = sheetData[selectionRange.start[0]] || [];
+                                      const endRowData = sheetData[selectionRange.end[0]] || [];
+                                      const startColVal = getFlattenedCol(startRowData, rowTypes[selectionRange.start[0]], selectionRange.start[1], selectionRange.start[2]);
+                                      const endColVal = getFlattenedCol(endRowData, rowTypes[selectionRange.end[0]], selectionRange.end[1], selectionRange.end[2]);
+                                      minCol = Math.min(startColVal, endColVal);
+                                      maxCol = Math.max(startColVal, endColVal);
+                                    }
+
                                     if (selectionRange && rIndex >= minR && rIndex <= maxR) {
                                         const currentCol = getFlattenedCol(row, rType, mIndex, cIndex);
                                         if (currentCol >= minCol && currentCol <= maxCol) {
@@ -790,6 +780,7 @@ const Sheet = forwardRef((props, ref) => {
                                         className={`flex items-center justify-center cursor-crosshair transition-all ${cellBgClass}`} 
                                         style={{ 
                                           fontSize: `${layoutConfig.fontSize}px`,
+                                          fontFamily: noteFontFamily,
                                           borderRight: (cIndex < measure.length - 1 && layoutConfig.innerBorderWidth > 0) ? `${layoutConfig.innerBorderWidth}px solid ${layoutConfig.borderColor}66` : 'none' 
                                         }}
                                       >
@@ -809,7 +800,7 @@ const Sheet = forwardRef((props, ref) => {
               </div>
 
               {/* ข้อความบอกเลขหน้ากระดาษ */}
-              <div className="absolute bottom-[20px] left-0 right-0 border-t border-slate-200 text-center text-slate-400 text-[12px] print:text-slate-500 z-20 bg-transparent pt-2 mx-12">
+              <div className="absolute bottom-[20px] left-0 right-0 border-t border-slate-200 text-center text-slate-400 text-[12px] print:text-slate-500 z-20 bg-transparent pt-2 mx-12" style={{ fontFamily: textFontFamily }}>
                 <p>Thai Music Editor - หน้า {pIndex + 1} / {pages.length}</p>
               </div>
             </div>

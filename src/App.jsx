@@ -3,7 +3,6 @@ import { useReactToPrint } from 'react-to-print';
 import Navbar from './components/layout/Navbar';
 import Sidebar from './components/layout/Sidebar';
 import PlaybackControls from './components/controls/PlaybackControls';
-import MainToolbar from './components/editor/MainToolbar'; // ⭐ 1. นำเข้า MainToolbar
 import Keyboard from './components/editor/Keyboard';
 import Sheet from './components/editor/Sheet';
 import { MusicContext } from './contexts/MusicContext'; 
@@ -53,11 +52,10 @@ function App() {
         <Sidebar isOpen={isSidebarOpen} />
         
         <main className="flex-1 flex flex-col bg-[#f0f4f8] overflow-hidden transition-all duration-300">
+        
           
-          <MainToolbar /> {/* ⭐ 2. วางแถบเครื่องมือไว้ด้านบน Sheet */}
-          
-          <div className="flex-1 overflow-hidden p-8 flex flex-col items-center">
-            <Sheet ref={componentRef} /> 
+          <div className="flex-1 overflow-hidden p-0 flex flex-col items-center">
+          <Sheet ref={componentRef} /> 
           </div>
 
           <Keyboard /> 
