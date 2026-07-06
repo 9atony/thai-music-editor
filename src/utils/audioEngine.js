@@ -1,6 +1,6 @@
 import { INSTRUMENT_CONFIG } from './instrumentConfig';
 
-// สร้าง AudioContext (ถ้าบราวเซอร์บล็อก จะถูกกระตุ้นตอนเริ่มเล่น)
+// สร้าง AudioContext
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
 // กล่องเก็บข้อมูลเสียงที่แปลงเป็น Buffer ไว้ใน RAM เรียบร้อยแล้ว
@@ -14,7 +14,13 @@ const getFormattedNote = (note, eng) => {
   return note;
 };
 
-// ⭐ ระบบ Preload แบบใหม่: โหลดไฟล์มาเก็บเป็น Buffer ใน RAM
+// ⭐ ฟังก์ชันใหม่: ใช้ปลุกและสแตนด์บาย AudioContext ให้ตื่นเต็มที่
+export const initAudioContext = async () => {
+  if (audioCtx.state === 'suspended') {
+    await audioCtx.resume();
+  }
+};
+
 export const preloadSounds = async (instrumentId) => {
   const instrument = INSTRUMENT_CONFIG[instrumentId];
   if (!instrument) return;
@@ -23,7 +29,6 @@ export const preloadSounds = async (instrumentId) => {
     audioBufferCache[instrumentId] = {};
   }
 
-  // ใช้ Promise.all เพื่อโหลดทุกไฟล์พร้อมกันให้เร็วที่สุด
   const loadPromises = instrument.keys.filter(k => k.audio).map(async (key) => {
     const finalNoteStr = getFormattedNote(key.thai, key.eng);
     
@@ -31,7 +36,6 @@ export const preloadSounds = async (instrumentId) => {
       try {
         const response = await fetch(`/sounds/${instrumentId}/${key.audio}`);
         const arrayBuffer = await response.arrayBuffer();
-        // แปลงไฟล์เสียงให้เป็น AudioBuffer ที่ Web Audio API ใช้งานได้
         const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
         audioBufferCache[instrumentId][finalNoteStr] = audioBuffer;
       } catch (err) {
@@ -44,11 +48,10 @@ export const preloadSounds = async (instrumentId) => {
   console.log(`เครื่องดนตรี ${instrumentId} โหลดลง RAM เรียบร้อยแล้ว!`);
 };
 
-// ⭐ สั่งเล่นเสียงแบบ Web Audio API (รัวได้ไม่มีดีเลย์)
 export const playNote = (instrumentId, noteChar, volumeLevel = 100) => {
   if (!noteChar || noteChar === '-') return;
   
-  // ตรวจสอบสถานะของ AudioContext (บราวเซอร์ต้องการให้ผู้ใช้คลิกก่อนถึงจะเล่นเสียงได้)
+  // (ยังคงเก็บไว้เป็นระบบป้องกันเผื่อกรณีฉุกเฉิน)
   if (audioCtx.state === 'suspended') {
     audioCtx.resume();
   }
@@ -57,9 +60,8 @@ export const playNote = (instrumentId, noteChar, volumeLevel = 100) => {
   const buffer = audioBufferCache[instrumentId]?.[cleanNote];
   
   if (buffer) {
-    // สร้าง Source Node ใหม่ทุกครั้งที่เล่น (เล่นทับกันได้อิสระ)
     const source = audioCtx.createBufferSource();
-    const gainNode = audioCtx.createGain(); // ใช้สำหรับคุมความดัง
+    const gainNode = audioCtx.createGain(); 
     
     source.buffer = buffer;
     gainNode.gain.value = Math.max(0, Math.min(100, volumeLevel)) / 100;

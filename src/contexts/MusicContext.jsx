@@ -1,6 +1,6 @@
 import React, { createContext, useState, useMemo, useEffect, useRef } from 'react';
 import { INSTRUMENT_CONFIG } from '../utils/instrumentConfig';
-import { preloadSounds, playNote } from '../utils/audioEngine'; 
+import { preloadSounds, playNote, initAudioContext } from '../utils/audioEngine'; 
 
 export const MusicContext = createContext();
 
@@ -135,7 +135,6 @@ export const MusicProvider = ({ children }) => {
   const activeSequenceIdxRef = useRef(0);
   const activeLoopRef = useRef(1);
 
-  // ⭐ เก็บข้อมูลแผนที่ของท่อนเพลงล่วงหน้า
   const sheetMapRef = useRef([]);
 
   useEffect(() => { layoutConfigRef.current = layoutConfig; }, [layoutConfig]);
@@ -162,8 +161,14 @@ export const MusicProvider = ({ children }) => {
 
   const getCellId = (r, m, c) => r * 100000 + m * 1000 + c;
 
-  const startPlayback = () => {
+  // ⭐ อัปเดตเพื่อแก้ปัญหาเสียงดีเลย์ (อิงจากรอบที่แล้วครับ)
+  const startPlayback = async () => {
     if (isPlaying) return;
+
+    if (initAudioContext) {
+      await initAudioContext();
+    }
+
     setIsPlaying(true);
     isPlayingRef.current = true;
 
@@ -171,7 +176,6 @@ export const MusicProvider = ({ children }) => {
     const currentRowTypes = rowTypesRef.current;
     const currentSectionLabels = sectionLabelsRef.current;
 
-    // 🗺️ 1. สร้างแผนที่ (Pre-mapping) ทันทีที่กด Play
     const sheetSections = [];
     let lastValidRow = 0;
 
@@ -183,11 +187,9 @@ export const MusicProvider = ({ children }) => {
         const validLabels = labels.filter(l => !l.text.includes('กลับต้น') && l.text.trim() !== '');
 
         if (validLabels.length > 0) {
-            // ปิดท้ายท่อนก่อนหน้า (ถ้ามี)
             if (sheetSections.length > 0) {
                 sheetSections[sheetSections.length - 1].endRow = lastValidRow;
             }
-            // บันทึกจุดเริ่มท่อนใหม่
             sheetSections.push({
                 label: validLabels[0].text.trim(),
                 startRow: r,
@@ -198,13 +200,11 @@ export const MusicProvider = ({ children }) => {
         if (currentRowTypes[r] === 'double-right') lastValidRow = r + 1;
     }
     
-    // อัปเดตบรรทัดจบให้ท่อนสุดท้าย
     if (sheetSections.length > 0) {
         sheetSections[sheetSections.length - 1].endRow = lastValidRow;
     }
     sheetMapRef.current = sheetSections;
 
-    // เคลียร์ค่าเดิม
     effectTimersRef.current.forEach(t => clearTimeout(t));
     effectTimersRef.current = [];
     mutedCellsRef.current.clear();
@@ -220,7 +220,6 @@ export const MusicProvider = ({ children }) => {
       currentCursor[1] = 1; 
     }
 
-    // 🔄 2. Sync คิวเพลงให้ตรงกับตำแหน่งเคอร์เซอร์ (ถ้าคลิกเริ่มเล่นกลางเพลง)
     let startSeqIdx = 0;
     const currentMappedSection = sheetSections.find(s => startR >= s.startRow && startR <= s.endRow);
     if (currentMappedSection) {
@@ -440,14 +439,13 @@ export const MusicProvider = ({ children }) => {
 
       let nextC = c + 1;
       let nextM = m;
-      let nextR = r; // ยังไม่อัปเดต nextR จนกว่าจะเช็คแผนที่เสร็จ
+      let nextR = r; 
 
       if (nextC >= currentSheetData[r][m].length) {
         nextC = 0; nextM++;
         if (nextM >= currentSheetData[r].length) {
           nextM = 0; 
 
-          // 🧠 3. สมองกล Sequencer (เช็คแผนที่ว่าจบท่อนหรือยัง)
           const seq = playbackSequenceRef.current;
           const currSeqIdx = activeSequenceIdxRef.current;
           const map = sheetMapRef.current;
@@ -460,7 +458,6 @@ export const MusicProvider = ({ children }) => {
               currentItem = seq[currSeqIdx];
               currentMappedSection = map.find(s => s.label === currentItem.label.trim());
               
-              // เทียบว่า "บรรทัดที่เพิ่งเล่นจบไป (r)" เป็นบรรทัดสุดท้ายของท่อนนี้หรือไม่
               if (currentMappedSection && r >= currentMappedSection.endRow) {
                   isEndOfSection = true;
               }
@@ -468,7 +465,6 @@ export const MusicProvider = ({ children }) => {
 
           if (isEndOfSection && currentItem && currentMappedSection) {
               if (activeLoopRef.current < currentItem.loops) {
-                  // 🔄 วนซ้ำท่อนเดิม
                   activeLoopRef.current += 1;
                   setActiveLoop(activeLoopRef.current);
 
@@ -476,7 +472,6 @@ export const MusicProvider = ({ children }) => {
                   nextM = currentRowTypes[nextR] && currentRowTypes[nextR].startsWith('double') ? 1 : 0;
                   nextC = 0;
               } else {
-                  // ➡️ ครบรอบแล้ว ไปท่อนถัดไป
                   const nextSeqIdx = currSeqIdx + 1;
                   if (nextSeqIdx < seq.length) {
                       activeSequenceIdxRef.current = nextSeqIdx;
@@ -492,18 +487,15 @@ export const MusicProvider = ({ children }) => {
                           nextM = currentRowTypes[nextR] && currentRowTypes[nextR].startsWith('double') ? 1 : 0;
                           nextC = 0;
                       } else {
-                          // ถ้าหาท่อนเป้าหมายในกระดาษไม่เจอ ให้หยุดเล่นเพื่อความปลอดภัย
                           stopPlayback();
                           return;
                       }
                   } else {
-                      // จบเพลย์ลิสต์
                       stopPlayback();
                       return;
                   }
               }
           } else {
-              // 🚶 เดินหน้าบรรทัดปกติตามโครงสร้างชีท
               if (currentRowTypes[r] === 'double-right') nextR = r + 2;
               else nextR = r + 1;
 
@@ -614,7 +606,6 @@ export const MusicProvider = ({ children }) => {
     }
   };
 
-  // ⭐ คีย์ลัด Undo / Redo
   useEffect(() => {
     const handleKeyDown = (e) => {
       const tag = e.target?.tagName;
@@ -902,6 +893,7 @@ export const MusicProvider = ({ children }) => {
     }
   };
 
+  // ⭐ แก้ไขสมการคำนวณตำแหน่งที่ถูกต้อง ไม่ให้ป้ายกำกับหล่นลงบรรทัดใหม่
   const addRow = (insertAtTop = false) => {
     setSelectionRange(null); 
     const rowIdx = selectedCell[0];
@@ -918,7 +910,11 @@ export const MusicProvider = ({ children }) => {
       if (rowTypes[insertIdx - 1] === 'double-right' && rowTypes[insertIdx] === 'double-left') insertIdx += 1; 
     }
 
-    const targetVisualIndex = getVisualIndex(insertIdx > 0 ? insertIdx - 1 : 0, rowTypes);
+    let targetVisualIndex = 0;
+    for (let i = 0; i < insertIdx; i++) {
+      if (rowTypes[i] === 'single' || rowTypes[i] === 'double-right') targetVisualIndex++;
+    }
+
     const newSectionLabels = {};
     Object.keys(sectionLabels).forEach(key => {
       const k = parseInt(key);
@@ -940,6 +936,7 @@ export const MusicProvider = ({ children }) => {
     if (isTop) setSelectedCell([insertIdx + 1, 0, 0]);
   };
 
+  // ⭐ แก้ไขสมการคำนวณตำแหน่งที่ถูกต้อง สำหรับการแทรกบรรทัดคู่
   const addDoubleRow = (insertAtTop = false) => {
     setSelectionRange(null); 
     const rowIdx = selectedCell[0];
@@ -956,7 +953,11 @@ export const MusicProvider = ({ children }) => {
       if (rowTypes[insertIdx - 1] === 'double-right' && rowTypes[insertIdx] === 'double-left') insertIdx += 1;
     }
 
-    const targetVisualIndex = getVisualIndex(insertIdx > 0 ? insertIdx - 1 : 0, rowTypes);
+    let targetVisualIndex = 0;
+    for (let i = 0; i < insertIdx; i++) {
+      if (rowTypes[i] === 'single' || rowTypes[i] === 'double-right') targetVisualIndex++;
+    }
+
     const newSectionLabels = {};
     Object.keys(sectionLabels).forEach(key => {
       const k = parseInt(key);
