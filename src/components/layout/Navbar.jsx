@@ -76,7 +76,7 @@ const Navbar = ({ onPrint, onToggleSidebar }) => {
             <span className="text-lg">📂</span> <span className="hidden md:inline">เปิดไฟล์</span>
             <input 
               type="file" 
-              accept=".thai,.json" 
+              accept=".thai,.tme,.json" // ⭐ เพิ่ม .tme เข้ามาตรงนี้ครับ
               onChange={(e) => {
                 loadProject(e.target.files[0]);
                 e.target.value = null; 

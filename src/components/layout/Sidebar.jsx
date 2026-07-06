@@ -12,11 +12,29 @@ const Sidebar = ({ isOpen }) => {
     rowTypes
   } = useContext(MusicContext);
   
-  // เปลี่ยนเป็น 3 แท็บหลักให้เป็นระเบียบ
   const [activeTab, setActiveTab] = useState('info');
 
   const updateLayout = (key, value) => {
     setLayoutConfig(prev => ({ ...prev, [key]: value }));
+  };
+
+  const handleUnitChange = (e) => {
+    const newUnit = e.target.value;
+    const oldUnit = layoutConfig.marginUnit || 'px';
+    if (oldUnit === newUnit) return;
+    const convert = (val) => {
+      const px = oldUnit === 'cm' ? val * 37.795275 : (oldUnit === 'in' ? val * 96 : val);
+      const res = newUnit === 'cm' ? px / 37.795275 : (newUnit === 'in' ? px / 96 : px);
+      return Math.round(res * 100) / 100;
+    };
+    setLayoutConfig({
+      ...layoutConfig,
+      marginUnit: newUnit,
+      marginTop: convert(layoutConfig.marginTop ?? 48),
+      marginBottom: convert(layoutConfig.marginBottom ?? 48),
+      marginLeft: convert(layoutConfig.marginLeft ?? 48),
+      marginRight: convert(layoutConfig.marginRight ?? 48),
+    });
   };
 
   const currentRow = selectedCell[0];
@@ -40,12 +58,11 @@ const Sidebar = ({ isOpen }) => {
       className={`bg-[#f8fafd] border-r border-slate-200 flex flex-col h-full shadow-[4px_0_24px_rgba(0,0,0,0.02)] z-0 font-sans transition-all duration-300 ease-in-out overflow-hidden
         ${isOpen ? 'w-72 opacity-100' : 'w-0 opacity-0 border-r-0'}`}
     >
-      {/* 🚀 แถบเมนู Tabs แบบคลีนๆ (Pill Design) */}
       <div className="flex p-2 bg-slate-50 border-b border-slate-200 shrink-0 gap-1">
         {[
           { id: 'info', label: 'ข้อมูลโปรเจกต์', icon: '📄' },
           { id: 'labels', label: 'ป้ายกำกับ', icon: '🏷️' },
-          { id: 'style', label: 'สไตล์กระดาษ', icon: '🎨' }
+          { id: 'style', label: 'ตั้งค่ากระดาษ', icon: '⚙️' } // เปลี่ยนไอคอนและชื่อ
         ].map(tab => (
           <button 
             key={tab.id}
@@ -63,7 +80,6 @@ const Sidebar = ({ isOpen }) => {
         {/* 📄 แท็บที่ 1: ข้อมูลโปรเจกต์ */}
         {activeTab === 'info' && (
           <div className="space-y-6">
-            
             <section>
               <label className="text-xs font-bold text-slate-700 block mb-2">🎹 เครื่องดนตรีหลัก</label>
               <select 
@@ -260,37 +276,45 @@ const Sidebar = ({ isOpen }) => {
           </div>
         )}
 
-        {/* 🎨 แท็บที่ 3: สไตล์กระดาษ */}
+        {/* ⚙️ แท็บที่ 3: ตั้งค่ากระดาษ (ย้ายมาจาก Navbar เดิม) */}
         {activeTab === 'style' && (
           <div className="space-y-6">
             
             <section className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm space-y-4">
-              <label className="text-xs font-bold text-slate-700 block border-b border-slate-100 pb-2">🎵 อักษรตัวโน้ต</label>
-              <div>
-                <label className="text-[11px] text-slate-500 flex justify-between mb-1.5">
-                  <span>ขนาดตัวโน้ต</span>
-                  <span className="font-bold text-sky-600">{layoutConfig.fontSize}px</span>
-                </label>
-                <input type="range" min="16" max="60" value={layoutConfig.fontSize} onChange={(e) => updateLayout('fontSize', parseInt(e.target.value))} className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-sky-500" />
+              <div className="flex justify-between items-center border-b border-slate-100 pb-2">
+                <label className="text-xs font-bold text-slate-700">📄 ระยะขอบกระดาษ</label>
+                <select
+                  value={layoutConfig.marginUnit || 'px'}
+                  onChange={handleUnitChange}
+                  className="text-[10px] border rounded bg-slate-50 py-0.5 px-1 font-bold text-sky-600 focus:outline-none focus:ring-1 focus:ring-sky-400"
+                >
+                  <option value="px">Pixel (px)</option>
+                  <option value="cm">Centimeter</option>
+                  <option value="in">Inch</option>
+                </select>
               </div>
-              <div className="flex gap-2 pt-2">
-                <button 
-                  onClick={() => updateLayout('isBold', !layoutConfig.isBold)}
-                  className={`flex-1 py-2 text-xs rounded-md border transition-all ${layoutConfig.isBold ? 'bg-slate-800 text-white border-slate-800 font-bold shadow-sm' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'}`}
-                >
-                  ตัวหนา (B)
-                </button>
-                <button 
-                  onClick={() => updateLayout('isItalic', !layoutConfig.isItalic)}
-                  className={`flex-1 py-2 text-xs rounded-md border transition-all ${layoutConfig.isItalic ? 'bg-slate-800 text-white border-slate-800 italic font-bold shadow-sm' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'}`}
-                >
-                  ตัวเอียง (I)
-                </button>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] text-slate-500 font-bold">ขอบบน</label>
+                  <input type="number" step="0.1" value={layoutConfig.marginTop ?? 48} onChange={(e) => updateLayout('marginTop', parseFloat(e.target.value) || 0)} className="w-full border rounded p-1.5 text-xs text-center focus:ring-2 focus:ring-sky-200 focus:outline-none" />
+                </div>
+                <div>
+                  <label className="text-[10px] text-slate-500 font-bold">ขอบล่าง</label>
+                  <input type="number" step="0.1" value={layoutConfig.marginBottom ?? 48} onChange={(e) => updateLayout('marginBottom', parseFloat(e.target.value) || 0)} className="w-full border rounded p-1.5 text-xs text-center focus:ring-2 focus:ring-sky-200 focus:outline-none" />
+                </div>
+                <div>
+                  <label className="text-[10px] text-slate-500 font-bold">ขอบซ้าย</label>
+                  <input type="number" step="0.1" value={layoutConfig.marginLeft ?? 48} onChange={(e) => updateLayout('marginLeft', parseFloat(e.target.value) || 0)} className="w-full border rounded p-1.5 text-xs text-center focus:ring-2 focus:ring-sky-200 focus:outline-none" />
+                </div>
+                <div>
+                  <label className="text-[10px] text-slate-500 font-bold">ขอบขวา</label>
+                  <input type="number" step="0.1" value={layoutConfig.marginRight ?? 48} onChange={(e) => updateLayout('marginRight', parseFloat(e.target.value) || 0)} className="w-full border rounded p-1.5 text-xs text-center focus:ring-2 focus:ring-sky-200 focus:outline-none" />
+                </div>
               </div>
             </section>
 
             <section className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm space-y-4">
-              <label className="text-xs font-bold text-slate-700 block border-b border-slate-100 pb-2">📏 สัดส่วนหน้ากระดาษ</label>
+              <label className="text-xs font-bold text-slate-700 block border-b border-slate-100 pb-2">📏 สัดส่วนตาราง</label>
               <div>
                 <label className="text-[11px] text-slate-500 flex justify-between mb-1.5">
                   <span>ความสูงห้องเพลง</span>
@@ -311,7 +335,6 @@ const Sidebar = ({ isOpen }) => {
               <div className="flex justify-between items-center border-b border-slate-100 pb-2">
                 <label className="text-xs font-bold text-slate-700">✍️ เส้นตาราง</label>
                 <div className="flex items-center gap-2">
-                   <label className="text-[10px] text-slate-400">สีเส้น:</label>
                    <input type="color" value={layoutConfig.borderColor} onChange={(e) => updateLayout('borderColor', e.target.value)} className="w-6 h-6 p-0 border border-slate-200 rounded cursor-pointer bg-transparent" title="สีเส้นตาราง" />
                 </div>
               </div>

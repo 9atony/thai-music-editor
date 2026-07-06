@@ -84,7 +84,8 @@ export const MusicProvider = ({ children }) => {
   const [selectedSymbolId, setSelectedSymbolId] = useState(null);
   const [isOctaveMode, setIsOctaveMode] = useState(false);
 
-  // ⭐ ตัวแปร Sequencer
+  const [toolbarMode, setToolbarMode] = useState('default');
+
   const [playbackSequence, setPlaybackSequence] = useState([
     { id: 1, label: 'ท่อน 1', loops: 2 },
     { id: 2, label: 'ท่อน 2', loops: 2 },
@@ -161,7 +162,6 @@ export const MusicProvider = ({ children }) => {
 
   const getCellId = (r, m, c) => r * 100000 + m * 1000 + c;
 
-  // ⭐ อัปเดตเพื่อแก้ปัญหาเสียงดีเลย์ (อิงจากรอบที่แล้วครับ)
   const startPlayback = async () => {
     if (isPlaying) return;
 
@@ -178,6 +178,7 @@ export const MusicProvider = ({ children }) => {
 
     const sheetSections = [];
     let lastValidRow = 0;
+    let lastProcessedVIdx = -1; // ⭐ ป้องกันการอ่านป้ายกำกับเบิ้ลในบรรทัดคู่
 
     for (let r = 0; r < currentSheetData.length; r++) {
         if (currentRowTypes[r] === 'page-break' || currentRowTypes[r] === 'text') continue;
@@ -186,7 +187,7 @@ export const MusicProvider = ({ children }) => {
         const labels = currentSectionLabels[vIdx] || [];
         const validLabels = labels.filter(l => !l.text.includes('กลับต้น') && l.text.trim() !== '');
 
-        if (validLabels.length > 0) {
+        if (validLabels.length > 0 && vIdx !== lastProcessedVIdx) {
             if (sheetSections.length > 0) {
                 sheetSections[sheetSections.length - 1].endRow = lastValidRow;
             }
@@ -195,9 +196,10 @@ export const MusicProvider = ({ children }) => {
                 startRow: r,
                 endRow: currentSheetData.length - 1
             });
+            lastProcessedVIdx = vIdx; // ⭐ จำไว้ว่าบรรทัดคู่จบนี้นับป้ายไปแล้ว
         }
         lastValidRow = r;
-        if (currentRowTypes[r] === 'double-right') lastValidRow = r + 1;
+        if (currentRowTypes[r] === 'double-right') lastValidRow = r + 1; // ครอบคลุมไปถึงบรรทัดซ้าย
     }
     
     if (sheetSections.length > 0) {
@@ -458,7 +460,9 @@ export const MusicProvider = ({ children }) => {
               currentItem = seq[currSeqIdx];
               currentMappedSection = map.find(s => s.label === currentItem.label.trim());
               
-              if (currentMappedSection && r >= currentMappedSection.endRow) {
+              // ⭐ แก้ไขสมการประเมินจุดจบของท่อนให้แม่นยำขึ้น ครอบคลุมบรรทัดซ้าย-ขวา
+              const rowCoverage = currentRowTypes[r] === 'double-right' ? r + 1 : r;
+              if (currentMappedSection && rowCoverage >= currentMappedSection.endRow) {
                   isEndOfSection = true;
               }
           }
@@ -893,7 +897,6 @@ export const MusicProvider = ({ children }) => {
     }
   };
 
-  // ⭐ แก้ไขสมการคำนวณตำแหน่งที่ถูกต้อง ไม่ให้ป้ายกำกับหล่นลงบรรทัดใหม่
   const addRow = (insertAtTop = false) => {
     setSelectionRange(null); 
     const rowIdx = selectedCell[0];
@@ -936,7 +939,6 @@ export const MusicProvider = ({ children }) => {
     if (isTop) setSelectedCell([insertIdx + 1, 0, 0]);
   };
 
-  // ⭐ แก้ไขสมการคำนวณตำแหน่งที่ถูกต้อง สำหรับการแทรกบรรทัดคู่
   const addDoubleRow = (insertAtTop = false) => {
     setSelectionRange(null); 
     const rowIdx = selectedCell[0];
@@ -1198,13 +1200,25 @@ export const MusicProvider = ({ children }) => {
 
   const saveProject = () => {
     const projectData = {
-      songName, sheetData, rowTypes, sectionLabels, symbols, layoutConfig, headerDetails, currentInstrument: currentInstrument.id, rowMargins
+      songName, 
+      sheetData, 
+      rowTypes, 
+      sectionLabels, 
+      symbols, 
+      layoutConfig, 
+      headerDetails, 
+      currentInstrument: currentInstrument.id, 
+      rowMargins,
+      playbackSequence // ⭐ 1. แพ็กข้อมูลลำดับการเล่นใส่ไฟล์ไปด้วย
     };
     const blob = new Blob([JSON.stringify(projectData, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${songName || 'my-song'}.thai`;
+    
+    // ⭐ 2. เปลี่ยนนามสกุลไฟล์ส่งออกเป็น .tme (Thai Music Editor)
+    a.download = `${songName || 'my-song'}.tme`;
+    
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -1288,7 +1302,9 @@ export const MusicProvider = ({ children }) => {
       rowMargins, updateRowMarginsList,
       
       playbackSequence, setPlaybackSequence,
-      activeSequenceIdx, activeLoop
+      activeSequenceIdx, activeLoop,
+
+      toolbarMode, setToolbarMode
     }}>
       {children}
     </MusicContext.Provider>

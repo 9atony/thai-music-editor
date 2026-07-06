@@ -45,7 +45,8 @@ const Sheet = forwardRef((props, ref) => {
     removeRow,
     addTextRow,
     rowMargins, 
-    updateRowMarginsList 
+    updateRowMarginsList,
+    setToolbarMode 
   } = useContext(MusicContext);
 
   const [pageSvgPaths, setPageSvgPaths] = useState({});
@@ -83,6 +84,7 @@ const Sheet = forwardRef((props, ref) => {
   useEffect(() => {
     const [r] = selectedCell;
     if (rowTypes[r] === 'text') {
+      setToolbarMode('text'); 
       setTimeout(() => {
         const textEl = document.getElementById(`text-row-${r}`);
         if (textEl && document.activeElement !== textEl) {
@@ -98,8 +100,16 @@ const Sheet = forwardRef((props, ref) => {
           }
         }
       }, 10); 
+    } else {
+      setToolbarMode('default'); 
     }
   }, [selectedCell[0], rowTypes]); 
+
+  useEffect(() => {
+    if (selectedSymbolId) {
+      setToolbarMode('symbol');
+    }
+  }, [selectedSymbolId]);
 
   const displayRowNumbers = useMemo(() => {
     let currentNumber = 0;
@@ -411,7 +421,14 @@ const Sheet = forwardRef((props, ref) => {
   }, [selectionRange]);
 
   return (
-    <div className="relative w-full h-full flex flex-col flex-1 min-h-0 bg-slate-50/50">
+    <div 
+      className="relative w-full h-full flex flex-col flex-1 min-h-0 bg-slate-50/50"
+      onMouseDown={() => {
+        // ⭐ เปลี่ยนมาใช้ onMouseDown แทน onClick ป้องกันเหตุการณ์สะท้อนกลับ (Bubbling)
+        if (setToolbarMode) setToolbarMode('default');
+        if (setSelectedSymbolId) setSelectedSymbolId(null);
+      }}
+    >
       
       <style>
         {`
@@ -545,10 +562,11 @@ const Sheet = forwardRef((props, ref) => {
                      return (
                        <div key={rIndex} className="w-full flex flex-col items-center justify-center my-1">
                          <div
-                           onClick={(e) => {
-                              e.stopPropagation();
+                           onMouseDown={(e) => {
+                              e.stopPropagation(); // ⭐ ป้องกันการสะท้อนกลับ
                               if(setSelectedSymbolId) setSelectedSymbolId(null);
                               setSelectedCell([rIndex, 0, 0]);
+                              if (setToolbarMode) setToolbarMode('default');
                            }}
                            className={`flex items-center w-full py-2 cursor-pointer print-hidden select-none transition-all ${isCursor ? 'bg-indigo-50 ring-2 ring-indigo-400 rounded-md' : 'hover:bg-slate-50'}`}
                          >
@@ -580,19 +598,20 @@ const Sheet = forwardRef((props, ref) => {
                           contentEditable
                           suppressContentEditableWarning
                           onMouseDown={(e) => {
-                            e.stopPropagation();
+                            e.stopPropagation(); // ⭐ นี่คือตัวหยุดปัญหาการคลิกทะลุ!
                             if (selectedCell[0] !== rIndex) {
                               setSelectedCell([rIndex, 0, 0]); 
                             }
                             if (setSelectedSymbolId) setSelectedSymbolId(null);
+                            if (setToolbarMode) setToolbarMode('text');
                           }}
+                          onClick={(e) => e.stopPropagation()} // ⭐ ป้องกันไว้ชั้นที่สอง
                           onInput={(e) => {
                             if (sheetData[rIndex] && sheetData[rIndex][0]) {
                               sheetData[rIndex][0][0] = e.target.innerHTML;
                             }
                           }}
                           onBlur={(e) => {
-                            // ⭐ หัวใจสำคัญ: ถ้าคลิกไปที่แถบเครื่องมือ ห้ามทำลายกระดาษและห้ามล้างคลุมดำ!
                             const isToolbar = e.relatedTarget && e.relatedTarget.closest('.playback-controls-container');
                             if (isToolbar) return; 
                             
@@ -772,9 +791,12 @@ const Sheet = forwardRef((props, ref) => {
                                         id={`note-${rIndex}-${mIndex}-${cIndex}`}
                                         key={cIndex} 
                                         onMouseDown={(e) => {
+                                          e.stopPropagation(); // ⭐ ป้องกันเหตุการณ์ทะลุ
                                           if (setSelectedSymbolId) setSelectedSymbolId(null);
                                           if (e.button !== 2) startSelection(rIndex, mIndex, cIndex);
+                                          if (setToolbarMode) setToolbarMode('default');
                                         }}
+                                        onClick={(e) => e.stopPropagation()} // ⭐ เผื่อไว้ชั้นที่สอง
                                         onMouseEnter={() => updateSelection(rIndex, mIndex, cIndex)}
                                         onContextMenu={(e) => handleRightClick(e, rIndex, mIndex, cIndex)}
                                         className={`flex items-center justify-center cursor-crosshair transition-all ${cellBgClass}`} 
