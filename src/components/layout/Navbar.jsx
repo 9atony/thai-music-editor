@@ -1,6 +1,11 @@
 import React, { useContext } from 'react';
 import { MusicContext } from '../../contexts/MusicContext';
 import PlaybackControls from '../controls/PlaybackControls';
+import logo from '../../assets/logo wep.png';
+import newIcon from '../../assets/icons/new.png';
+import openIcon from '../../assets/icons/open.png';
+import pdfIcon from '../../assets/icons/pdf.png';
+import saveIcon from '../../assets/icons/save.png';
 
 const Navbar = ({ onPrint, onToggleSidebar }) => {
   const { 
@@ -11,17 +16,15 @@ const Navbar = ({ onPrint, onToggleSidebar }) => {
     redo, 
     canUndo, 
     canRedo,
-    stopPlayback // ⭐ 1. ดึง stopPlayback ออกมาจาก MusicContext
+    stopPlayback 
   } = useContext(MusicContext);
 
   return (
-    // ⭐ ใช้พื้นหลังกึ่งโปร่งใส + เอฟเฟกต์เบลอ (Glassmorphism) และเงาบางๆ
     <header className="sticky top-0 z-50 bg-white/90 backdrop-blur-md border-b border-slate-200 shadow-sm flex flex-col font-sans transition-all">
       
-      {/* 🚀 ชั้นที่ 1: แถบเมนูหลัก (คลีน สบายตา) */}
       <div className="px-5 py-3 flex items-center justify-between">
         
-        {/* ส่วนซ้าย: เมนูแฮมเบอร์เกอร์ โลโก้ */}
+        {/* ส่วนซ้าย: เมนูแฮมเบอร์เกอร์ + โลโก้ใหม่ */}
         <div className="flex items-center gap-4">
           <button 
             onClick={onToggleSidebar}
@@ -33,18 +36,17 @@ const Navbar = ({ onPrint, onToggleSidebar }) => {
           </button>
           
           <div className="flex items-center gap-2 select-none">
-            <span className="text-2xl drop-shadow-sm">🎼</span>
-            {/* ปรับฟอนต์โลโก้ให้ดูโมเดิร์นขึ้น */}
-            <h1 className="text-lg font-extrabold tracking-tight text-slate-800 hidden sm:block">
-              Thai Music <span className="text-sky-500">Editor</span>
-            </h1>
+            <img 
+              src={logo} 
+              alt="Thai Music Editor Logo" 
+              className="h-10 w-auto object-contain" 
+            />
           </div>
         </div>
 
-        {/* ส่วนขวา: ปุ่มคำสั่งต่างๆ (เรียบหรู ไม่มีเส้นขอบกวนตา) */}
+        {/* ส่วนขวา: ปุ่มคำสั่งต่างๆ (ใช้ไอคอนที่เตรียมมา) */}
         <div className="flex items-center gap-1 sm:gap-2">
           
-          {/* กรอบ Undo / Redo */}
           <div className="flex bg-slate-50/50 rounded-lg border border-slate-200 p-0.5 mr-2">
             <button 
               onClick={undo}
@@ -69,14 +71,16 @@ const Navbar = ({ onPrint, onToggleSidebar }) => {
             className="flex items-center gap-2 hover:bg-slate-100 px-3 py-1.5 rounded-lg text-sm font-semibold text-slate-600 hover:text-slate-900 transition-all active:scale-95"
             title="ล้างข้อมูลและเริ่มโปรเจกต์ใหม่"
           >
-            <span className="text-lg">📄</span> <span className="hidden md:inline">กระดาษใหม่</span>
+            <img src={newIcon} alt="new" className="w-5 h-5" /> 
+            <span className="hidden md:inline">กระดาษใหม่</span>
           </button>
 
           <label className="flex items-center gap-2 hover:bg-slate-100 px-3 py-1.5 rounded-lg text-sm font-semibold text-slate-600 hover:text-slate-900 transition-all cursor-pointer active:scale-95">
-            <span className="text-lg">📂</span> <span className="hidden md:inline">เปิดไฟล์</span>
+            <img src={openIcon} alt="open" className="w-5 h-5" /> 
+            <span className="hidden md:inline">เปิดไฟล์</span>
             <input 
               type="file" 
-              accept=".thai,.tme,.json" // ⭐ เพิ่ม .tme เข้ามาตรงนี้ครับ
+              accept=".thai,.tme,.json"
               onChange={(e) => {
                 loadProject(e.target.files[0]);
                 e.target.value = null; 
@@ -89,25 +93,24 @@ const Navbar = ({ onPrint, onToggleSidebar }) => {
             onClick={saveProject}
             className="flex items-center gap-2 hover:bg-slate-100 px-3 py-1.5 rounded-lg text-sm font-semibold text-slate-600 hover:text-slate-900 transition-all active:scale-95"
           >
-            <span className="text-lg">💾</span> <span className="hidden md:inline">บันทึก</span>
+            <img src={saveIcon} alt="save" className="w-5 h-5" /> 
+            <span className="hidden md:inline">บันทึก</span>
           </button>
           
-          {/* ปุ่มส่งออก - ปรับให้เป็นโทนสีเข้มดูพรีเมียม */}
           <button 
             onClick={() => {
-              stopPlayback(); // ⭐ 2. สั่งหยุดเพลงทันที
-              onPrint();      // ⭐ 3. จากนั้นค่อยเรียกหน้าต่างสำหรับบันทึก PDF
+              stopPlayback();
+              onPrint();
             }} 
             className="flex items-center gap-2 bg-slate-800 hover:bg-slate-900 px-4 py-1.5 rounded-lg text-sm font-semibold text-white transition-all shadow-sm hover:shadow-md active:scale-95 ml-2"
           >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
+            <img src={pdfIcon} alt="pdf" className="w-5 h-5 filter brightness-0 invert" />
             <span className="hidden md:inline">ส่งออก PDF</span>
           </button>
           
         </div>
       </div>
 
-      {/* 🚀 ชั้นที่ 2: พื้นที่สำหรับควบคุมการเล่นเพลง (โทนสีสว่าง สะอาดตา ผสมผสานกลมกลืน) */}
       <div className="px-5 py-2 bg-slate-50/80 border-t border-slate-100 w-full">
         <PlaybackControls />
       </div>

@@ -88,7 +88,7 @@ const Keyboard = () => {
       onClick={onClick}
       disabled={disabled}
       title={title}
-      className={`flex min-w-[60px] h-[54px] shrink-0 flex-col items-center justify-center rounded-xl border transition-all shadow-sm active:scale-[0.98]
+      className={`flex min-w-[50px] h-[40px] shrink-0 flex-col items-center justify-center rounded-xl border transition-all shadow-sm active:scale-[0.98]
         ${disabled ? 'bg-slate-100 text-slate-300 border-slate-200 cursor-not-allowed opacity-60' : bgClass}`}
     >
       <div className="flex h-5 items-center justify-center text-base font-black leading-none">{icon}</div>
@@ -253,27 +253,28 @@ const Keyboard = () => {
               </ToolbarSection>
             </div>
 
-            {!isSequencerOpen && (
-              <button
-                onClick={() => setIsSequencerOpen(true)}
-                className="shrink-0 flex h-[54px] ml-auto min-w-[132px] items-center justify-center gap-2 rounded-2xl px-4 text-xs font-bold transition-all active:scale-[0.98] bg-violet-700 text-white hover:bg-violet-800 shadow-md shadow-violet-200/60"
-              >
-                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 19h16M7 16V8m5 8V5m5 11v-6" /></svg>
-                <span>ลำดับการเล่น</span>
-              </button>
-            )}
+            {/* แทนที่ปุ่มเดิมด้วยปุ่มดีไซน์ใหม่นี้ครับ */}
+{!isSequencerOpen && (
+  <button
+    onClick={() => setIsSequencerOpen(true)}
+    className="shrink-0 flex h-[54px] ml-auto min-w-[130px] items-center justify-center gap-2 rounded-xl px-4 text-[11px] font-bold transition-all active:scale-[0.98] bg-white border-2 border-slate-200 text-slate-700 hover:border-sky-400 hover:text-sky-600 hover:bg-sky-50 shadow-sm"
+  >
+    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 19h16M7 16V8m5 8V5m5 11v-6" /></svg>
+    <span>ลำดับการเล่น</span>
+  </button>
+)}
           </div>
 
           {/* แผงแป้นคีย์บอร์ด */}
           <div className="relative z-0 flex w-full overflow-hidden">
             <div className="flex-1 overflow-x-auto pb-4 pt-4 custom-scrollbar transition-all duration-300">
-              <div className="flex bg-slate-800 p-2 rounded-xl shadow-inner w-max mx-auto gap-[2px]">
+              <div className="flex bg-slate-800 p-1 rounded-xl shadow-inner w-max mx-auto gap-[2px]">
                 {currentInstrument.keys.map((k, i) => {
                   const isBlocked = isOctaveMode && currentInstrument.id === 'ranat-ek' && i > 14;
                   const isHovered = hoveredIdx === i || (isOctaveMode && currentInstrument.id === 'ranat-ek' && hoveredIdx !== null && i === hoveredIdx + 7);
                   const isActive = activeIdx === i || (isOctaveMode && currentInstrument.id === 'ranat-ek' && activeIdx !== null && i === activeIdx + 7);
 
-                  let btnClass = 'w-14 h-[130px] shrink-0 border-b-[5px] rounded-b-md flex flex-col items-center justify-end pb-5 transition-all shadow-sm group select-none relative ';
+                  let btnClass = 'w-14 h-[100px] shrink-0 border-b-[5px] rounded-b-md flex flex-col items-center justify-end pb-5 transition-all shadow-sm group select-none relative ';
 
                   if (isActive) {
                     btnClass += isOctaveMode ? 'bg-amber-300 border-amber-300 border-b-0 translate-y-1 text-amber-900 ' : 'bg-sky-200 border-sky-200 border-b-0 translate-y-1 text-sky-900 ';
@@ -312,95 +313,83 @@ const Keyboard = () => {
 
         </div>
 
-        {/* ================= ฝั่งขวา: แผงลำดับการเล่น ================= */}
-        <div className={`shrink-0 transition-all duration-300 ease-in-out relative overflow-hidden ${isSequencerOpen ? 'w-[320px]' : 'w-0'}`}>
-          <div className={`absolute top-0 right-0 w-[320px] h-full flex flex-col bg-white border-l border-slate-200 shadow-[-10px_0_20px_rgba(0,0,0,0.03)] overflow-hidden transition-all duration-300 ${isSequencerOpen ? 'opacity-100 translate-x-0 pointer-events-auto' : 'opacity-0 translate-x-full pointer-events-none'}`}>
-            {/* ส่วน Header ของ Sequencer + ปุ่มปิด */}
-            <div className="p-3 bg-slate-50 border-b border-slate-200 flex justify-between items-center shrink-0">
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => setIsSequencerOpen(false)}
-                  className="flex items-center justify-center gap-1 bg-violet-100 text-violet-700 hover:bg-violet-200 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-colors active:scale-95"
-                  title="ปิดแผงลำดับการเล่น"
-                >
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
-                  ปิด
-                </button>
-                <h3 className="text-sm font-black text-slate-700">📜 ลำดับการเล่น</h3>
-              </div>
-              
-              <button onClick={autoScanSections} title="สแกนหาป้ายกำกับจากในโน้ตอัตโนมัติ" className="text-[10px] bg-indigo-100 text-indigo-700 px-2.5 py-1.5 rounded-lg hover:bg-indigo-200 font-bold active:scale-95 transition-transform">
-                🔄 สแกนท่อน
-              </button>
+        {/* ================= ฝั่งขวา: แผงลำดับการเล่น (กะทัดรัดพิเศษ) ================= */}
+<div className={`shrink-0 transition-all duration-300 ease-in-out relative overflow-hidden ${isSequencerOpen ? 'w-[260px]' : 'w-0'}`}>
+  <div className={`absolute top-0 right-0 w-[260px] h-full flex flex-col bg-white border-l border-slate-200 shadow-[-10px_0_20px_rgba(0,0,0,0.03)] overflow-hidden transition-all duration-300 ${isSequencerOpen ? 'opacity-100 translate-x-0' : 'opacity-0 translate-x-full'}`}>
+    
+    {/* Header กะทัดรัด */}
+    <div className="p-2.5 bg-slate-50 border-b border-slate-100 flex justify-between items-center shrink-0">
+      <div className="flex items-center gap-1">
+        <button
+          onClick={() => setIsSequencerOpen(false)}
+          className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-200 rounded transition-colors"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" /></svg>
+        </button>
+        <h3 className="text-[11px] font-black text-slate-700">ลำดับการเล่น</h3>
+      </div>
+      <button onClick={autoScanSections} className="text-[9px] bg-white border border-slate-200 text-slate-600 px-2 py-1 rounded hover:bg-slate-100 font-bold active:scale-95 transition-all">
+        สแกน
+      </button>
+    </div>
+
+    {/* รายการท่อน (ปรับให้แน่นขึ้น) */}
+    <div className="flex-1 overflow-y-auto p-2 custom-scrollbar space-y-1">
+      {playbackSequence.map((item, idx) => {
+        const isCurrentlyPlaying = isPlaying && activeSequenceIdx === idx;
+        return (
+          <div
+            key={item.id}
+            draggable
+            onDragStart={(e) => handleDragStart(e, idx)}
+            onDragOver={(e) => handleDragOver(e, idx)}
+            onDrop={(e) => handleDrop(e, idx)}
+            className={`flex justify-between items-center px-2 py-1.5 rounded-lg border transition-all ${
+              isCurrentlyPlaying 
+                ? 'bg-sky-50 border-sky-200 text-sky-800' 
+                : 'bg-white border-slate-100 text-slate-600'
+            }`}
+          >
+            <div className="flex items-center gap-2 flex-1 overflow-hidden">
+              <span className="text-[10px] text-slate-300 cursor-grab">⠿</span>
+              <input
+                type="text"
+                value={item.label}
+                onChange={(e) => updateSeqItem(idx, 'label', e.target.value)}
+                className={`w-full bg-transparent outline-none font-bold text-[11px] truncate ${isCurrentlyPlaying ? 'text-sky-800' : 'text-slate-700'}`}
+              />
             </div>
-
-            <div className="flex-1 overflow-y-auto p-3 custom-scrollbar space-y-2">
-              <div className="flex justify-between items-center px-2 pb-2 border-b-2 border-slate-800 text-[11px] font-bold text-slate-500">
-                <span>รายการ (ท่อน)</span>
-                <span>จำนวนรอบ</span>
-              </div>
-
-              {playbackSequence.length === 0 && (
-                <div className="text-center py-6 text-xs text-slate-400">
-                  ยังไม่มีลำดับการเล่น<br />กด "สแกนท่อน" หรือเพิ่มเองได้เลยครับ
-                </div>
-              )}
-
-              {playbackSequence.map((item, idx) => {
-                const isCurrentlyPlaying = isPlaying && activeSequenceIdx === idx;
-
-                return (
-                  <div
-                    key={item.id}
-                    draggable
-                    onDragStart={(e) => handleDragStart(e, idx)}
-                    onDragOver={(e) => handleDragOver(e, idx)}
-                    onDrop={(e) => handleDrop(e, idx)}
-                    className={`flex justify-between items-center px-2 py-1.5 rounded text-xs font-medium group cursor-grab active:cursor-grabbing transition-colors border
-                      ${isCurrentlyPlaying ? 'bg-emerald-50 border-emerald-300 shadow-sm text-emerald-800' : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-700'}`}
-                  >
-                    <div className="flex items-center gap-2 flex-1 select-none">
-                      <span className="text-slate-300 group-hover:text-sky-500 cursor-grab" title="ลากเพื่อสลับลำดับ">↕</span>
-                      {isCurrentlyPlaying && <span className="text-emerald-500 animate-pulse">▶</span>}
-                      <input
-                        type="text"
-                        value={item.label}
-                        placeholder="ใส่ชื่อท่อน..."
-                        onChange={(e) => updateSeqItem(idx, 'label', e.target.value)}
-                        className={`w-[110px] bg-transparent outline-none border-b border-transparent focus:border-slate-300 ${isCurrentlyPlaying ? 'font-bold' : ''}`}
-                      />
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <input
-                        type="number"
-                        min="1"
-                        value={item.loops}
-                        onChange={(e) => updateSeqItem(idx, 'loops', parseInt(e.target.value) || 1)}
-                        className="w-12 text-center bg-white border border-slate-200 rounded p-0.5 focus:border-sky-500 outline-none font-bold"
-                      />
-                      <button onClick={() => removeSeqItem(idx)} className="text-rose-300 hover:text-rose-500 px-1 font-bold" title="ลบรายการนี้">✕</button>
-                    </div>
-                  </div>
-                );
-              })}
-
-              <button
-                onClick={addSeqItem}
-                className="w-full py-2 mt-2 text-[11px] font-bold text-slate-500 border border-dashed border-slate-300 rounded hover:bg-slate-50 hover:border-sky-400 hover:text-sky-600 transition-colors"
-              >
-                + เพิ่มรายการเอง
-              </button>
-            </div>
-
-            <div className="p-3 bg-slate-800 text-white flex justify-between items-center shrink-0">
-              <span className="text-xs font-medium text-slate-300">กำลังเล่นรอบที่</span>
-              <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-black transition-all
-                ${isPlaying ? 'bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.5)]' : 'bg-slate-600 shadow-none text-slate-400'}`}>
-                {isPlaying ? activeLoop : '-'}
-              </div>
+            
+            <div className="flex items-center gap-1 shrink-0">
+              <input
+                type="number" min="1"
+                value={item.loops}
+                onChange={(e) => updateSeqItem(idx, 'loops', parseInt(e.target.value) || 1)}
+                className="w-8 text-center bg-slate-100 border-none rounded p-0.5 text-[10px] font-bold outline-none"
+              />
+              <button onClick={() => removeSeqItem(idx)} className="text-slate-300 hover:text-rose-500 text-[11px]">✕</button>
             </div>
           </div>
-        </div>
+        );
+      })}
+
+      <button
+        onClick={addSeqItem}
+        className="w-full py-2 mt-1 text-[10px] font-bold text-slate-400 border border-dashed border-slate-200 rounded-lg hover:border-slate-300 hover:text-slate-600 transition-all"
+      >
+        + เพิ่มท่อน
+      </button>
+    </div>
+
+    {/* สถานะด้านล่างแบบกะทัดรัด */}
+    <div className="p-2.5 bg-slate-900 text-white flex justify-between items-center text-[10px]">
+      <span className="text-slate-400">รอบที่เล่น</span>
+      <div className={`w-6 h-6 rounded-full flex items-center justify-center font-black ${isPlaying ? 'bg-sky-500 text-white' : 'bg-slate-700 text-slate-500'}`}>
+        {isPlaying ? activeLoop : '-'}
+      </div>
+    </div>
+  </div>
+</div>
 
       </div>
     </div>
