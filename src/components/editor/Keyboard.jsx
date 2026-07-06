@@ -267,7 +267,7 @@ const Keyboard = () => {
 
           {/* แผงแป้นคีย์บอร์ด */}
           <div className="relative z-0 flex w-full overflow-hidden">
-            <div className="flex-1 overflow-x-auto pb-4 pt-4 custom-scrollbar transition-all duration-300">
+            <div className="flex-1 overflow-x-auto pb-2 pt-2 custom-scrollbar transition-all duration-300">
               <div className="flex bg-slate-800 p-1 rounded-xl shadow-inner w-max mx-auto gap-[2px]">
                 {currentInstrument.keys.map((k, i) => {
                   const isBlocked = isOctaveMode && currentInstrument.id === 'ranat-ek' && i > 14;
@@ -303,10 +303,6 @@ const Keyboard = () => {
                     </button>
                   );
                 })}
-              </div>
-
-              <div className="text-[11px] text-slate-500 font-medium mt-3 text-center w-full select-none">
-                * จุดล่างคือเสียงต่ำ | จุดบนคือเสียงสูง | ไม่มีสัญลักษณ์คือเสียงกลาง
               </div>
             </div>
           </div>
