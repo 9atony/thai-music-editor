@@ -25,7 +25,6 @@ const formatInstrumentNote = (key) => {
 
 const getNoteMeta = (instrument, noteStr) => {
   if (!instrument?.keys || !noteStr) return null;
-
   return instrument.keys
     .map((key) => ({
       formatted: formatInstrumentNote(key),
@@ -38,42 +37,33 @@ const getNoteMeta = (instrument, noteStr) => {
 const getPreferredOctaveDirection = (instrument, noteStr) => {
   const meta = getNoteMeta(instrument, noteStr);
   if (!meta) return 'up';
-
   if (meta.octave >= 4) return 'down';
   if (meta.octave === 3 && ['G', 'A', 'B'].includes(meta.pitch)) return 'down';
-
   return 'up';
 };
 
 const getOctavePairNote = (instrument, noteStr, preferredDirection = 'up') => {
   if (!instrument?.keys || !noteStr) return null;
-
   const keys = instrument.keys.map((key) => ({
     formatted: formatInstrumentNote(key),
     pitch: key.eng.replace(/\d/g, ''),
     octave: parseInt(key.eng.replace(/\D/g, ''), 10),
   }));
-
   const current = keys.find((key) => key.formatted === noteStr);
   if (!current) return null;
-
   const directions = preferredDirection === 'down' ? [-1, 1] : [1, -1];
-
   for (const step of directions) {
     const pair = keys.find(
       (key) => key.pitch === current.pitch && key.octave === current.octave + step
     );
     if (pair) return pair.formatted;
   }
-
   return null;
 };
 
 export const MusicProvider = ({ children }) => {
   const [currentInstrument, setCurrentInstrument] = useState(INSTRUMENT_CONFIG["khong-wong-yai"] || INSTRUMENT_CONFIG["ranat-ek"]);
-  const [sheetData, setSheetData] = useState(
-    Array(4).fill().map(() => Array(8).fill().map(() => Array(4).fill('-')))
-  );
+  const [sheetData, setSheetData] = useState(Array(4).fill().map(() => Array(8).fill().map(() => Array(4).fill('-'))));
   const [rowTypes, setRowTypes] = useState(Array(4).fill('single'));
   const [rowMargins, setRowMargins] = useState(Array(4).fill({ top: 0, bottom: 0, left: 0 }));
   const [selectedCell, setSelectedCell] = useState([0, 0, 0]);
@@ -83,7 +73,6 @@ export const MusicProvider = ({ children }) => {
   const [symbols, setSymbols] = useState([]); 
   const [selectedSymbolId, setSelectedSymbolId] = useState(null);
   const [isOctaveMode, setIsOctaveMode] = useState(false);
-
   const [toolbarMode, setToolbarMode] = useState('default');
 
   const [playbackSequence, setPlaybackSequence] = useState([
@@ -97,13 +86,18 @@ export const MusicProvider = ({ children }) => {
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState(null);
   const [clipboardData, setClipboardData] = useState([]);
-
   const [history, setHistory] = useState([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [isLoaded, setIsLoaded] = useState(false);
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackCursor, setPlaybackCursor] = useState(null);
+
+  // ⭐ สเตตัสใหม่สำหรับทำแถบเวลา
+  const [currentTime, setCurrentTime] = useState(0); 
+  const [totalTime, setTotalTime] = useState(0);
+  const uiTimerRef = useRef(null);
+  const playbackStartTimeRef = useRef(0);
   
   const playbackTimerRef = useRef(null);
   const effectTimersRef = useRef([]);
@@ -113,15 +107,9 @@ export const MusicProvider = ({ children }) => {
     fontSize: 30, isBold: false, isItalic: false, measureHeight: 48,
     rowGap: 32, songNameSize: 48, authorSize: 16, detailsAlign: 'between',
     borderWidth: 2, innerBorderWidth: 1, borderColor: '#1e293b', borderRadius: 0,
-    bpm: 80,
-    volume: 100,
-    activeSymbol: 'sabat', 
-    symbolColor: '#1e293b',
-    symbolStrokeWidth: 2.5,
-    symbolHeight: 20,
-    marginTop: 48, marginBottom: 48, marginLeft: 48, marginRight: 48,
-    marginUnit: 'px',
-    textLineHeight: 1.5, textFontSize: 16
+    bpm: 80, volume: 100, activeSymbol: 'sabat', symbolColor: '#1e293b',
+    symbolStrokeWidth: 2.5, symbolHeight: 20, marginTop: 48, marginBottom: 48, marginLeft: 48, marginRight: 48,
+    marginUnit: 'px', textLineHeight: 1.5, textFontSize: 16
   });
 
   const layoutConfigRef = useRef(layoutConfig);
@@ -131,11 +119,9 @@ export const MusicProvider = ({ children }) => {
   const symbolsRef = useRef(symbols);
   const isOctaveModeRef = useRef(isOctaveMode); 
   const sectionLabelsRef = useRef(sectionLabels);
-
   const playbackSequenceRef = useRef(playbackSequence);
   const activeSequenceIdxRef = useRef(0);
   const activeLoopRef = useRef(1);
-
   const sheetMapRef = useRef([]);
 
   useEffect(() => { layoutConfigRef.current = layoutConfig; }, [layoutConfig]);
@@ -164,10 +150,7 @@ export const MusicProvider = ({ children }) => {
 
   const startPlayback = async () => {
     if (isPlaying) return;
-
-    if (initAudioContext) {
-      await initAudioContext();
-    }
+    if (initAudioContext) await initAudioContext();
 
     setIsPlaying(true);
     isPlayingRef.current = true;
@@ -175,37 +158,57 @@ export const MusicProvider = ({ children }) => {
     const currentSheetData = sheetDataRef.current;
     const currentRowTypes = rowTypesRef.current;
     const currentSectionLabels = sectionLabelsRef.current;
-
     const sheetSections = [];
     let lastValidRow = 0;
-    let lastProcessedVIdx = -1; // ⭐ ป้องกันการอ่านป้ายกำกับเบิ้ลในบรรทัดคู่
+    let lastProcessedVIdx = -1; 
 
     for (let r = 0; r < currentSheetData.length; r++) {
         if (currentRowTypes[r] === 'page-break' || currentRowTypes[r] === 'text') continue;
-        
         const vIdx = getVisualIndex(r, currentRowTypes);
         const labels = currentSectionLabels[vIdx] || [];
         const validLabels = labels.filter(l => !l.text.includes('กลับต้น') && l.text.trim() !== '');
 
         if (validLabels.length > 0 && vIdx !== lastProcessedVIdx) {
-            if (sheetSections.length > 0) {
-                sheetSections[sheetSections.length - 1].endRow = lastValidRow;
-            }
-            sheetSections.push({
-                label: validLabels[0].text.trim(),
-                startRow: r,
-                endRow: currentSheetData.length - 1
-            });
-            lastProcessedVIdx = vIdx; // ⭐ จำไว้ว่าบรรทัดคู่จบนี้นับป้ายไปแล้ว
+            if (sheetSections.length > 0) sheetSections[sheetSections.length - 1].endRow = lastValidRow;
+            sheetSections.push({ label: validLabels[0].text.trim(), startRow: r, endRow: currentSheetData.length - 1 });
+            lastProcessedVIdx = vIdx; 
         }
         lastValidRow = r;
-        if (currentRowTypes[r] === 'double-right') lastValidRow = r + 1; // ครอบคลุมไปถึงบรรทัดซ้าย
+        if (currentRowTypes[r] === 'double-right') lastValidRow = r + 1; 
     }
-    
-    if (sheetSections.length > 0) {
-        sheetSections[sheetSections.length - 1].endRow = lastValidRow;
-    }
+    if (sheetSections.length > 0) sheetSections[sheetSections.length - 1].endRow = lastValidRow;
     sheetMapRef.current = sheetSections;
+
+    // ⭐ คำนวณเวลาทั้งหมดของเพลง (Total Time)
+    let calcTotalMs = 0;
+    const currentBpm = layoutConfigRef.current.bpm || 80;
+    playbackSequenceRef.current.forEach(seqItem => {
+      const section = sheetSections.find(s => s.label === seqItem.label.trim());
+      if (section) {
+        let sectionMs = 0;
+        for (let r = section.startRow; r <= section.endRow; r++) {
+          if (currentRowTypes[r] === 'page-break' || currentRowTypes[r] === 'text' || currentRowTypes[r] === 'double-left') continue;
+          for (let m = 0; m < currentSheetData[r].length; m++) {
+            if (currentRowTypes[r].startsWith('double') && m === 0) continue;
+            const cellCount = currentSheetData[r][m].length;
+            if (cellCount > 0) {
+              sectionMs += (15000 / currentBpm) * 4; 
+            }
+          }
+        }
+        calcTotalMs += (sectionMs * seqItem.loops);
+      }
+    });
+    setTotalTime(Math.floor(calcTotalMs / 1000));
+    setCurrentTime(0);
+
+    // ⭐ เริ่มจับเวลา (เดินหน้าทุกๆ 1 วินาที)
+    playbackStartTimeRef.current = performance.now();
+    if (uiTimerRef.current) clearInterval(uiTimerRef.current);
+    uiTimerRef.current = setInterval(() => {
+      const elapsed = Math.floor((performance.now() - playbackStartTimeRef.current) / 1000);
+      setCurrentTime(elapsed);
+    }, 1000);
 
     effectTimersRef.current.forEach(t => clearTimeout(t));
     effectTimersRef.current = [];
@@ -214,13 +217,8 @@ export const MusicProvider = ({ children }) => {
     let currentCursor = [...selectedCell];
     let startR = currentCursor[0];
 
-    if (currentRowTypes[startR] === 'double-left') {
-      startR -= 1;
-      currentCursor[0] = startR;
-    }
-    if (currentRowTypes[startR].startsWith('double') && currentCursor[1] === 0) {
-      currentCursor[1] = 1; 
-    }
+    if (currentRowTypes[startR] === 'double-left') { startR -= 1; currentCursor[0] = startR; }
+    if (currentRowTypes[startR].startsWith('double') && currentCursor[1] === 0) currentCursor[1] = 1; 
 
     let startSeqIdx = 0;
     const currentMappedSection = sheetSections.find(s => startR >= s.startRow && startR <= s.endRow);
@@ -238,28 +236,20 @@ export const MusicProvider = ({ children }) => {
 
     const playNextStep = (r, m, c) => {
       if (!isPlayingRef.current) return; 
-
       const triggerPlaybackNote = (noteStr, vol, options = {}) => {
           if (!noteStr || noteStr === '-') return;
-
           const { bypassOctaveLayer = false } = options;
           playNote(currentInstrument.id, noteStr, vol);
-
           if (!bypassOctaveLayer && isOctaveModeRef.current && currentInstrument.id === 'ranat-ek') {
               const preferredDirection = getPreferredOctaveDirection(currentInstrument, noteStr);
               const octavePairNote = getOctavePairNote(currentInstrument, noteStr, preferredDirection);
-              if (octavePairNote && octavePairNote !== noteStr) {
-                  playNote(currentInstrument.id, octavePairNote, vol);
-              }
+              if (octavePairNote && octavePairNote !== noteStr) playNote(currentInstrument.id, octavePairNote, vol);
           }
       };
 
       if (currentRowTypes[r] === 'page-break' || currentRowTypes[r] === 'text') {
           let nextR = r + 1;
-          if (nextR >= currentSheetData.length) {
-              playbackTimerRef.current = setTimeout(() => stopPlayback(), 500);
-              return;
-          }
+          if (nextR >= currentSheetData.length) { playbackTimerRef.current = setTimeout(() => stopPlayback(), 500); return; }
           let nextM = currentRowTypes[nextR] && currentRowTypes[nextR].startsWith('double') ? 1 : 0;
           playbackTimerRef.current = setTimeout(() => playNextStep(nextR, nextM, 0), 0);
           return;
@@ -271,23 +261,17 @@ export const MusicProvider = ({ children }) => {
       const msPerCell = Math.floor(standardMsPerCell * (4 / cellCountInMeasure));
 
       setPlaybackCursor([r, m, c]);
-
       let cellsToCheck = [[r, m, c]];
-      if (currentRowTypes[r] === 'double-right') {
-          cellsToCheck.push([r + 1, m, c]);
-      } else if (currentRowTypes[r] === 'double-left') {
-          cellsToCheck.push([r - 1, m, c]);
-      }
+      if (currentRowTypes[r] === 'double-right') cellsToCheck.push([r + 1, m, c]);
+      else if (currentRowTypes[r] === 'double-left') cellsToCheck.push([r - 1, m, c]);
 
       let processedSymbols = new Set();
       const currentSymbols = symbolsRef.current; 
 
       cellsToCheck.forEach(cell => {
           const [cr, cm, cc] = cell;
-          
           const startingSymbols = currentSymbols.filter(s => {
-              let sStart = [...s.start];
-              let sEnd = [...s.end];
+              let sStart = [...s.start]; let sEnd = [...s.end];
               if (currentRowTypes[sStart[0]] === 'double-left') sStart[0] -= 1;
               if (currentRowTypes[sEnd[0]] === 'double-left') sEnd[0] -= 1;
               const startIdx = sStart[0] * 1000 + sStart[1] * 10 + sStart[2];
@@ -295,46 +279,25 @@ export const MusicProvider = ({ children }) => {
               let normalizedCr = cr;
               if (currentRowTypes[cr] === 'double-left') normalizedCr -= 1;
               const currentIdx = normalizedCr * 1000 + cm * 10 + cc;
-              const actualStartIdx = Math.min(startIdx, endIdx);
-              return currentIdx === actualStartIdx;
+              return currentIdx === Math.min(startIdx, endIdx);
           });
 
           startingSymbols.forEach(sym => {
               if (processedSymbols.has(sym.id)) return;
               processedSymbols.add(sym.id);
-
-              let startPos = [...sym.start];
-              let endPos = [...sym.end];
-
+              let startPos = [...sym.start]; let endPos = [...sym.end];
               if (currentRowTypes[startPos[0]] === 'double-left') startPos[0] -= 1;
               if (currentRowTypes[endPos[0]] === 'double-left') endPos[0] -= 1;
-
               const startAbs = startPos[0] * 1000 + startPos[1] * 10 + startPos[2];
               const endAbs = endPos[0] * 1000 + endPos[1] * 10 + endPos[2];
-
-              if (startAbs > endAbs) {
-                  let temp = startPos;
-                  startPos = endPos;
-                  endPos = temp;
-              }
-
-              let currR = startPos[0];
-              let currM = startPos[1];
-              let currC = startPos[2];
-
-              const endR = endPos[0];
-              const endM = endPos[1];
-              const endC = endPos[2];
-
-              let events = [];
-              let cellIds = [];
-              let dist = 0;
-              let failSafe = 0;
+              if (startAbs > endAbs) { let temp = startPos; startPos = endPos; endPos = temp; }
+              let currR = startPos[0], currM = startPos[1], currC = startPos[2];
+              const endR = endPos[0], endM = endPos[1], endC = endPos[2];
+              let events = [], cellIds = [], dist = 0, failSafe = 0;
 
               while (failSafe < 500) {
                   const stepRowType = currentRowTypes[currR];
                   let colNotes = [];
-
                   if (stepRowType && stepRowType.startsWith('double')) {
                       const stepTop = stepRowType === 'double-left' ? currR - 1 : currR;
                       const stepBot = stepTop + 1;
@@ -349,64 +312,38 @@ export const MusicProvider = ({ children }) => {
                       if (note && note !== '-') colNotes.push(note);
                       cellIds.push(getCellId(currR, currM, currC));
                   }
-
                   if (colNotes.length > 0) events.push(colNotes);
                   if (currR === endR && currM === endM && currC === endC) break;
-
-                  dist++;
-                  currC++;
-
+                  dist++; currC++;
                   const currentMeasureLength = currentSheetData[currR]?.[currM]?.length ?? 0;
                   if (currC >= currentMeasureLength) {
-                      currC = 0;
-                      currM++;
+                      currC = 0; currM++;
                       if (currM >= (currentSheetData[currR]?.length ?? 0)) {
                           let tempR = currR + 1;
-                          while (
-                              tempR < currentSheetData.length &&
-                              (currentRowTypes[tempR] === 'page-break' || currentRowTypes[tempR] === 'text' || currentRowTypes[tempR] === 'double-left')
-                          ) {
-                              tempR++;
-                          }
+                          while (tempR < currentSheetData.length && (currentRowTypes[tempR] === 'page-break' || currentRowTypes[tempR] === 'text' || currentRowTypes[tempR] === 'double-left')) tempR++;
                           if (tempR >= currentSheetData.length) break;
-                          currR = tempR;
-                          currM = currentRowTypes[currR]?.startsWith('double') ? 1 : 0;
+                          currR = tempR; currM = currentRowTypes[currR]?.startsWith('double') ? 1 : 0;
                       }
                   }
                   failSafe++;
               }
-
               cellIds.forEach(id => mutedCellsRef.current.add(id));
               const timeUntilEnd = dist * msPerCell; 
 
               if (sym.type === 'kro') {
                   if (window.kroInterval) clearInterval(window.kroInterval);
-
                   const startNotes = events[0] ? events[0].filter(n => n !== '-') : [];
                   const noteA = startNotes.length > 0 ? startNotes[0] : null;
-
                   if (noteA) {
                       const preferredDirection = getPreferredOctaveDirection(currentInstrument, noteA);
-                      const noteB = getOctavePairNote(currentInstrument, noteA, preferredDirection)
-                        || getOctavePairNote(currentInstrument, noteA, preferredDirection === 'down' ? 'up' : 'down')
-                        || noteA;
-
+                      const noteB = getOctavePairNote(currentInstrument, noteA, preferredDirection) || getOctavePairNote(currentInstrument, noteA, preferredDirection === 'down' ? 'up' : 'down') || noteA;
                       const kroIntervalMs = 65; 
-                      const totalStrokes = Math.max(1, Math.floor(timeUntilEnd / kroIntervalMs));
                       let isNoteA = true;
-                      
                       window.kroInterval = setInterval(() => {
-                          const noteToPlay = isNoteA ? noteA : noteB;
-                          triggerPlaybackNote(noteToPlay, layoutConfigRef.current.volume ?? 100, { bypassOctaveLayer: true });
+                          triggerPlaybackNote(isNoteA ? noteA : noteB, layoutConfigRef.current.volume ?? 100, { bypassOctaveLayer: true });
                           isNoteA = !isNoteA;
                       }, kroIntervalMs);
-
-                      const stopTimer = setTimeout(() => {
-                          clearInterval(window.kroInterval);
-                          window.kroInterval = null;
-                      }, timeUntilEnd);
-                      
-                      effectTimersRef.current.push(stopTimer);
+                      effectTimersRef.current.push(setTimeout(() => { clearInterval(window.kroInterval); window.kroInterval = null; }, timeUntilEnd));
                   }
               } else {
                   const intervalMs = Math.floor(msPerCell * 0.40); 
@@ -415,12 +352,8 @@ export const MusicProvider = ({ children }) => {
                       let vol = layoutConfigRef.current.volume ?? 100;
                       if (revIdx > 0) vol = Math.max(0, vol * (1 - (revIdx * 0.15)));
                       colNotes.forEach(n => {
-                          if (playTime >= 0) {
-                              const timer = setTimeout(() => { triggerPlaybackNote(n, vol); }, playTime);
-                              effectTimersRef.current.push(timer);
-                          } else {
-                              triggerPlaybackNote(n, vol);
-                          }
+                          if (playTime >= 0) effectTimersRef.current.push(setTimeout(() => { triggerPlaybackNote(n, vol); }, playTime));
+                          else triggerPlaybackNote(n, vol);
                       });
                   });
               }
@@ -430,13 +363,10 @@ export const MusicProvider = ({ children }) => {
       if (currentRowTypes[r] === 'double-right') {
         const rightCellId = getCellId(r, m, c);
         const leftCellId = getCellId(r + 1, m, c);
-        const rightNote = currentSheetData[r][m][c];
-        const leftNote = currentSheetData[r + 1] ? currentSheetData[r + 1][m][c] : '-';
-        if (!mutedCellsRef.current.has(rightCellId)) triggerPlaybackNote(rightNote, layoutConfigRef.current.volume ?? 100);
-        if (!mutedCellsRef.current.has(leftCellId)) triggerPlaybackNote(leftNote, layoutConfigRef.current.volume ?? 100);
+        if (!mutedCellsRef.current.has(rightCellId)) triggerPlaybackNote(currentSheetData[r][m][c], layoutConfigRef.current.volume ?? 100);
+        if (!mutedCellsRef.current.has(leftCellId)) triggerPlaybackNote(currentSheetData[r + 1] ? currentSheetData[r + 1][m][c] : '-', layoutConfigRef.current.volume ?? 100);
       } else {
-        const cellId = getCellId(r, m, c);
-        if (!mutedCellsRef.current.has(cellId)) triggerPlaybackNote(currentSheetData[r][m][c], layoutConfigRef.current.volume ?? 100);
+        if (!mutedCellsRef.current.has(getCellId(r, m, c))) triggerPlaybackNote(currentSheetData[r][m][c], layoutConfigRef.current.volume ?? 100);
       }
 
       let nextC = c + 1;
@@ -447,31 +377,22 @@ export const MusicProvider = ({ children }) => {
         nextC = 0; nextM++;
         if (nextM >= currentSheetData[r].length) {
           nextM = 0; 
-
           const seq = playbackSequenceRef.current;
           const currSeqIdx = activeSequenceIdxRef.current;
           const map = sheetMapRef.current;
-
-          let isEndOfSection = false;
-          let currentItem = null;
-          let currentMappedSection = null;
+          let isEndOfSection = false, currentItem = null, currentMappedSection = null;
 
           if (seq && seq.length > 0 && currSeqIdx < seq.length) {
               currentItem = seq[currSeqIdx];
               currentMappedSection = map.find(s => s.label === currentItem.label.trim());
-              
-              // ⭐ แก้ไขสมการประเมินจุดจบของท่อนให้แม่นยำขึ้น ครอบคลุมบรรทัดซ้าย-ขวา
               const rowCoverage = currentRowTypes[r] === 'double-right' ? r + 1 : r;
-              if (currentMappedSection && rowCoverage >= currentMappedSection.endRow) {
-                  isEndOfSection = true;
-              }
+              if (currentMappedSection && rowCoverage >= currentMappedSection.endRow) isEndOfSection = true;
           }
 
           if (isEndOfSection && currentItem && currentMappedSection) {
               if (activeLoopRef.current < currentItem.loops) {
                   activeLoopRef.current += 1;
                   setActiveLoop(activeLoopRef.current);
-
                   nextR = currentMappedSection.startRow;
                   nextM = currentRowTypes[nextR] && currentRowTypes[nextR].startsWith('double') ? 1 : 0;
                   nextC = 0;
@@ -482,41 +403,25 @@ export const MusicProvider = ({ children }) => {
                       setActiveSequenceIdx(nextSeqIdx);
                       activeLoopRef.current = 1;
                       setActiveLoop(1);
-
-                      const nextItem = seq[nextSeqIdx];
-                      const nextMappedSection = map.find(s => s.label === nextItem.label.trim());
-                      
+                      const nextMappedSection = map.find(s => s.label === seq[nextSeqIdx].label.trim());
                       if (nextMappedSection) {
                           nextR = nextMappedSection.startRow;
                           nextM = currentRowTypes[nextR] && currentRowTypes[nextR].startsWith('double') ? 1 : 0;
                           nextC = 0;
-                      } else {
-                          stopPlayback();
-                          return;
-                      }
-                  } else {
-                      stopPlayback();
-                      return;
-                  }
+                      } else { stopPlayback(); return; }
+                  } else { stopPlayback(); return; }
               }
           } else {
-              if (currentRowTypes[r] === 'double-right') nextR = r + 2;
-              else nextR = r + 1;
-
-              if (nextR >= currentSheetData.length) {
-                  playbackTimerRef.current = setTimeout(() => stopPlayback(), 500);
-                  return; 
-              }
+              nextR = currentRowTypes[r] === 'double-right' ? r + 2 : r + 1;
+              if (nextR >= currentSheetData.length) { playbackTimerRef.current = setTimeout(() => stopPlayback(), 500); return; }
               nextM = currentRowTypes[nextR] && currentRowTypes[nextR].startsWith('double') ? 1 : 0;
           }
         }
       }
 
       expectedNextTick += msPerCell;
-      const now = performance.now();
-      let delay = expectedNextTick - now;
-      if (delay < 0) delay = 0;
-      playbackTimerRef.current = setTimeout(() => playNextStep(nextR, nextM, nextC), delay);
+      let delay = expectedNextTick - performance.now();
+      playbackTimerRef.current = setTimeout(() => playNextStep(nextR, nextM, nextC), delay < 0 ? 0 : delay);
     };
 
     expectedNextTick = performance.now();
@@ -531,10 +436,14 @@ export const MusicProvider = ({ children }) => {
     effectTimersRef.current.forEach(t => clearTimeout(t));
     effectTimersRef.current = [];
     mutedCellsRef.current.clear();
-    if (window.kroInterval) {
-        clearInterval(window.kroInterval);
-        window.kroInterval = null;
+    if (window.kroInterval) { clearInterval(window.kroInterval); window.kroInterval = null; }
+    
+    // ⭐ หยุดนาฬิกาและรีเซ็ตค่าเวลา
+    if (uiTimerRef.current) {
+        clearInterval(uiTimerRef.current);
+        uiTimerRef.current = null;
     }
+    setCurrentTime(0);
   };
 
   useEffect(() => {
@@ -544,16 +453,14 @@ export const MusicProvider = ({ children }) => {
       const isEditable = e.target?.isContentEditable || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
       if (isEditable) return;
       e.preventDefault();
-      if (isPlayingRef.current) {
-        stopPlayback();
-      } else {
-        startPlayback();
-      }
+      if (isPlayingRef.current) stopPlayback();
+      else startPlayback();
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [startPlayback, stopPlayback]);
 
+  // (ข้ามส่วนฟังก์ชัน Editor ลงมา)
   const getVisualIndex = (rowIndex, types) => {
     let count = 0;
     for (let i = 0; i <= rowIndex; i++) {
@@ -568,7 +475,6 @@ export const MusicProvider = ({ children }) => {
     if (newSectionLabels) setSectionLabels(newSectionLabels);
     if (newSymbols) setSymbols(newSymbols);
     if (newRowMargins) setRowMargins(newRowMargins);
-
     const snapshot = {
       sheetData: JSON.parse(JSON.stringify(newSheetData)),
       rowTypes: newRowTypes ? [...newRowTypes] : [...rowTypes],
@@ -576,7 +482,6 @@ export const MusicProvider = ({ children }) => {
       symbols: newSymbols ? [...newSymbols] : [...symbols],
       rowMargins: newRowMargins ? JSON.parse(JSON.stringify(newRowMargins)) : JSON.parse(JSON.stringify(rowMargins))
     };
-
     setHistory(prev => {
       const newHistory = prev.slice(0, historyIndex + 1);
       newHistory.push(snapshot);
@@ -615,15 +520,9 @@ export const MusicProvider = ({ children }) => {
       const tag = e.target?.tagName;
       const isEditable = e.target?.isContentEditable || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
       if (isEditable) return;
-
       if (e.ctrlKey || e.metaKey) {
-        if (e.code === 'KeyZ') {
-          e.preventDefault();
-          undo();
-        } else if (e.code === 'KeyR') {
-          e.preventDefault();
-          redo();
-        }
+        if (e.code === 'KeyZ') { e.preventDefault(); undo(); } 
+        else if (e.code === 'KeyR') { e.preventDefault(); redo(); }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -643,9 +542,7 @@ export const MusicProvider = ({ children }) => {
         if (data.layoutConfig) setLayoutConfig(data.layoutConfig);
         if (data.headerDetails) setHeaderDetails(data.headerDetails);
         if (data.currentInstrument && INSTRUMENT_CONFIG[data.currentInstrument]) setCurrentInstrument(INSTRUMENT_CONFIG[data.currentInstrument]);
-        
         if (data.playbackSequence) setPlaybackSequence(data.playbackSequence);
-
         const loadedMargins = data.rowMargins || Array(data.sheetData?.length || 4).fill({ top: 0, bottom: 0, left: 0 });
         setRowMargins(loadedMargins);
         commitChange(data.sheetData || sheetData, data.rowTypes || rowTypes, data.sectionLabels || sectionLabels, data.symbols || symbols, loadedMargins);
@@ -660,119 +557,62 @@ export const MusicProvider = ({ children }) => {
 
   useEffect(() => {
     if (!isLoaded) return; 
-    const projectData = {
-      songName, sheetData, rowTypes, sectionLabels, symbols, layoutConfig, headerDetails, currentInstrument: currentInstrument.id, rowMargins,
-      playbackSequence 
-    };
+    const projectData = { songName, sheetData, rowTypes, sectionLabels, symbols, layoutConfig, headerDetails, currentInstrument: currentInstrument.id, rowMargins, playbackSequence };
     localStorage.setItem('thaiMusicEditorAutoSave', JSON.stringify(projectData));
   }, [isLoaded, songName, sheetData, rowTypes, sectionLabels, symbols, layoutConfig, headerDetails, currentInstrument, rowMargins, playbackSequence]);
 
   const updateRowMarginsList = (arg1, arg2, arg3) => {
     const newRowMargins = [...rowMargins];
     if (Array.isArray(arg1)) {
-      const updates = arg1;
-      updates.forEach(update => {
-        newRowMargins[update.index] = { 
-          ...(newRowMargins[update.index] || { top: 0, bottom: 0, left: 0 }), 
-          ...update.changes 
-        };
-      });
+      arg1.forEach(update => { newRowMargins[update.index] = { ...(newRowMargins[update.index] || { top: 0, bottom: 0, left: 0 }), ...update.changes }; });
     } else {
-      const minR = arg1;
-      const maxR = arg2;
-      const updates = arg3;
-      for (let i = minR; i <= maxR; i++) {
-        newRowMargins[i] = { 
-          ...(newRowMargins[i] || { top: 0, bottom: 0, left: 0 }), 
-          ...updates 
-        };
-      }
+      for (let i = arg1; i <= arg2; i++) { newRowMargins[i] = { ...(newRowMargins[i] || { top: 0, bottom: 0, left: 0 }), ...arg3 }; }
     }
     commitChange(sheetData, rowTypes, sectionLabels, symbols, newRowMargins);
   };
 
   const addSymbol = (type, start, end, options = {}) => {
-    const newSymbol = { id: Date.now(), type, start, end, ...options };
-    const newSymbols = [...symbols, newSymbol];
+    const newSymbols = [...symbols, { id: Date.now(), type, start, end, ...options }];
     commitChange(sheetData, rowTypes, sectionLabels, newSymbols);
   };
-
-  const updateSymbol = (id, updates) => {
-    const newSymbols = symbols.map(s => s.id === id ? { ...s, ...updates } : s);
-    commitChange(sheetData, rowTypes, sectionLabels, newSymbols);
-  };
-
-  const removeSymbol = (id) => {
-    const newSymbols = symbols.filter(s => s.id !== id);
-    commitChange(sheetData, rowTypes, sectionLabels, newSymbols);
-  };
-
+  const updateSymbol = (id, updates) => commitChange(sheetData, rowTypes, sectionLabels, symbols.map(s => s.id === id ? { ...s, ...updates } : s));
+  const removeSymbol = (id) => commitChange(sheetData, rowTypes, sectionLabels, symbols.filter(s => s.id !== id));
   const removeSymbolByCell = (cell) => {
     if (!cell) return;
-    const newSymbols = symbols.filter(s => 
-      !(s.start[0] === cell[0] && s.start[1] === cell[1] && s.start[2] === cell[2]) &&
-      !(s.end[0] === cell[0] && s.end[1] === cell[1] && s.end[2] === cell[2])
-    );
-    if (newSymbols.length !== symbols.length) {
-      commitChange(sheetData, rowTypes, sectionLabels, newSymbols);
-    }
+    const newSymbols = symbols.filter(s => !(s.start[0] === cell[0] && s.start[1] === cell[1] && s.start[2] === cell[2]) && !(s.end[0] === cell[0] && s.end[1] === cell[1] && s.end[2] === cell[2]));
+    if (newSymbols.length !== symbols.length) commitChange(sheetData, rowTypes, sectionLabels, newSymbols);
   };
 
-  const addDetail = () => {
-    const newId = headerDetails.length > 0 ? Math.max(...headerDetails.map(d => d.id)) + 1 : 1;
-    setHeaderDetails([...headerDetails, { id: newId, label: "หัวข้อใหม่", value: "ระบุข้อมูล" }]);
-  };
+  const addDetail = () => setHeaderDetails([...headerDetails, { id: headerDetails.length > 0 ? Math.max(...headerDetails.map(d => d.id)) + 1 : 1, label: "หัวข้อใหม่", value: "ระบุข้อมูล" }]);
   const removeDetail = (id) => setHeaderDetails(headerDetails.filter(detail => detail.id !== id));
   const updateDetail = (id, key, newValue) => setHeaderDetails(headerDetails.map(detail => detail.id === id ? { ...detail, [key]: newValue } : detail));
   const changeInstrument = (instrumentId) => setCurrentInstrument(INSTRUMENT_CONFIG[instrumentId]);
 
-  const startSelection = (r, m, c) => {
-    setIsDragging(true);
-    setDragStart([r, m, c]);
-    setSelectionRange({ start: [r, m, c], end: [r, m, c] });
-    setSelectedCell([r, m, c]); 
-  };
-  const updateSelection = (r, m, c) => {
-    if (isDragging && dragStart) setSelectionRange({ start: dragStart, end: [r, m, c] });
-  };
-  const endSelection = () => {
-    setIsDragging(false);
-    setDragStart(null);
-  };
+  const startSelection = (r, m, c) => { setIsDragging(true); setDragStart([r, m, c]); setSelectionRange({ start: [r, m, c], end: [r, m, c] }); setSelectedCell([r, m, c]); };
+  const updateSelection = (r, m, c) => { if (isDragging && dragStart) setSelectionRange({ start: dragStart, end: [r, m, c] }); };
+  const endSelection = () => { setIsDragging(false); setDragStart(null); };
 
   const copySelection = () => {
     if (!selectionRange) return;
-    const sr = selectionRange.start[0];
-    const sm = selectionRange.start[1];
-    const sc = selectionRange.start[2];
-    const er = selectionRange.end[0];
-    const em = selectionRange.end[1];
-    const ec = selectionRange.end[2];
-    const minR = Math.min(sr, er);
-    const maxR = Math.max(sr, er);
-    const startCol = getFlattenedCol(sheetData[sr], rowTypes[sr], sm, sc);
-    const endCol = getFlattenedCol(sheetData[er], rowTypes[er], em, ec);
-    const minCol = Math.min(startCol, endCol);
-    const maxCol = Math.max(startCol, endCol);
+    const { start: [sr, sm, sc], end: [er, em, ec] } = selectionRange;
+    const minR = Math.min(sr, er), maxR = Math.max(sr, er);
+    const startCol = getFlattenedCol(sheetData[sr], rowTypes[sr], sm, sc), endCol = getFlattenedCol(sheetData[er], rowTypes[er], em, ec);
+    const minCol = Math.min(startCol, endCol), maxCol = Math.max(startCol, endCol);
 
     const copiedBlock = [];
     for (let r = minR; r <= maxR; r++) {
       if (rowTypes[r] === 'page-break' || rowTypes[r] === 'text') continue;
-      const rowData = [];
-      let currentCol = 0;
+      const rowData = []; let currentCol = 0;
       for (let m = 0; m < sheetData[r].length; m++) {
         if (rowTypes[r].startsWith('double') && m === 0) continue;
         for (let c = 0; c < sheetData[r][m].length; c++) {
-          if (currentCol >= minCol && currentCol <= maxCol) {
-            rowData.push(sheetData[r][m][c]);
-          }
+          if (currentCol >= minCol && currentCol <= maxCol) rowData.push(sheetData[r][m][c]);
           currentCol++;
         }
       }
       if (rowData.length > 0) copiedBlock.push(rowData);
     }
-    setClipboardData(copiedBlock);
-    setSelectionRange(null); 
+    setClipboardData(copiedBlock); setSelectionRange(null); 
   };
 
   const pasteSelection = () => {
@@ -782,53 +622,36 @@ export const MusicProvider = ({ children }) => {
     let lastValidCursor = [r, m, c];
     const startCol = getFlattenedCol(newData[r], rowTypes[r], m, c);
     let currentDataRow = 0;
-
     for (let i = r; i < newData.length && currentDataRow < clipboardData.length; i++) {
        if (rowTypes[i] === 'page-break' || rowTypes[i] === 'text') continue;
        const rowToPaste = clipboardData[currentDataRow];
-       if (typeof rowToPaste === 'string' || !Array.isArray(rowToPaste)) {
-           setClipboardData([]); return;
-       }
-       let colIndex = 0;
-       let pasteIndex = 0;
-       
+       if (typeof rowToPaste === 'string' || !Array.isArray(rowToPaste)) { setClipboardData([]); return; }
+       let colIndex = 0, pasteIndex = 0;
        for (let meas = 0; meas < newData[i].length; meas++) {
           if (rowTypes[i].startsWith('double') && meas === 0) continue;
           for (let cell = 0; cell < newData[i][meas].length; cell++) {
-             if (colIndex >= startCol && pasteIndex < rowToPaste.length) {
-                newData[i][meas][cell] = rowToPaste[pasteIndex];
-                lastValidCursor = [i, meas, cell];
-                pasteIndex++;
-             }
+             if (colIndex >= startCol && pasteIndex < rowToPaste.length) { newData[i][meas][cell] = rowToPaste[pasteIndex]; lastValidCursor = [i, meas, cell]; pasteIndex++; }
              colIndex++;
           }
        }
        currentDataRow++;
     }
-    commitChange(newData); 
-    setSelectedCell(lastValidCursor);
+    commitChange(newData); setSelectedCell(lastValidCursor);
   };
 
   const inputNote = (note) => {
     const newData = [...sheetData];
     let isBlockSelection = false;
     if (selectionRange && selectionRange.start && selectionRange.end) {
-        const sr = selectionRange.start[0], sm = selectionRange.start[1], sc = selectionRange.start[2];
-        const er = selectionRange.end[0], em = selectionRange.end[1], ec = selectionRange.end[2];
-        if (sr !== er || sm !== em || sc !== ec) {
-            isBlockSelection = true;
-        }
+        const { start: [sr, sm, sc], end: [er, em, ec] } = selectionRange;
+        if (sr !== er || sm !== em || sc !== ec) isBlockSelection = true;
     }
 
     if (isBlockSelection) {
-        const sr = selectionRange.start[0], sm = selectionRange.start[1], sc = selectionRange.start[2];
-        const er = selectionRange.end[0], em = selectionRange.end[1], ec = selectionRange.end[2];
-        const minR = Math.min(sr, er);
-        const maxR = Math.max(sr, er);
-        const startCol = getFlattenedCol(sheetData[sr], rowTypes[sr], sm, sc);
-        const endCol = getFlattenedCol(sheetData[er], rowTypes[er], em, ec);
-        const minCol = Math.min(startCol, endCol);
-        const maxCol = Math.max(startCol, endCol);
+        const { start: [sr, sm, sc], end: [er, em, ec] } = selectionRange;
+        const minR = Math.min(sr, er), maxR = Math.max(sr, er);
+        const minCol = Math.min(getFlattenedCol(sheetData[sr], rowTypes[sr], sm, sc), getFlattenedCol(sheetData[er], rowTypes[er], em, ec));
+        const maxCol = Math.max(getFlattenedCol(sheetData[sr], rowTypes[sr], sm, sc), getFlattenedCol(sheetData[er], rowTypes[er], em, ec));
 
         for (let r = minR; r <= maxR; r++) {
           if (rowTypes[r] === 'page-break' || rowTypes[r] === 'text') continue; 
@@ -836,87 +659,54 @@ export const MusicProvider = ({ children }) => {
           for (let m = 0; m < sheetData[r].length; m++) {
             if (rowTypes[r].startsWith('double') && m === 0) continue;
             for (let c = 0; c < sheetData[r][m].length; c++) {
-              if (currentCol >= minCol && currentCol <= maxCol) {
-                 if (note === 'BACKSPACE') {
-                     newData[r][m][c] = '-';
-                 } else {
-                     newData[r][m][c] = note;
-                 }
-              }
+              if (currentCol >= minCol && currentCol <= maxCol) newData[r][m][c] = note === 'BACKSPACE' ? '-' : note;
               currentCol++;
             }
           }
         }
-        if (note !== 'BACKSPACE' && note !== '-') {
-           playNote(currentInstrument.id, note, layoutConfig.volume ?? 100);
-        }
-        commitChange(newData);
-        setSelectionRange(null);
+        if (note !== 'BACKSPACE' && note !== '-') playNote(currentInstrument.id, note, layoutConfig.volume ?? 100);
+        commitChange(newData); setSelectionRange(null);
         return;
     }
 
     setSelectionRange(null); 
     const [row, meas, cell] = selectedCell;
-    if (rowTypes[row] === 'page-break' || rowTypes[row] === 'text') return;
-    if (rowTypes[row].startsWith('double') && meas === 0) return;
+    if (rowTypes[row] === 'page-break' || rowTypes[row] === 'text' || (rowTypes[row].startsWith('double') && meas === 0)) return;
 
     if (note === 'BACKSPACE') {
       newData[row][meas][cell] = '-';
       commitChange(newData);
-      if (cell > 0) {
-          setSelectedCell([row, meas, cell - 1]);
-      } else if (meas > 0) {
+      if (cell > 0) setSelectedCell([row, meas, cell - 1]);
+      else if (meas > 0) {
         if (rowTypes[row].startsWith('double') && meas === 1) {
-          let prevR = row - 1;
-          while (prevR >= 0 && (rowTypes[prevR] === 'page-break' || rowTypes[prevR] === 'text')) prevR--;
+          let prevR = row - 1; while (prevR >= 0 && (rowTypes[prevR] === 'page-break' || rowTypes[prevR] === 'text')) prevR--;
           if (prevR >= 0) setSelectedCell([prevR, sheetData[prevR].length - 1, sheetData[prevR][sheetData[prevR].length - 1].length - 1]);
-        } else {
-          setSelectedCell([row, meas - 1, sheetData[row][meas - 1].length - 1]);
-        }
+        } else setSelectedCell([row, meas - 1, sheetData[row][meas - 1].length - 1]);
       } else {
-          let prevR = row - 1;
-          while (prevR >= 0 && (rowTypes[prevR] === 'page-break' || rowTypes[prevR] === 'text')) prevR--;
+          let prevR = row - 1; while (prevR >= 0 && (rowTypes[prevR] === 'page-break' || rowTypes[prevR] === 'text')) prevR--;
           if (prevR >= 0) setSelectedCell([prevR, sheetData[prevR].length - 1, sheetData[prevR][sheetData[prevR].length - 1].length - 1]);
       }
     } else {
       newData[row][meas][cell] = note;
       playNote(currentInstrument.id, note, layoutConfig.volume ?? 100);
       commitChange(newData);
-      
-      if (cell < sheetData[row][meas].length - 1) {
-          setSelectedCell([row, meas, cell + 1]);
-      } else if (meas < sheetData[row].length - 1) {
-          setSelectedCell([row, meas + 1, 0]);
-      } else {
-          let nextR = row + 1;
-          while (nextR < sheetData.length && (rowTypes[nextR] === 'page-break' || rowTypes[nextR] === 'text')) nextR++;
-          if (nextR < sheetData.length) {
-              setSelectedCell([nextR, rowTypes[nextR].startsWith('double') ? 1 : 0, 0]);
-          }
+      if (cell < sheetData[row][meas].length - 1) setSelectedCell([row, meas, cell + 1]);
+      else if (meas < sheetData[row].length - 1) setSelectedCell([row, meas + 1, 0]);
+      else {
+          let nextR = row + 1; while (nextR < sheetData.length && (rowTypes[nextR] === 'page-break' || rowTypes[nextR] === 'text')) nextR++;
+          if (nextR < sheetData.length) setSelectedCell([nextR, rowTypes[nextR].startsWith('double') ? 1 : 0, 0]);
       }
     }
   };
 
   const addRow = (insertAtTop = false) => {
     setSelectionRange(null); 
-    const rowIdx = selectedCell[0];
-    const newData = [...sheetData];
-    const newRowTypes = [...rowTypes];
-    const newRowMargins = [...rowMargins]; 
-
-    const isTop = insertAtTop === true; 
-    let insertIdx = isTop ? rowIdx : rowIdx + 1;
-    
-    if (isTop) {
-      if (rowTypes[insertIdx] === 'double-left' && rowTypes[insertIdx - 1] === 'double-right') insertIdx -= 1; 
-    } else {
-      if (rowTypes[insertIdx - 1] === 'double-right' && rowTypes[insertIdx] === 'double-left') insertIdx += 1; 
-    }
+    let insertIdx = insertAtTop ? selectedCell[0] : selectedCell[0] + 1;
+    if (insertAtTop && rowTypes[insertIdx] === 'double-left' && rowTypes[insertIdx - 1] === 'double-right') insertIdx -= 1; 
+    else if (!insertAtTop && rowTypes[insertIdx - 1] === 'double-right' && rowTypes[insertIdx] === 'double-left') insertIdx += 1; 
 
     let targetVisualIndex = 0;
-    for (let i = 0; i < insertIdx; i++) {
-      if (rowTypes[i] === 'single' || rowTypes[i] === 'double-right') targetVisualIndex++;
-    }
+    for (let i = 0; i < insertIdx; i++) if (rowTypes[i] === 'single' || rowTypes[i] === 'double-right') targetVisualIndex++;
 
     const newSectionLabels = {};
     Object.keys(sectionLabels).forEach(key => {
@@ -925,40 +715,29 @@ export const MusicProvider = ({ children }) => {
       else newSectionLabels[k + 1] = sectionLabels[k];
     });
 
+    const newData = [...sheetData], newRowTypes = [...rowTypes], newRowMargins = [...rowMargins];
     newData.splice(insertIdx, 0, Array(8).fill().map(() => Array(4).fill('-')));
     newRowTypes.splice(insertIdx, 0, 'single');
     newRowMargins.splice(insertIdx, 0, { top: 0, bottom: 0, left: 0 }); 
 
-    const newSymbols = symbols.map(sym => {
-      const newStartR = sym.start[0] >= insertIdx ? sym.start[0] + 1 : sym.start[0];
-      const newEndR = sym.end[0] >= insertIdx ? sym.end[0] + 1 : sym.end[0];
-      return { ...sym, start: [newStartR, sym.start[1], sym.start[2]], end: [newEndR, sym.end[1], sym.end[2]] };
-    });
+    const newSymbols = symbols.map(sym => ({
+      ...sym,
+      start: [sym.start[0] >= insertIdx ? sym.start[0] + 1 : sym.start[0], sym.start[1], sym.start[2]],
+      end: [sym.end[0] >= insertIdx ? sym.end[0] + 1 : sym.end[0], sym.end[1], sym.end[2]]
+    }));
 
     commitChange(newData, newRowTypes, newSectionLabels, newSymbols, newRowMargins);
-    if (isTop) setSelectedCell([insertIdx + 1, 0, 0]);
+    if (insertAtTop) setSelectedCell([insertIdx + 1, 0, 0]);
   };
 
   const addDoubleRow = (insertAtTop = false) => {
     setSelectionRange(null); 
-    const rowIdx = selectedCell[0];
-    const newData = [...sheetData];
-    const newRowTypes = [...rowTypes];
-    const newRowMargins = [...rowMargins]; 
-
-    const isTop = insertAtTop === true;
-    let insertIdx = isTop ? rowIdx : rowIdx + 1;
-    
-    if (isTop) {
-      if (rowTypes[insertIdx] === 'double-left' && rowTypes[insertIdx - 1] === 'double-right') insertIdx -= 1;
-    } else {
-      if (rowTypes[insertIdx - 1] === 'double-right' && rowTypes[insertIdx] === 'double-left') insertIdx += 1;
-    }
+    let insertIdx = insertAtTop ? selectedCell[0] : selectedCell[0] + 1;
+    if (insertAtTop && rowTypes[insertIdx] === 'double-left' && rowTypes[insertIdx - 1] === 'double-right') insertIdx -= 1;
+    else if (!insertAtTop && rowTypes[insertIdx - 1] === 'double-right' && rowTypes[insertIdx] === 'double-left') insertIdx += 1;
 
     let targetVisualIndex = 0;
-    for (let i = 0; i < insertIdx; i++) {
-      if (rowTypes[i] === 'single' || rowTypes[i] === 'double-right') targetVisualIndex++;
-    }
+    for (let i = 0; i < insertIdx; i++) if (rowTypes[i] === 'single' || rowTypes[i] === 'double-right') targetVisualIndex++;
 
     const newSectionLabels = {};
     Object.keys(sectionLabels).forEach(key => {
@@ -967,184 +746,122 @@ export const MusicProvider = ({ children }) => {
       else newSectionLabels[k + 1] = sectionLabels[k];
     });
 
+    const newData = [...sheetData], newRowTypes = [...rowTypes], newRowMargins = [...rowMargins];
     newData.splice(insertIdx, 0, [['มือขวา'], ...Array(8).fill().map(() => Array(4).fill('-'))], [['มือซ้าย'], ...Array(8).fill().map(() => Array(4).fill('-'))]);
     newRowTypes.splice(insertIdx, 0, 'double-right', 'double-left');
     newRowMargins.splice(insertIdx, 0, { top: 0, bottom: 0, left: 0 }, { top: 0, bottom: 0, left: 0 }); 
 
-    const newSymbols = symbols.map(sym => {
-      const newStartR = sym.start[0] >= insertIdx ? sym.start[0] + 2 : sym.start[0];
-      const newEndR = sym.end[0] >= insertIdx ? sym.end[0] + 2 : sym.end[0];
-      return { ...sym, start: [newStartR, sym.start[1], sym.start[2]], end: [newEndR, sym.end[1], sym.end[2]] };
-    });
+    const newSymbols = symbols.map(sym => ({
+      ...sym,
+      start: [sym.start[0] >= insertIdx ? sym.start[0] + 2 : sym.start[0], sym.start[1], sym.start[2]],
+      end: [sym.end[0] >= insertIdx ? sym.end[0] + 2 : sym.end[0], sym.end[1], sym.end[2]]
+    }));
 
     commitChange(newData, newRowTypes, newSectionLabels, newSymbols, newRowMargins);
-    if (isTop) setSelectedCell([insertIdx + 2, 0, 0]);
+    if (insertAtTop) setSelectedCell([insertIdx + 2, 0, 0]);
   };
 
   const addPageBreak = (insertAtTop = false) => {
     setSelectionRange(null);
-    const rowIdx = selectedCell[0];
-    const newData = [...sheetData];
-    const newRowTypes = [...rowTypes];
-    const newRowMargins = [...rowMargins]; 
+    let insertIdx = insertAtTop ? selectedCell[0] : selectedCell[0] + 1;
+    if (insertAtTop && rowTypes[insertIdx] === 'double-left' && rowTypes[insertIdx - 1] === 'double-right') insertIdx -= 1;
+    else if (!insertAtTop && rowTypes[insertIdx - 1] === 'double-right' && rowTypes[insertIdx] === 'double-left') insertIdx += 1;
 
-    const isTop = insertAtTop === true;
-    let insertIdx = isTop ? rowIdx : rowIdx + 1;
-    
-    if (isTop) {
-      if (rowTypes[insertIdx] === 'double-left' && rowTypes[insertIdx - 1] === 'double-right') insertIdx -= 1;
-    } else {
-      if (rowTypes[insertIdx - 1] === 'double-right' && rowTypes[insertIdx] === 'double-left') insertIdx += 1;
-    }
-
+    const newData = [...sheetData], newRowTypes = [...rowTypes], newRowMargins = [...rowMargins];
     newData.splice(insertIdx, 0, Array(8).fill().map(() => Array(4).fill('-')));
     newRowTypes.splice(insertIdx, 0, 'page-break');
     newRowMargins.splice(insertIdx, 0, { top: 0, bottom: 0, left: 0 }); 
 
-    const newSymbols = symbols.map(sym => {
-      const newStartR = sym.start[0] >= insertIdx ? sym.start[0] + 1 : sym.start[0];
-      const newEndR = sym.end[0] >= insertIdx ? sym.end[0] + 1 : sym.end[0];
-      return { ...sym, start: [newStartR, sym.start[1], sym.start[2]], end: [newEndR, sym.end[1], sym.end[2]] };
-    });
-
-    const newSectionLabels = { ...sectionLabels };
-    commitChange(newData, newRowTypes, newSectionLabels, newSymbols, newRowMargins);
+    const newSymbols = symbols.map(sym => ({
+      ...sym,
+      start: [sym.start[0] >= insertIdx ? sym.start[0] + 1 : sym.start[0], sym.start[1], sym.start[2]],
+      end: [sym.end[0] >= insertIdx ? sym.end[0] + 1 : sym.end[0], sym.end[1], sym.end[2]]
+    }));
+    commitChange(newData, newRowTypes, { ...sectionLabels }, newSymbols, newRowMargins);
     setSelectedCell([insertIdx, 0, 0]);
   };
 
   const addTextRow = (insertAtTop = false) => {
     setSelectionRange(null);
-    const rowIdx = selectedCell[0];
-    const newData = [...sheetData];
-    const newRowTypes = [...rowTypes];
-    const newRowMargins = [...rowMargins]; 
+    let insertIdx = insertAtTop ? selectedCell[0] : selectedCell[0] + 1;
+    if (insertAtTop && rowTypes[insertIdx] === 'double-left' && rowTypes[insertIdx - 1] === 'double-right') insertIdx -= 1;
+    else if (!insertAtTop && rowTypes[insertIdx - 1] === 'double-right' && rowTypes[insertIdx] === 'double-left') insertIdx += 1;
 
-    const isTop = insertAtTop === true;
-    let insertIdx = isTop ? rowIdx : rowIdx + 1;
-    
-    if (isTop) {
-      if (rowTypes[insertIdx] === 'double-left' && rowTypes[insertIdx - 1] === 'double-right') insertIdx -= 1;
-    } else {
-      if (rowTypes[insertIdx - 1] === 'double-right' && rowTypes[insertIdx] === 'double-left') insertIdx += 1;
-    }
-
+    const newData = [...sheetData], newRowTypes = [...rowTypes], newRowMargins = [...rowMargins];
     newData.splice(insertIdx, 0, [[""]]); 
     newRowTypes.splice(insertIdx, 0, 'text');
     newRowMargins.splice(insertIdx, 0, { top: 0, bottom: 0, left: 0 }); 
 
-    const newSymbols = symbols.map(sym => {
-      const newStartR = sym.start[0] >= insertIdx ? sym.start[0] + 1 : sym.start[0];
-      const newEndR = sym.end[0] >= insertIdx ? sym.end[0] + 1 : sym.end[0];
-      return { ...sym, start: [newStartR, sym.start[1], sym.start[2]], end: [newEndR, sym.end[1], sym.end[2]] };
-    });
-
-    const newSectionLabels = { ...sectionLabels };
-    commitChange(newData, newRowTypes, newSectionLabels, newSymbols, newRowMargins);
-    
-    setTimeout(() => {
-      setSelectedCell([insertIdx, 0, 0]);
-    }, 10);
+    const newSymbols = symbols.map(sym => ({
+      ...sym,
+      start: [sym.start[0] >= insertIdx ? sym.start[0] + 1 : sym.start[0], sym.start[1], sym.start[2]],
+      end: [sym.end[0] >= insertIdx ? sym.end[0] + 1 : sym.end[0], sym.end[1], sym.end[2]]
+    }));
+    commitChange(newData, newRowTypes, { ...sectionLabels }, newSymbols, newRowMargins);
+    setTimeout(() => { setSelectedCell([insertIdx, 0, 0]); }, 10);
   };
 
-  const updateTextRow = (rIndex, text) => {
-    const newData = [...sheetData];
-    newData[rIndex] = [[text]];
-    setSheetData(newData); 
-  };
+  const updateTextRow = (rIndex, text) => { const newData = [...sheetData]; newData[rIndex] = [[text]]; setSheetData(newData); };
 
   const removeRow = () => {
     setSelectionRange(null); 
     const rowIdx = selectedCell[0];
-    
-    const newData = [...sheetData];
-    const newRowTypes = [...rowTypes];
-    const newRowMargins = [...rowMargins]; 
-    
-    let deleteCount = 1;
-    let startIndex = rowIdx;
+    let deleteCount = 1, startIndex = rowIdx;
 
-    if (rowTypes[rowIdx] === 'single' || rowTypes[rowIdx] === 'page-break' || rowTypes[rowIdx] === 'text') {
-      deleteCount = 1;
-    } else if (rowTypes[rowIdx] === 'double-right') {
-      deleteCount = 2;
-    } else if (rowTypes[rowIdx] === 'double-left') {
-      startIndex = rowIdx - 1;
-      deleteCount = 2;
-    }
+    if (rowTypes[rowIdx] === 'double-right') deleteCount = 2;
+    else if (rowTypes[rowIdx] === 'double-left') { startIndex = rowIdx - 1; deleteCount = 2; }
 
-    if (newData.length - deleteCount <= 0) {
-      const emptyRow = Array(8).fill().map(() => Array(4).fill('-'));
-      commitChange([emptyRow], ['single'], {}, [], [{ top: 0, bottom: 0, left: 0 }]); 
-      setSelectedCell([0, 0, 0]);
-      return;
+    if (sheetData.length - deleteCount <= 0) {
+      commitChange([[...Array(8).fill().map(() => Array(4).fill('-'))]], ['single'], {}, [], [{ top: 0, bottom: 0, left: 0 }]); 
+      setSelectedCell([0, 0, 0]); return;
     }
 
     const isNoteRow = rowTypes[startIndex] === 'single' || rowTypes[startIndex] === 'double-right';
     const newSectionLabels = {};
-
-    if (!isNoteRow) {
-      Object.assign(newSectionLabels, sectionLabels);
-    } else {
+    if (!isNoteRow) Object.assign(newSectionLabels, sectionLabels);
+    else {
       let startVisualIndex = 0;
-      for(let i = 0; i < startIndex; i++) {
-          if (rowTypes[i] === 'single' || rowTypes[i] === 'double-right') startVisualIndex++;
-      }
-
+      for(let i = 0; i < startIndex; i++) if (rowTypes[i] === 'single' || rowTypes[i] === 'double-right') startVisualIndex++;
       Object.keys(sectionLabels).forEach(key => {
           const k = parseInt(key);
-          if (k < startVisualIndex) {
-              newSectionLabels[k] = sectionLabels[k];
-          } else if (k > startVisualIndex) {
-              newSectionLabels[k - 1] = sectionLabels[k];
-          }
+          if (k < startVisualIndex) newSectionLabels[k] = sectionLabels[k];
+          else if (k > startVisualIndex) newSectionLabels[k - 1] = sectionLabels[k];
       });
     }
 
-    newData.splice(startIndex, deleteCount);
-    newRowTypes.splice(startIndex, deleteCount);
-    newRowMargins.splice(startIndex, deleteCount); 
+    const newData = [...sheetData], newRowTypes = [...rowTypes], newRowMargins = [...rowMargins];
+    newData.splice(startIndex, deleteCount); newRowTypes.splice(startIndex, deleteCount); newRowMargins.splice(startIndex, deleteCount); 
 
     const newSymbols = [];
     symbols.forEach(sym => {
-      const isDeleted = (sym.start[0] >= startIndex && sym.start[0] < startIndex + deleteCount) ||
-                        (sym.end[0] >= startIndex && sym.end[0] < startIndex + deleteCount);
-      if (!isDeleted) {
-        const newStartR = sym.start[0] > startIndex ? sym.start[0] - deleteCount : sym.start[0];
-        const newEndR = sym.end[0] > startIndex ? sym.end[0] - deleteCount : sym.end[0];
+      if (!((sym.start[0] >= startIndex && sym.start[0] < startIndex + deleteCount) || (sym.end[0] >= startIndex && sym.end[0] < startIndex + deleteCount))) {
         newSymbols.push({
           ...sym,
-          start: [newStartR, sym.start[1], sym.start[2]],
-          end: [newEndR, sym.end[1], sym.end[2]]
+          start: [sym.start[0] > startIndex ? sym.start[0] - deleteCount : sym.start[0], sym.start[1], sym.start[2]],
+          end: [sym.end[0] > startIndex ? sym.end[0] - deleteCount : sym.end[0], sym.end[1], sym.end[2]]
         });
       }
     });
 
     commitChange(newData, newRowTypes, newSectionLabels, newSymbols, newRowMargins);
-
-    let nextRow = startIndex;
-    if (nextRow >= newData.length) nextRow = newData.length - 1;
-    const nextMeas = newRowTypes[nextRow].startsWith('double') ? 1 : 0;
-    setSelectedCell([nextRow, nextMeas, 0]);
+    let nextRow = startIndex >= newData.length ? newData.length - 1 : startIndex;
+    setSelectedCell([nextRow, newRowTypes[nextRow].startsWith('double') ? 1 : 0, 0]);
   };
 
   const addNoteColumn = () => {
     setSelectionRange(null); 
     const [rowIdx, measIdx, cellIdx] = selectedCell;
-    if (rowTypes[rowIdx] === 'page-break' || rowTypes[rowIdx] === 'text') return;
-    if (rowTypes[rowIdx].startsWith('double') && measIdx === 0) return; 
-    const newData = [...sheetData];
-    newData[rowIdx][measIdx].splice(cellIdx + 1, 0, '-');
+    if (rowTypes[rowIdx] === 'page-break' || rowTypes[rowIdx] === 'text' || (rowTypes[rowIdx].startsWith('double') && measIdx === 0)) return; 
+    const newData = [...sheetData]; newData[rowIdx][measIdx].splice(cellIdx + 1, 0, '-');
     commitChange(newData);
   };
 
   const removeNoteColumn = () => {
     setSelectionRange(null); 
     const [rowIdx, measIdx, cellIdx] = selectedCell;
-    if (rowTypes[rowIdx] === 'page-break' || rowTypes[rowIdx] === 'text') return;
-    if (rowTypes[rowIdx].startsWith('double') && measIdx === 0) return; 
+    if (rowTypes[rowIdx] === 'page-break' || rowTypes[rowIdx] === 'text' || (rowTypes[rowIdx].startsWith('double') && measIdx === 0)) return; 
     if (sheetData[rowIdx][measIdx].length > 1) {
-      const newData = [...sheetData];
-      newData[rowIdx][measIdx].splice(cellIdx, 1);
+      const newData = [...sheetData]; newData[rowIdx][measIdx].splice(cellIdx, 1);
       commitChange(newData);
       if (cellIdx >= newData[rowIdx][measIdx].length) setSelectedCell([rowIdx, measIdx, newData[rowIdx][measIdx].length - 1]);
     }
@@ -1164,10 +881,8 @@ export const MusicProvider = ({ children }) => {
   const removeMeasure = () => {
     setSelectionRange(null); 
     const [rowIdx, measIdx] = selectedCell;
-    if (rowTypes[rowIdx] === 'page-break' || rowTypes[rowIdx] === 'text') return;
-    if (rowTypes[rowIdx].startsWith('double') && measIdx === 0) return; 
-    const minLength = rowTypes[rowIdx].startsWith('double') ? 2 : 1;
-    if (sheetData[rowIdx].length > minLength) {
+    if (rowTypes[rowIdx] === 'page-break' || rowTypes[rowIdx] === 'text' || (rowTypes[rowIdx].startsWith('double') && measIdx === 0)) return; 
+    if (sheetData[rowIdx].length > (rowTypes[rowIdx].startsWith('double') ? 2 : 1)) {
       const newData = [...sheetData];
       if (rowTypes[rowIdx] === 'single') newData[rowIdx].splice(measIdx, 1);
       else if (rowTypes[rowIdx] === 'double-right') { newData[rowIdx].splice(measIdx, 1); newData[rowIdx + 1].splice(measIdx, 1); }
@@ -1177,50 +892,18 @@ export const MusicProvider = ({ children }) => {
     }
   };
 
-  const addSectionLabel = (visualIndex) => {
-    const currentLabels = sectionLabels[visualIndex] || [];
-    const newLabel = { id: Date.now(), text: "ท่อน ", position: 'top-left', fontSize: 18, isBold: true, offsetY: 6 };
-    commitChange(sheetData, rowTypes, { ...sectionLabels, [visualIndex]: [...currentLabels, newLabel] });
-  };
-
-  const updateSectionLabel = (visualIndex, labelId, updates) => {
-    const currentLabels = sectionLabels[visualIndex] || [];
-    const updatedLabels = currentLabels.map(label => label.id === labelId ? { ...label, ...updates } : label);
-    commitChange(sheetData, rowTypes, { ...sectionLabels, [visualIndex]: updatedLabels });
-  };
-
+  const addSectionLabel = (visualIndex) => commitChange(sheetData, rowTypes, { ...sectionLabels, [visualIndex]: [...(sectionLabels[visualIndex] || []), { id: Date.now(), text: "ท่อน ", position: 'top-left', fontSize: 18, isBold: true, offsetY: 6 }] });
+  const updateSectionLabel = (visualIndex, labelId, updates) => commitChange(sheetData, rowTypes, { ...sectionLabels, [visualIndex]: (sectionLabels[visualIndex] || []).map(l => l.id === labelId ? { ...l, ...updates } : l) });
   const removeSectionLabel = (visualIndex, labelId) => {
-    const currentLabels = sectionLabels[visualIndex] || [];
-    const filteredLabels = currentLabels.filter(label => label.id !== labelId);
-    const newState = { ...sectionLabels };
-    if (filteredLabels.length > 0) newState[visualIndex] = filteredLabels;
-    else delete newState[visualIndex];
+    const newState = { ...sectionLabels }, filtered = (sectionLabels[visualIndex] || []).filter(l => l.id !== labelId);
+    if (filtered.length > 0) newState[visualIndex] = filtered; else delete newState[visualIndex];
     commitChange(sheetData, rowTypes, newState);
   };
 
   const saveProject = () => {
-    const projectData = {
-      songName, 
-      sheetData, 
-      rowTypes, 
-      sectionLabels, 
-      symbols, 
-      layoutConfig, 
-      headerDetails, 
-      currentInstrument: currentInstrument.id, 
-      rowMargins,
-      playbackSequence // ⭐ 1. แพ็กข้อมูลลำดับการเล่นใส่ไฟล์ไปด้วย
-    };
-    const blob = new Blob([JSON.stringify(projectData, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    
-    // ⭐ 2. เปลี่ยนนามสกุลไฟล์ส่งออกเป็น .tme (Thai Music Editor)
-    a.download = `${songName || 'my-song'}.tme`;
-    
-    a.click();
-    URL.revokeObjectURL(url);
+    const projectData = { songName, sheetData, rowTypes, sectionLabels, symbols, layoutConfig, headerDetails, currentInstrument: currentInstrument.id, rowMargins, playbackSequence };
+    const url = URL.createObjectURL(new Blob([JSON.stringify(projectData, null, 2)], { type: 'application/json' }));
+    const a = document.createElement('a'); a.href = url; a.download = `${songName || 'my-song'}.tme`; a.click(); URL.revokeObjectURL(url);
   };
 
   const loadProject = (file) => {
@@ -1236,53 +919,33 @@ export const MusicProvider = ({ children }) => {
         if (data.symbols) setSymbols(data.symbols);
         if (data.layoutConfig) setLayoutConfig(data.layoutConfig);
         if (data.headerDetails) setHeaderDetails(data.headerDetails);
-        if (data.currentInstrument && INSTRUMENT_CONFIG[data.currentInstrument]) {
-          setCurrentInstrument(INSTRUMENT_CONFIG[data.currentInstrument]);
-        }
-        
+        if (data.currentInstrument && INSTRUMENT_CONFIG[data.currentInstrument]) setCurrentInstrument(INSTRUMENT_CONFIG[data.currentInstrument]);
         const loadedMargins = data.rowMargins || Array(data.sheetData?.length || 4).fill({ top: 0, bottom: 0, left: 0 });
         setRowMargins(loadedMargins);
-
-        setSelectedCell([0, 0, 0]);
-        setSelectionRange(null);
+        setSelectedCell([0, 0, 0]); setSelectionRange(null);
         commitChange(data.sheetData, data.rowTypes, data.sectionLabels, data.symbols, loadedMargins);
-      } catch (error) {
-        alert("ไฟล์ไม่ถูกต้อง หรือไฟล์เสียหายครับ!");
-      }
+      } catch (error) { alert("ไฟล์ไม่ถูกต้อง หรือไฟล์เสียหายครับ!"); }
     };
     reader.readAsText(file);
   };
 
   const newProject = () => {
     if (window.confirm("คุณต้องการสร้างกระดาษใหม่ใช่หรือไม่? (ข้อมูลที่ยังไม่ได้เซฟจะหายไปทั้งหมด)")) {
-      const initialSheet = Array(4).fill().map(() => Array(8).fill().map(() => Array(4).fill('-')));
-      const initialRowTypes = Array(4).fill('single');
-      const initialRowMargins = Array(4).fill({ top: 0, bottom: 0, left: 0 });
-      
-      setSongName("เพลงใหม่");
-      setSheetData(initialSheet);
-      setRowTypes(initialRowTypes);
-      setRowMargins(initialRowMargins);
-      setSectionLabels({});
-      setSymbols([]);
-      setHeaderDetails([
-        { id: 1, label: "อัตราจังหวะ", value: "๒ ชั้น" },
-        { id: 2, label: "หน้าทับ", value: "สองไม้" },
-        { id: 3, label: "บันไดเสียง", value: "ทางเพียงออ" },
-        { id: 4, label: "ผู้บันทึก", value: "9atony" }
-      ]);
-      setSelectedCell([0, 0, 0]);
-      setSelectionRange(null);
-      setHistoryIndex(-1);
-      setHistory([]);
-      localStorage.removeItem('thaiMusicEditorAutoSave');
-      commitChange(initialSheet, initialRowTypes, {}, [], initialRowMargins);
+      const initSheet = Array(4).fill().map(() => Array(8).fill().map(() => Array(4).fill('-'))), initType = Array(4).fill('single'), initMar = Array(4).fill({ top: 0, bottom: 0, left: 0 });
+      setSongName("เพลงใหม่"); setSheetData(initSheet); setRowTypes(initType); setRowMargins(initMar); setSectionLabels({}); setSymbols([]);
+      setHeaderDetails([{ id: 1, label: "อัตราจังหวะ", value: "๒ ชั้น" }, { id: 2, label: "หน้าทับ", value: "สองไม้" }, { id: 3, label: "บันไดเสียง", value: "ทางเพียงออ" }, { id: 4, label: "ผู้บันทึก", value: "9atony" }]);
+      setSelectedCell([0, 0, 0]); setSelectionRange(null); setHistoryIndex(-1); setHistory([]); localStorage.removeItem('thaiMusicEditorAutoSave');
+      commitChange(initSheet, initType, {}, [], initMar);
     }
   };
 
-  const visualRowCount = useMemo(() => {
-    return rowTypes.filter(type => type === 'single' || type === 'double-right').length;
-  }, [rowTypes]);
+  const visualRowCount = useMemo(() => rowTypes.filter(type => type === 'single' || type === 'double-right').length, [rowTypes]);
+
+  // เปลี่ยนชื่อจาก togglePlayback เป็น stopPlayback / startPlayback (เรียกใช้งานใน NowPlaying)
+  const togglePlay = () => {
+    if (isPlaying) stopPlayback();
+    else startPlayback();
+  };
 
   return (
     <MusicContext.Provider value={{ 
@@ -1294,7 +957,7 @@ export const MusicProvider = ({ children }) => {
       startSelection, updateSelection, endSelection, copySelection, pasteSelection, clipboardData,
       saveProject, loadProject, newProject,
       undo, redo, canUndo: historyIndex > 0, canRedo: historyIndex < history.length - 1,
-      isPlaying, playbackCursor, startPlayback, stopPlayback,
+      isPlaying, playbackCursor, startPlayback, stopPlayback, togglePlay, // ⭐ ส่ง togglePlay ออกไป
       symbols, addSymbol, updateSymbol, removeSymbol, removeSymbolByCell,
       selectedSymbolId, setSelectedSymbolId,
       isOctaveMode, setIsOctaveMode,
@@ -1304,7 +967,10 @@ export const MusicProvider = ({ children }) => {
       playbackSequence, setPlaybackSequence,
       activeSequenceIdx, activeLoop,
 
-      toolbarMode, setToolbarMode
+      toolbarMode, setToolbarMode,
+
+      // ⭐ ส่งค่าเวลาออกไปให้หน้า Mobile
+      currentTime, totalTime
     }}>
       {children}
     </MusicContext.Provider>
