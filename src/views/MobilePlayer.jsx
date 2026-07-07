@@ -1,9 +1,19 @@
-import React, { useState } from 'react';
+import React, { useState, useContext } from 'react';
+import { MusicContext } from '../contexts/MusicContext';
 import NowPlaying from '../components/player/NowPlaying';
 import MobileQueue from '../components/player/MobileQueue';
+import MobileHome from '../components/player/MobileHome'; // นำเข้า Home ใหม่
 
 const MobilePlayer = () => {
+  const { sheetData } = useContext(MusicContext); // ดึงค่าเพื่อเช็กว่ามีเพลงหรือยัง
   const [isQueueOpen, setIsQueueOpen] = useState(false);
+
+  // ตรวจสอบง่ายๆ ว่าถ้า sheetData ยังเป็นค่าเริ่มต้น แสดงว่ายังไม่มีเพลง
+  const hasSong = sheetData && sheetData.length > 0 && sheetData[0][0][0] !== '-';
+
+  if (!hasSong) {
+    return <MobileHome />; // ถ้ายังไม่มีเพลง ให้โชว์หน้าเลือกไฟล์
+  }
 
   return (
     <div className="h-[100dvh] w-full bg-slate-900 overflow-hidden relative font-sans">
