@@ -98,6 +98,7 @@ export const MusicProvider = ({ children }) => {
   const [totalTime, setTotalTime] = useState(0);
   const uiTimerRef = useRef(null);
   const playbackStartTimeRef = useRef(0);
+  const seekOffsetRef = useRef(0);
   
   const playbackTimerRef = useRef(null);
   const effectTimersRef = useRef([]);
@@ -199,15 +200,16 @@ export const MusicProvider = ({ children }) => {
         calcTotalMs += (sectionMs * seqItem.loops);
       }
     });
-    setTotalTime(Math.floor(calcTotalMs / 1000));
-    setCurrentTime(0);
+    const totalSeconds = Math.floor(calcTotalMs / 1000);
+    setTotalTime(totalSeconds);
+    setCurrentTime(Math.floor(seekOffsetRef.current));
 
     // ⭐ เริ่มจับเวลา (เดินหน้าทุกๆ 1 วินาที)
-    playbackStartTimeRef.current = performance.now();
+    playbackStartTimeRef.current = performance.now() - (seekOffsetRef.current * 1000);
     if (uiTimerRef.current) clearInterval(uiTimerRef.current);
     uiTimerRef.current = setInterval(() => {
       const elapsed = Math.floor((performance.now() - playbackStartTimeRef.current) / 1000);
-      setCurrentTime(elapsed);
+      setCurrentTime(Math.min(elapsed, totalSeconds));
     }, 1000);
 
     effectTimersRef.current.forEach(t => clearTimeout(t));
@@ -227,10 +229,15 @@ export const MusicProvider = ({ children }) => {
          if (foundIdx !== -1) startSeqIdx = foundIdx;
     }
 
-    activeSequenceIdxRef.current = startSeqIdx;
-    activeLoopRef.current = 1;
-    setActiveSequenceIdx(startSeqIdx);
-    setActiveLoop(1);
+    if (seekOffsetRef.current > 0) {
+      setActiveSequenceIdx(activeSequenceIdxRef.current);
+      setActiveLoop(activeLoopRef.current);
+    } else {
+      activeSequenceIdxRef.current = startSeqIdx;
+      activeLoopRef.current = 1;
+      setActiveSequenceIdx(startSeqIdx);
+      setActiveLoop(1);
+    }
 
     let expectedNextTick;
 
@@ -443,6 +450,7 @@ export const MusicProvider = ({ children }) => {
         clearInterval(uiTimerRef.current);
         uiTimerRef.current = null;
     }
+    seekOffsetRef.current = 0;
     setCurrentTime(0);
   };
 
@@ -941,6 +949,82 @@ export const MusicProvider = ({ children }) => {
 
   const visualRowCount = useMemo(() => rowTypes.filter(type => type === 'single' || type === 'double-right').length, [rowTypes]);
 
+  // ⭐ ฟังก์ชัน Seek - เลื่อนเส้นเวลาได้
+  const seek = (targetSeconds) => {
+    if (!isLoaded || !sheetDataRef.current) return;
+    const targetMs = targetSeconds * 1000;
+    const currentSheetData = sheetDataRef.current;
+    const currentRowTypes = rowTypesRef.current;
+    const currentSectionLabels = sectionLabelsRef.current;
+
+    // สร้าง sheetSections (เหมือนใน startPlayback)
+    const sheetSections = [];
+    let lastValidRow = 0;
+    let lastProcessedVIdx = -1;
+    for (let r = 0; r < currentSheetData.length; r++) {
+      if (currentRowTypes[r] === 'page-break' || currentRowTypes[r] === 'text') continue;
+      const vIdx = getVisualIndex(r, currentRowTypes);
+      const labels = currentSectionLabels[vIdx] || [];
+      const validLabels = labels.filter(l => !l.text.includes('กลับต้น') && l.text.trim() !== '');
+      if (validLabels.length > 0 && vIdx !== lastProcessedVIdx) {
+        if (sheetSections.length > 0) sheetSections[sheetSections.length - 1].endRow = lastValidRow;
+        sheetSections.push({ label: validLabels[0].text.trim(), startRow: r, endRow: currentSheetData.length - 1 });
+        lastProcessedVIdx = vIdx;
+      }
+      lastValidRow = r;
+      if (currentRowTypes[r] === 'double-right') lastValidRow = r + 1;
+    }
+    if (sheetSections.length > 0) sheetSections[sheetSections.length - 1].endRow = lastValidRow;
+
+    // สร้าง time map และหา cell ที่ตรงกับเวลาที่ต้องการ
+    const currentBpm = layoutConfigRef.current.bpm || 80;
+    const seq = playbackSequenceRef.current;
+    let elapsedMs = 0;
+    let foundCell = null;
+
+    for (let seqIdx = 0; seqIdx < seq.length && !foundCell; seqIdx++) {
+      const section = sheetSections.find(s => s.label === seq[seqIdx].label.trim());
+      if (!section) continue;
+      for (let loop = 1; loop <= seq[seqIdx].loops && !foundCell; loop++) {
+        for (let r = section.startRow; r <= section.endRow && !foundCell; r++) {
+          if (currentRowTypes[r] === 'page-break' || currentRowTypes[r] === 'text' || currentRowTypes[r] === 'double-left') continue;
+          const startM = currentRowTypes[r].startsWith('double') ? 1 : 0;
+          for (let m = startM; m < currentSheetData[r].length && !foundCell; m++) {
+            const cellCount = currentSheetData[r][m].length;
+            if (cellCount > 0) {
+              const standardMsPerCell = 15000 / currentBpm;
+              const msPerCell = Math.floor(standardMsPerCell * (4 / cellCount));
+              for (let c = 0; c < cellCount; c++) {
+                if (elapsedMs >= targetMs) {
+                  foundCell = { r, m, c, seqIdx, loop, elapsedMs };
+                  break;
+                }
+                elapsedMs += msPerCell;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    const wasPlaying = isPlayingRef.current;
+    seekOffsetRef.current = foundCell ? foundCell.elapsedMs / 1000 : targetSeconds;
+
+    if (foundCell) {
+      setSelectedCell([foundCell.r, foundCell.m, foundCell.c]);
+      activeSequenceIdxRef.current = foundCell.seqIdx;
+      activeLoopRef.current = foundCell.loop;
+    }
+
+    if (wasPlaying) {
+      stopPlayback();
+      seekOffsetRef.current = foundCell ? foundCell.elapsedMs / 1000 : targetSeconds;
+      setTimeout(() => startPlayback(), 100);
+    } else {
+      setCurrentTime(targetSeconds);
+    }
+  };
+
   // เปลี่ยนชื่อจาก togglePlayback เป็น stopPlayback / startPlayback (เรียกใช้งานใน NowPlaying)
   const togglePlay = () => {
     if (isPlaying) stopPlayback();
@@ -970,7 +1054,8 @@ export const MusicProvider = ({ children }) => {
       toolbarMode, setToolbarMode,
 
       // ⭐ ส่งค่าเวลาออกไปให้หน้า Mobile
-      currentTime, totalTime
+      currentTime, totalTime, seek,
+      INSTRUMENT_CONFIG
     }}>
       {children}
     </MusicContext.Provider>
