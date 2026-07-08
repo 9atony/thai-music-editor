@@ -31,11 +31,11 @@ const MobileHome = ({ hasSong = false, onProjectPicked, onContinue }) => {
         <label className="block w-full bg-slate-900 text-white py-4 rounded-2xl font-bold text-center shadow-lg active:scale-95 transition-transform cursor-pointer">
           <input
             type="file"
-            accept=".tme"
+            accept=".tme,.thai"
             className="hidden"
             onChange={handleFileChange}
           />
-          เลือกไฟล์ .tme
+          เลือกไฟล์ .tme และ .thai
         </label>
 
         {hasSong && (
