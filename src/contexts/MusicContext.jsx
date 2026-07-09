@@ -75,13 +75,13 @@ export const MusicProvider = ({ children }) => {
   const [isOctaveMode, setIsOctaveMode] = useState(false);
   const [toolbarMode, setToolbarMode] = useState('default');
 
-  const [playbackSequence, setPlaybackSequence] = useState([
-    { id: 1, label: 'ท่อน 1', loops: 2 },
-    { id: 2, label: 'ท่อน 2', loops: 2 },
-    { id: 3, label: 'ท่อน 1', loops: 1 }
-  ]); 
+  const [playbackSequence, setPlaybackSequence] = useState([]); 
   const [activeSequenceIdx, setActiveSequenceIdx] = useState(0); 
   const [activeLoop, setActiveLoop] = useState(1); 
+  
+  const [isLoopAll, setIsLoopAll] = useState(false);
+  // ⭐ ฟีเจอร์วนลูปท่อนเดียว (Loop One)
+  const [isLoopOne, setIsLoopOne] = useState(false);
 
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState(null);
@@ -93,7 +93,6 @@ export const MusicProvider = ({ children }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackCursor, setPlaybackCursor] = useState(null);
 
-  // ⭐ สเตตัสใหม่สำหรับทำแถบเวลา
   const [currentTime, setCurrentTime] = useState(0); 
   const [totalTime, setTotalTime] = useState(0);
   const uiTimerRef = useRef(null);
@@ -123,6 +122,8 @@ export const MusicProvider = ({ children }) => {
   const playbackSequenceRef = useRef(playbackSequence);
   const activeSequenceIdxRef = useRef(0);
   const activeLoopRef = useRef(1);
+  const isLoopAllRef = useRef(isLoopAll); 
+  const isLoopOneRef = useRef(isLoopOne); // ⭐ Ref สำหรับลูปท่อนเดียว
   const sheetMapRef = useRef([]);
 
   useEffect(() => { layoutConfigRef.current = layoutConfig; }, [layoutConfig]);
@@ -132,6 +133,8 @@ export const MusicProvider = ({ children }) => {
   useEffect(() => { isOctaveModeRef.current = isOctaveMode; }, [isOctaveMode]); 
   useEffect(() => { sectionLabelsRef.current = sectionLabels; }, [sectionLabels]);
   useEffect(() => { playbackSequenceRef.current = playbackSequence; }, [playbackSequence]);
+  useEffect(() => { isLoopAllRef.current = isLoopAll; }, [isLoopAll]);
+  useEffect(() => { isLoopOneRef.current = isLoopOne; }, [isLoopOne]);
 
   const [headerDetails, setHeaderDetails] = useState([
     { id: 1, label: "อัตราจังหวะ", value: "๒ ชั้น" },
@@ -146,6 +149,39 @@ export const MusicProvider = ({ children }) => {
       if (currentInstrument.id !== 'ranat-ek') setIsOctaveMode(false);
     }
   }, [currentInstrument]);
+
+  const availableSections = useMemo(() => {
+    const labels = new Set();
+    Object.values(sectionLabels).forEach(arr => {
+      arr.forEach(l => {
+        if (l.text && !l.text.includes('กลับต้น') && l.text.trim() !== '') {
+          labels.add(l.text.trim());
+        }
+      });
+    });
+    return Array.from(labels);
+  }, [sectionLabels]);
+
+  useEffect(() => {
+    if (!isLoaded) return;
+    const sheetLabelsSet = new Set(availableSections);
+    
+    setPlaybackSequence(prev => {
+      let changed = false;
+      let nextSeq = [...prev];
+      const filteredSeq = nextSeq.filter(item => sheetLabelsSet.has(item.label.trim()));
+      if (filteredSeq.length !== nextSeq.length) changed = true;
+      nextSeq = filteredSeq;
+      const seqLabelsSet = new Set(nextSeq.map(item => item.label.trim()));
+      sheetLabelsSet.forEach(label => {
+        if (!seqLabelsSet.has(label)) {
+          nextSeq.push({ id: Date.now() + Math.random(), label: label, loops: 1 });
+          changed = true;
+        }
+      });
+      return changed ? nextSeq : prev;
+    });
+  }, [availableSections, isLoaded]);
 
   const getCellId = (r, m, c) => r * 100000 + m * 1000 + c;
 
@@ -180,7 +216,6 @@ export const MusicProvider = ({ children }) => {
     if (sheetSections.length > 0) sheetSections[sheetSections.length - 1].endRow = lastValidRow;
     sheetMapRef.current = sheetSections;
 
-    // ⭐ คำนวณเวลาทั้งหมดของเพลง (Total Time)
     let calcTotalMs = 0;
     const currentBpm = layoutConfigRef.current.bpm || 80;
     playbackSequenceRef.current.forEach(seqItem => {
@@ -204,7 +239,6 @@ export const MusicProvider = ({ children }) => {
     setTotalTime(totalSeconds);
     setCurrentTime(Math.floor(seekOffsetRef.current));
 
-    // ⭐ เริ่มจับเวลา (เดินหน้าทุกๆ 1 วินาที)
     playbackStartTimeRef.current = performance.now() - (seekOffsetRef.current * 1000);
     if (uiTimerRef.current) clearInterval(uiTimerRef.current);
     uiTimerRef.current = setInterval(() => {
@@ -397,7 +431,24 @@ export const MusicProvider = ({ children }) => {
           }
 
           if (isEndOfSection && currentItem && currentMappedSection) {
-              if (activeLoopRef.current < currentItem.loops) {
+              // ⭐ ดักโหมด "วนลูปเฉพาะท่อน" (Loop One)
+              if (isLoopOneRef.current) {
+                  nextR = currentMappedSection.startRow;
+                  nextM = currentRowTypes[nextR] && currentRowTypes[nextR].startsWith('double') ? 1 : 0;
+                  nextC = 0;
+                  // ปรับแถบเวลาให้ถอยกลับไปเริ่มท่อนเดิม
+                  let sectionMs = 0;
+                  for (let sr = currentMappedSection.startRow; sr <= currentMappedSection.endRow; sr++) {
+                      if (currentRowTypes[sr] === 'page-break' || currentRowTypes[sr] === 'text' || currentRowTypes[sr] === 'double-left') continue;
+                      for (let sm = 0; sm < currentSheetData[sr].length; sm++) {
+                          if (currentRowTypes[sr].startsWith('double') && sm === 0) continue;
+                          const cellCount = currentSheetData[sr][sm].length;
+                          if (cellCount > 0) sectionMs += (15000 / currentBpm) * 4;
+                      }
+                  }
+                  playbackStartTimeRef.current += sectionMs;
+              } 
+              else if (activeLoopRef.current < currentItem.loops) {
                   activeLoopRef.current += 1;
                   setActiveLoop(activeLoopRef.current);
                   nextR = currentMappedSection.startRow;
@@ -416,7 +467,22 @@ export const MusicProvider = ({ children }) => {
                           nextM = currentRowTypes[nextR] && currentRowTypes[nextR].startsWith('double') ? 1 : 0;
                           nextC = 0;
                       } else { stopPlayback(); return; }
-                  } else { stopPlayback(); return; }
+                  } else if (isLoopAllRef.current && seq.length > 0) {
+                      activeSequenceIdxRef.current = 0;
+                      setActiveSequenceIdx(0);
+                      activeLoopRef.current = 1;
+                      setActiveLoop(1);
+                      const firstMappedSection = map.find(s => s.label === seq[0].label.trim());
+                      if (firstMappedSection) {
+                          nextR = firstMappedSection.startRow;
+                          nextM = currentRowTypes[nextR] && currentRowTypes[nextR].startsWith('double') ? 1 : 0;
+                          nextC = 0;
+                          seekOffsetRef.current = 0;
+                          playbackStartTimeRef.current = performance.now();
+                      } else { stopPlayback(); return; }
+                  } else { 
+                      stopPlayback(); return; 
+                  }
               }
           } else {
               nextR = currentRowTypes[r] === 'double-right' ? r + 2 : r + 1;
@@ -445,7 +511,6 @@ export const MusicProvider = ({ children }) => {
     mutedCellsRef.current.clear();
     if (window.kroInterval) { clearInterval(window.kroInterval); window.kroInterval = null; }
     
-    // ⭐ หยุดนาฬิกาและรีเซ็ตค่าเวลา
     if (uiTimerRef.current) {
         clearInterval(uiTimerRef.current);
         uiTimerRef.current = null;
@@ -468,7 +533,6 @@ export const MusicProvider = ({ children }) => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [startPlayback, stopPlayback]);
 
-  // (ข้ามส่วนฟังก์ชัน Editor ลงมา)
   const getVisualIndex = (rowIndex, types) => {
     let count = 0;
     for (let i = 0; i <= rowIndex; i++) {
@@ -949,7 +1013,6 @@ export const MusicProvider = ({ children }) => {
 
   const visualRowCount = useMemo(() => rowTypes.filter(type => type === 'single' || type === 'double-right').length, [rowTypes]);
 
-  // ⭐ ฟังก์ชัน Seek - เลื่อนเส้นเวลาได้
   const seek = (targetSeconds) => {
     if (!isLoaded || !sheetDataRef.current) return;
     const targetMs = targetSeconds * 1000;
@@ -957,7 +1020,6 @@ export const MusicProvider = ({ children }) => {
     const currentRowTypes = rowTypesRef.current;
     const currentSectionLabels = sectionLabelsRef.current;
 
-    // สร้าง sheetSections (เหมือนใน startPlayback)
     const sheetSections = [];
     let lastValidRow = 0;
     let lastProcessedVIdx = -1;
@@ -976,7 +1038,6 @@ export const MusicProvider = ({ children }) => {
     }
     if (sheetSections.length > 0) sheetSections[sheetSections.length - 1].endRow = lastValidRow;
 
-    // สร้าง time map และหา cell ที่ตรงกับเวลาที่ต้องการ
     const currentBpm = layoutConfigRef.current.bpm || 80;
     const seq = playbackSequenceRef.current;
     let elapsedMs = 0;
@@ -1011,11 +1072,12 @@ export const MusicProvider = ({ children }) => {
     seekOffsetRef.current = foundCell ? foundCell.elapsedMs / 1000 : targetSeconds;
 
     if (foundCell) {
-      setSelectedCell([foundCell.r, foundCell.m, foundCell.c]);
-      activeSequenceIdxRef.current = foundCell.seqIdx;
-      activeLoopRef.current = foundCell.loop;
-    }
-
+    // ให้เปลี่ยนจาก [foundCell.r, foundCell.m, foundCell.c] 
+    // เป็นการเริ่มที่ [r, m, 0] เพื่อให้มันเริ่มที่โน้ตตัวแรกของห้องนั้นเสมอ
+    setSelectedCell([foundCell.r, foundCell.m, 0]); 
+    activeSequenceIdxRef.current = foundCell.seqIdx;
+    activeLoopRef.current = foundCell.loop;
+}
     if (wasPlaying) {
       stopPlayback();
       seekOffsetRef.current = foundCell ? foundCell.elapsedMs / 1000 : targetSeconds;
@@ -1025,10 +1087,81 @@ export const MusicProvider = ({ children }) => {
     }
   };
 
-  // เปลี่ยนชื่อจาก togglePlayback เป็น stopPlayback / startPlayback (เรียกใช้งานใน NowPlaying)
   const togglePlay = () => {
     if (isPlaying) stopPlayback();
     else startPlayback();
+  };
+
+  // ⭐ ฟังก์ชันสำหรับกระโดดไปตามคิวที่ระบุ (ใช้งานร่วมกับปุ่ม Next/Prev)
+  const jumpToSequence = (targetSeqIdx) => {
+    const seq = playbackSequenceRef.current;
+    if (!seq || targetSeqIdx < 0 || targetSeqIdx >= seq.length) return;
+    
+    const currentSheetData = sheetDataRef.current;
+    const currentRowTypes = rowTypesRef.current;
+    const currentSectionLabels = sectionLabelsRef.current;
+    const sheetSections = [];
+    let lastValidRow = 0;
+    let lastProcessedVIdx = -1;
+    for (let r = 0; r < currentSheetData.length; r++) {
+        if (currentRowTypes[r] === 'page-break' || currentRowTypes[r] === 'text') continue;
+        const vIdx = getVisualIndex(r, currentRowTypes);
+        const labels = currentSectionLabels[vIdx] || [];
+        const validLabels = labels.filter(l => !l.text.includes('กลับต้น') && l.text.trim() !== '');
+        if (validLabels.length > 0 && vIdx !== lastProcessedVIdx) {
+            if (sheetSections.length > 0) sheetSections[sheetSections.length - 1].endRow = lastValidRow;
+            sheetSections.push({ label: validLabels[0].text.trim(), startRow: r, endRow: currentSheetData.length - 1 });
+            lastProcessedVIdx = vIdx;
+        }
+        lastValidRow = r;
+        if (currentRowTypes[r] === 'double-right') lastValidRow = r + 1;
+    }
+    if (sheetSections.length > 0) sheetSections[sheetSections.length - 1].endRow = lastValidRow;
+
+    const currentBpm = layoutConfigRef.current.bpm || 80;
+    let elapsedMs = 0;
+
+    for (let i = 0; i < targetSeqIdx; i++) {
+        const section = sheetSections.find(s => s.label === seq[i].label.trim());
+        if (!section) continue;
+        let sectionMs = 0;
+        for (let r = section.startRow; r <= section.endRow; r++) {
+            if (currentRowTypes[r] === 'page-break' || currentRowTypes[r] === 'text' || currentRowTypes[r] === 'double-left') continue;
+            for (let m = 0; m < currentSheetData[r].length; m++) {
+                if (currentRowTypes[r].startsWith('double') && m === 0) continue;
+                const cellCount = currentSheetData[r][m].length;
+                if (cellCount > 0) sectionMs += (15000 / currentBpm) * 4;
+            }
+        }
+        elapsedMs += (sectionMs * seq[i].loops);
+    }
+    
+    seek(elapsedMs / 1000);
+  };
+
+  // ⭐ ข้ามไปท่อนถัดไป
+  const skipToNext = () => {
+      if (!playbackSequenceRef.current || playbackSequenceRef.current.length === 0) return;
+      const seq = playbackSequenceRef.current;
+      let nextIdx = activeSequenceIdxRef.current + 1;
+      
+      if (nextIdx >= seq.length) {
+          if (isLoopAllRef.current) nextIdx = 0;
+          else {
+              stopPlayback();
+              return;
+          }
+      }
+      jumpToSequence(nextIdx);
+  };
+
+  // ⭐ ย้อนกลับท่อนก่อนหน้า
+  const skipToPrev = () => {
+      if (!playbackSequenceRef.current || playbackSequenceRef.current.length === 0) return;
+      let targetIdx = activeSequenceIdxRef.current;
+      // ย้อนไปคิวก่อนหน้า
+      if (targetIdx > 0) targetIdx -= 1;
+      jumpToSequence(targetIdx);
   };
 
   return (
@@ -1041,7 +1174,7 @@ export const MusicProvider = ({ children }) => {
       startSelection, updateSelection, endSelection, copySelection, pasteSelection, clipboardData,
       saveProject, loadProject, newProject,
       undo, redo, canUndo: historyIndex > 0, canRedo: historyIndex < history.length - 1,
-      isPlaying, playbackCursor, startPlayback, stopPlayback, togglePlay, // ⭐ ส่ง togglePlay ออกไป
+      isPlaying, playbackCursor, startPlayback, stopPlayback, togglePlay,
       symbols, addSymbol, updateSymbol, removeSymbol, removeSymbolByCell,
       selectedSymbolId, setSelectedSymbolId,
       isOctaveMode, setIsOctaveMode,
@@ -1050,12 +1183,15 @@ export const MusicProvider = ({ children }) => {
       
       playbackSequence, setPlaybackSequence,
       activeSequenceIdx, activeLoop,
-
       toolbarMode, setToolbarMode,
-
-      // ⭐ ส่งค่าเวลาออกไปให้หน้า Mobile
       currentTime, totalTime, seek,
-      INSTRUMENT_CONFIG
+      INSTRUMENT_CONFIG,
+      
+      // ⭐ สิ่งที่ส่งเพิ่มเติมให้หน้า UI ดึงไปใช้งาน
+      isLoopAll, setIsLoopAll,
+      isLoopOne, setIsLoopOne,
+      skipToNext, skipToPrev,
+      availableSections
     }}>
       {children}
     </MusicContext.Provider>
