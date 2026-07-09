@@ -5,25 +5,29 @@ import MobileQueue from '../components/player/MobileQueue';
 import MobileHome from '../components/player/MobileHome';
 
 const MobilePlayer = () => {
-  const { sheetData } = useContext(MusicContext) || {};
+  const { sheetData, songName } = useContext(MusicContext) || {};
   const [isQueueOpen, setIsQueueOpen] = useState(false);
-  const [isHomeOpen, setIsHomeOpen] = useState(false);
+  
+  // ให้หน้า Home เป็น Default เริ่มต้นถ้ายังไม่มีเพลง
+  const [isHomeOpen, setIsHomeOpen] = useState(true);
 
   const hasSong =
     Array.isArray(sheetData) &&
     sheetData.length > 0 &&
     Array.isArray(sheetData[0]) &&
     Array.isArray(sheetData[0][0]) &&
-    sheetData[0][0][0] !== '-';
+    sheetData[0][0][0] !== '-' &&
+    songName !== "เพลงใหม่" && 
+    songName !== "Untitled Project";
 
+  // เมื่อมีเพลงแล้ว ให้ปิดหน้า Home อัตโนมัติ
   useEffect(() => {
-    if (!hasSong) {
-      setIsHomeOpen(true);
-      setIsQueueOpen(false);
+    if (hasSong) {
+      setIsHomeOpen(false);
     }
   }, [hasSong]);
 
-  if (!hasSong || isHomeOpen) {
+  if (isHomeOpen) {
     return (
       <MobileHome
         hasSong={hasSong}
