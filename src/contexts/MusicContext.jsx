@@ -123,7 +123,7 @@ export const MusicProvider = ({ children }) => {
   const activeSequenceIdxRef = useRef(0);
   const activeLoopRef = useRef(1);
   const isLoopAllRef = useRef(isLoopAll); 
-  const isLoopOneRef = useRef(isLoopOne); // ⭐ Ref สำหรับลูปท่อนเดียว
+  const isLoopOneRef = useRef(isLoopOne); 
   const sheetMapRef = useRef([]);
 
   useEffect(() => { layoutConfigRef.current = layoutConfig; }, [layoutConfig]);
@@ -431,12 +431,10 @@ export const MusicProvider = ({ children }) => {
           }
 
           if (isEndOfSection && currentItem && currentMappedSection) {
-              // ⭐ ดักโหมด "วนลูปเฉพาะท่อน" (Loop One)
               if (isLoopOneRef.current) {
                   nextR = currentMappedSection.startRow;
                   nextM = currentRowTypes[nextR] && currentRowTypes[nextR].startsWith('double') ? 1 : 0;
                   nextC = 0;
-                  // ปรับแถบเวลาให้ถอยกลับไปเริ่มท่อนเดิม
                   let sectionMs = 0;
                   for (let sr = currentMappedSection.startRow; sr <= currentMappedSection.endRow; sr++) {
                       if (currentRowTypes[sr] === 'page-break' || currentRowTypes[sr] === 'text' || currentRowTypes[sr] === 'double-left') continue;
@@ -519,147 +517,6 @@ export const MusicProvider = ({ children }) => {
     setCurrentTime(0);
   };
 
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (e.code !== 'Space') return;
-      const tag = e.target?.tagName;
-      const isEditable = e.target?.isContentEditable || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
-      if (isEditable) return;
-      e.preventDefault();
-      if (isPlayingRef.current) stopPlayback();
-      else startPlayback();
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [startPlayback, stopPlayback]);
-
-  const getVisualIndex = (rowIndex, types) => {
-    let count = 0;
-    for (let i = 0; i <= rowIndex; i++) {
-      if (types[i] === 'single' || types[i] === 'double-right') count++;
-    }
-    return count > 0 ? count - 1 : 0;
-  };
-
-  const commitChange = (newSheetData, newRowTypes, newSectionLabels, newSymbols, newRowMargins) => {
-    setSheetData(newSheetData);
-    if (newRowTypes) setRowTypes(newRowTypes);
-    if (newSectionLabels) setSectionLabels(newSectionLabels);
-    if (newSymbols) setSymbols(newSymbols);
-    if (newRowMargins) setRowMargins(newRowMargins);
-    const snapshot = {
-      sheetData: JSON.parse(JSON.stringify(newSheetData)),
-      rowTypes: newRowTypes ? [...newRowTypes] : [...rowTypes],
-      sectionLabels: newSectionLabels ? JSON.parse(JSON.stringify(newSectionLabels)) : JSON.parse(JSON.stringify(sectionLabels)),
-      symbols: newSymbols ? [...newSymbols] : [...symbols],
-      rowMargins: newRowMargins ? JSON.parse(JSON.stringify(newRowMargins)) : JSON.parse(JSON.stringify(rowMargins))
-    };
-    setHistory(prev => {
-      const newHistory = prev.slice(0, historyIndex + 1);
-      newHistory.push(snapshot);
-      if (newHistory.length > 30) newHistory.shift(); 
-      return newHistory;
-    });
-    setHistoryIndex(prev => Math.min(prev + 1, 30));
-  };
-
-  const undo = () => {
-    if (historyIndex > 0) {
-      const prev = history[historyIndex - 1];
-      setSheetData(prev.sheetData);
-      setRowTypes(prev.rowTypes);
-      setSectionLabels(prev.sectionLabels);
-      setSymbols(prev.symbols || []); 
-      setRowMargins(prev.rowMargins || Array(prev.sheetData.length).fill({ top: 0, bottom: 0, left: 0 }));
-      setHistoryIndex(historyIndex - 1);
-    }
-  };
-
-  const redo = () => {
-    if (historyIndex < history.length - 1) {
-      const next = history[historyIndex + 1];
-      setSheetData(next.sheetData);
-      setRowTypes(next.rowTypes);
-      setSectionLabels(next.sectionLabels);
-      setSymbols(next.symbols || []); 
-      setRowMargins(next.rowMargins || Array(next.sheetData.length).fill({ top: 0, bottom: 0, left: 0 }));
-      setHistoryIndex(historyIndex + 1);
-    }
-  };
-
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      const tag = e.target?.tagName;
-      const isEditable = e.target?.isContentEditable || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
-      if (isEditable) return;
-      if (e.ctrlKey || e.metaKey) {
-        if (e.code === 'KeyZ') { e.preventDefault(); undo(); } 
-        else if (e.code === 'KeyR') { e.preventDefault(); redo(); }
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [undo, redo]);
-
-  useEffect(() => {
-    const saved = localStorage.getItem('thaiMusicEditorAutoSave');
-    if (saved) {
-      try {
-        const data = JSON.parse(saved);
-        if (data.songName !== undefined) setSongName(data.songName);
-        if (data.sheetData) setSheetData(data.sheetData);
-        if (data.rowTypes) setRowTypes(data.rowTypes);
-        if (data.sectionLabels) setSectionLabels(data.sectionLabels);
-        if (data.symbols) setSymbols(data.symbols); 
-        if (data.layoutConfig) setLayoutConfig(data.layoutConfig);
-        if (data.headerDetails) setHeaderDetails(data.headerDetails);
-        if (data.currentInstrument && INSTRUMENT_CONFIG[data.currentInstrument]) setCurrentInstrument(INSTRUMENT_CONFIG[data.currentInstrument]);
-        if (data.playbackSequence) setPlaybackSequence(data.playbackSequence);
-        const loadedMargins = data.rowMargins || Array(data.sheetData?.length || 4).fill({ top: 0, bottom: 0, left: 0 });
-        setRowMargins(loadedMargins);
-        commitChange(data.sheetData || sheetData, data.rowTypes || rowTypes, data.sectionLabels || sectionLabels, data.symbols || symbols, loadedMargins);
-      } catch (error) {
-        commitChange(sheetData, rowTypes, sectionLabels, symbols, rowMargins);
-      }
-    } else {
-      commitChange(sheetData, rowTypes, sectionLabels, symbols, rowMargins);
-    }
-    setIsLoaded(true);
-  }, []);
-
-  useEffect(() => {
-    if (!isLoaded) return; 
-    const projectData = { songName, sheetData, rowTypes, sectionLabels, symbols, layoutConfig, headerDetails, currentInstrument: currentInstrument.id, rowMargins, playbackSequence };
-    localStorage.setItem('thaiMusicEditorAutoSave', JSON.stringify(projectData));
-  }, [isLoaded, songName, sheetData, rowTypes, sectionLabels, symbols, layoutConfig, headerDetails, currentInstrument, rowMargins, playbackSequence]);
-
-  const updateRowMarginsList = (arg1, arg2, arg3) => {
-    const newRowMargins = [...rowMargins];
-    if (Array.isArray(arg1)) {
-      arg1.forEach(update => { newRowMargins[update.index] = { ...(newRowMargins[update.index] || { top: 0, bottom: 0, left: 0 }), ...update.changes }; });
-    } else {
-      for (let i = arg1; i <= arg2; i++) { newRowMargins[i] = { ...(newRowMargins[i] || { top: 0, bottom: 0, left: 0 }), ...arg3 }; }
-    }
-    commitChange(sheetData, rowTypes, sectionLabels, symbols, newRowMargins);
-  };
-
-  const addSymbol = (type, start, end, options = {}) => {
-    const newSymbols = [...symbols, { id: Date.now(), type, start, end, ...options }];
-    commitChange(sheetData, rowTypes, sectionLabels, newSymbols);
-  };
-  const updateSymbol = (id, updates) => commitChange(sheetData, rowTypes, sectionLabels, symbols.map(s => s.id === id ? { ...s, ...updates } : s));
-  const removeSymbol = (id) => commitChange(sheetData, rowTypes, sectionLabels, symbols.filter(s => s.id !== id));
-  const removeSymbolByCell = (cell) => {
-    if (!cell) return;
-    const newSymbols = symbols.filter(s => !(s.start[0] === cell[0] && s.start[1] === cell[1] && s.start[2] === cell[2]) && !(s.end[0] === cell[0] && s.end[1] === cell[1] && s.end[2] === cell[2]));
-    if (newSymbols.length !== symbols.length) commitChange(sheetData, rowTypes, sectionLabels, newSymbols);
-  };
-
-  const addDetail = () => setHeaderDetails([...headerDetails, { id: headerDetails.length > 0 ? Math.max(...headerDetails.map(d => d.id)) + 1 : 1, label: "หัวข้อใหม่", value: "ระบุข้อมูล" }]);
-  const removeDetail = (id) => setHeaderDetails(headerDetails.filter(detail => detail.id !== id));
-  const updateDetail = (id, key, newValue) => setHeaderDetails(headerDetails.map(detail => detail.id === id ? { ...detail, [key]: newValue } : detail));
-  const changeInstrument = (instrumentId) => setCurrentInstrument(INSTRUMENT_CONFIG[instrumentId]);
-
   const startSelection = (r, m, c) => { setIsDragging(true); setDragStart([r, m, c]); setSelectionRange({ start: [r, m, c], end: [r, m, c] }); setSelectedCell([r, m, c]); };
   const updateSelection = (r, m, c) => { if (isDragging && dragStart) setSelectionRange({ start: dragStart, end: [r, m, c] }); };
   const endSelection = () => { setIsDragging(false); setDragStart(null); };
@@ -709,6 +566,33 @@ export const MusicProvider = ({ children }) => {
        currentDataRow++;
     }
     commitChange(newData); setSelectedCell(lastValidCursor);
+  };
+
+  const cutSelection = () => {
+    if (!selectionRange) return;
+    copySelection();
+    const { start: [sr, sm, sc], end: [er, em, ec] } = selectionRange;
+    const minR = Math.min(sr, er), maxR = Math.max(sr, er);
+    const startCol = getFlattenedCol(sheetData[sr], rowTypes[sr], sm, sc);
+    const endCol = getFlattenedCol(sheetData[er], rowTypes[er], em, ec);
+    const minCol = Math.min(startCol, endCol), maxCol = Math.max(startCol, endCol);
+
+    const newData = [...sheetData];
+    for (let r = minR; r <= maxR; r++) {
+      if (rowTypes[r] === 'page-break' || rowTypes[r] === 'text') continue;
+      let currentCol = 0;
+      for (let m = 0; m < sheetData[r].length; m++) {
+        if (rowTypes[r].startsWith('double') && m === 0) continue;
+        for (let c = 0; c < sheetData[r][m].length; c++) {
+          if (currentCol >= minCol && currentCol <= maxCol) {
+            newData[r][m][c] = '-'; 
+          }
+          currentCol++;
+        }
+      }
+    }
+    commitChange(newData);
+    setSelectionRange(null); 
   };
 
   const inputNote = (note) => {
@@ -771,11 +655,13 @@ export const MusicProvider = ({ children }) => {
     }
   };
 
-  const addRow = (insertAtTop = false) => {
+  const addRow = () => { 
     setSelectionRange(null); 
-    let insertIdx = insertAtTop ? selectedCell[0] : selectedCell[0] + 1;
-    if (insertAtTop && rowTypes[insertIdx] === 'double-left' && rowTypes[insertIdx - 1] === 'double-right') insertIdx -= 1; 
-    else if (!insertAtTop && rowTypes[insertIdx - 1] === 'double-right' && rowTypes[insertIdx] === 'double-left') insertIdx += 1; 
+    const isFirstHalf = selectedCell[1] < 4;
+    let insertIdx = isFirstHalf ? selectedCell[0] : selectedCell[0] + 1;
+
+    if (isFirstHalf && rowTypes[insertIdx] === 'double-left' && rowTypes[insertIdx - 1] === 'double-right') insertIdx -= 1; 
+    else if (!isFirstHalf && rowTypes[insertIdx - 1] === 'double-right' && rowTypes[insertIdx] === 'double-left') insertIdx += 1; 
 
     let targetVisualIndex = 0;
     for (let i = 0; i < insertIdx; i++) if (rowTypes[i] === 'single' || rowTypes[i] === 'double-right') targetVisualIndex++;
@@ -799,7 +685,7 @@ export const MusicProvider = ({ children }) => {
     }));
 
     commitChange(newData, newRowTypes, newSectionLabels, newSymbols, newRowMargins);
-    if (insertAtTop) setSelectedCell([insertIdx + 1, 0, 0]);
+    if (isFirstHalf) setSelectedCell([insertIdx + 1, 0, 0]); 
   };
 
   const addDoubleRow = (insertAtTop = false) => {
@@ -1072,8 +958,6 @@ export const MusicProvider = ({ children }) => {
     seekOffsetRef.current = foundCell ? foundCell.elapsedMs / 1000 : targetSeconds;
 
     if (foundCell) {
-    // ให้เปลี่ยนจาก [foundCell.r, foundCell.m, foundCell.c] 
-    // เป็นการเริ่มที่ [r, m, 0] เพื่อให้มันเริ่มที่โน้ตตัวแรกของห้องนั้นเสมอ
     setSelectedCell([foundCell.r, foundCell.m, 0]); 
     activeSequenceIdxRef.current = foundCell.seqIdx;
     activeLoopRef.current = foundCell.loop;
@@ -1092,7 +976,6 @@ export const MusicProvider = ({ children }) => {
     else startPlayback();
   };
 
-  // ⭐ ฟังก์ชันสำหรับกระโดดไปตามคิวที่ระบุ (ใช้งานร่วมกับปุ่ม Next/Prev)
   const jumpToSequence = (targetSeqIdx) => {
     const seq = playbackSequenceRef.current;
     if (!seq || targetSeqIdx < 0 || targetSeqIdx >= seq.length) return;
@@ -1139,7 +1022,6 @@ export const MusicProvider = ({ children }) => {
     seek(elapsedMs / 1000);
   };
 
-  // ⭐ ข้ามไปท่อนถัดไป
   const skipToNext = () => {
       if (!playbackSequenceRef.current || playbackSequenceRef.current.length === 0) return;
       const seq = playbackSequenceRef.current;
@@ -1155,14 +1037,137 @@ export const MusicProvider = ({ children }) => {
       jumpToSequence(nextIdx);
   };
 
-  // ⭐ ย้อนกลับท่อนก่อนหน้า
   const skipToPrev = () => {
       if (!playbackSequenceRef.current || playbackSequenceRef.current.length === 0) return;
       let targetIdx = activeSequenceIdxRef.current;
-      // ย้อนไปคิวก่อนหน้า
       if (targetIdx > 0) targetIdx -= 1;
       jumpToSequence(targetIdx);
   };
+
+  const commitChange = (newSheetData, newRowTypes, newSectionLabels, newSymbols, newRowMargins) => {
+    setSheetData(newSheetData);
+    if (newRowTypes) setRowTypes(newRowTypes);
+    if (newSectionLabels) setSectionLabels(newSectionLabels);
+    if (newSymbols) setSymbols(newSymbols);
+    if (newRowMargins) setRowMargins(newRowMargins);
+    const snapshot = {
+      sheetData: JSON.parse(JSON.stringify(newSheetData)),
+      rowTypes: newRowTypes ? [...newRowTypes] : [...rowTypes],
+      sectionLabels: newSectionLabels ? JSON.parse(JSON.stringify(newSectionLabels)) : JSON.parse(JSON.stringify(sectionLabels)),
+      symbols: newSymbols ? [...newSymbols] : [...symbols],
+      rowMargins: newRowMargins ? JSON.parse(JSON.stringify(newRowMargins)) : JSON.parse(JSON.stringify(rowMargins))
+    };
+    setHistory(prev => {
+      const newHistory = prev.slice(0, historyIndex + 1);
+      newHistory.push(snapshot);
+      if (newHistory.length > 30) newHistory.shift(); 
+      return newHistory;
+    });
+    setHistoryIndex(prev => Math.min(prev + 1, 30));
+  };
+
+  const undo = () => {
+    if (historyIndex > 0) {
+      const prev = history[historyIndex - 1];
+      setSheetData(prev.sheetData);
+      setRowTypes(prev.rowTypes);
+      setSectionLabels(prev.sectionLabels);
+      setSymbols(prev.symbols || []); 
+      setRowMargins(prev.rowMargins || Array(prev.sheetData.length).fill({ top: 0, bottom: 0, left: 0 }));
+      setHistoryIndex(historyIndex - 1);
+    }
+  };
+
+  const redo = () => {
+    if (historyIndex < history.length - 1) {
+      const next = history[historyIndex + 1];
+      setSheetData(next.sheetData);
+      setRowTypes(next.rowTypes);
+      setSectionLabels(next.sectionLabels);
+      setSymbols(next.symbols || []); 
+      setRowMargins(next.rowMargins || Array(next.sheetData.length).fill({ top: 0, bottom: 0, left: 0 }));
+      setHistoryIndex(historyIndex + 1);
+    }
+  };
+
+  // ⭐ useEffect ชุดที่ถูกต้อง วางไว้ที่นี่
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      const tag = e.target?.tagName;
+      const isEditable = e.target?.isContentEditable || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+      
+      if (isEditable) return; 
+
+      if (e.ctrlKey || e.metaKey) {
+        if (e.code === 'KeyZ') { e.preventDefault(); undo(); } 
+        else if (e.code === 'KeyR' || e.code === 'KeyY') { e.preventDefault(); redo(); } 
+        else if (e.code === 'KeyC') { e.preventDefault(); copySelection(); }
+        else if (e.code === 'KeyV') { e.preventDefault(); pasteSelection(); }
+        else if (e.code === 'KeyX') { e.preventDefault(); cutSelection(); }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [undo, redo, copySelection, pasteSelection, cutSelection]);
+
+  useEffect(() => {
+    const saved = localStorage.getItem('thaiMusicEditorAutoSave');
+    if (saved) {
+      try {
+        const data = JSON.parse(saved);
+        if (data.songName !== undefined) setSongName(data.songName);
+        if (data.sheetData) setSheetData(data.sheetData);
+        if (data.rowTypes) setRowTypes(data.rowTypes);
+        if (data.sectionLabels) setSectionLabels(data.sectionLabels);
+        if (data.symbols) setSymbols(data.symbols); 
+        if (data.layoutConfig) setLayoutConfig(data.layoutConfig);
+        if (data.headerDetails) setHeaderDetails(data.headerDetails);
+        if (data.currentInstrument && INSTRUMENT_CONFIG[data.currentInstrument]) setCurrentInstrument(INSTRUMENT_CONFIG[data.currentInstrument]);
+        if (data.playbackSequence) setPlaybackSequence(data.playbackSequence);
+        const loadedMargins = data.rowMargins || Array(data.sheetData?.length || 4).fill({ top: 0, bottom: 0, left: 0 });
+        setRowMargins(loadedMargins);
+        commitChange(data.sheetData || sheetData, data.rowTypes || rowTypes, data.sectionLabels || sectionLabels, data.symbols || symbols, loadedMargins);
+      } catch (error) {
+        commitChange(sheetData, rowTypes, sectionLabels, symbols, rowMargins);
+      }
+    } else {
+      commitChange(sheetData, rowTypes, sectionLabels, symbols, rowMargins);
+    }
+    setIsLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    if (!isLoaded) return; 
+    const projectData = { songName, sheetData, rowTypes, sectionLabels, symbols, layoutConfig, headerDetails, currentInstrument: currentInstrument.id, rowMargins, playbackSequence };
+    localStorage.setItem('thaiMusicEditorAutoSave', JSON.stringify(projectData));
+  }, [isLoaded, songName, sheetData, rowTypes, sectionLabels, symbols, layoutConfig, headerDetails, currentInstrument, rowMargins, playbackSequence]);
+
+  const updateRowMarginsList = (arg1, arg2, arg3) => {
+    const newRowMargins = [...rowMargins];
+    if (Array.isArray(arg1)) {
+      arg1.forEach(update => { newRowMargins[update.index] = { ...(newRowMargins[update.index] || { top: 0, bottom: 0, left: 0 }), ...update.changes }; });
+    } else {
+      for (let i = arg1; i <= arg2; i++) { newRowMargins[i] = { ...(newRowMargins[i] || { top: 0, bottom: 0, left: 0 }), ...arg3 }; }
+    }
+    commitChange(sheetData, rowTypes, sectionLabels, symbols, newRowMargins);
+  };
+
+  const addSymbol = (type, start, end, options = {}) => {
+    const newSymbols = [...symbols, { id: Date.now(), type, start, end, ...options }];
+    commitChange(sheetData, rowTypes, sectionLabels, newSymbols);
+  };
+  const updateSymbol = (id, updates) => commitChange(sheetData, rowTypes, sectionLabels, symbols.map(s => s.id === id ? { ...s, ...updates } : s));
+  const removeSymbol = (id) => commitChange(sheetData, rowTypes, sectionLabels, symbols.filter(s => s.id !== id));
+  const removeSymbolByCell = (cell) => {
+    if (!cell) return;
+    const newSymbols = symbols.filter(s => !(s.start[0] === cell[0] && s.start[1] === cell[1] && s.start[2] === cell[2]) && !(s.end[0] === cell[0] && s.end[1] === cell[1] && s.end[2] === cell[2]));
+    if (newSymbols.length !== symbols.length) commitChange(sheetData, rowTypes, sectionLabels, newSymbols);
+  };
+
+  const addDetail = () => setHeaderDetails([...headerDetails, { id: headerDetails.length > 0 ? Math.max(...headerDetails.map(d => d.id)) + 1 : 1, label: "หัวข้อใหม่", value: "ระบุข้อมูล" }]);
+  const removeDetail = (id) => setHeaderDetails(headerDetails.filter(detail => detail.id !== id));
+  const updateDetail = (id, key, newValue) => setHeaderDetails(headerDetails.map(detail => detail.id === id ? { ...detail, [key]: newValue } : detail));
+  const changeInstrument = (instrumentId) => setCurrentInstrument(INSTRUMENT_CONFIG[instrumentId]);
 
   return (
     <MusicContext.Provider value={{ 
@@ -1171,7 +1176,7 @@ export const MusicProvider = ({ children }) => {
       songName, setSongName, sectionLabels, addSectionLabel, updateSectionLabel, removeSectionLabel,
       addRow, removeRow, addMeasure, removeMeasure, selectionRange, setSelectionRange,
       addNoteColumn, removeNoteColumn, rowTypes, addDoubleRow, addPageBreak, visualRowCount,
-      startSelection, updateSelection, endSelection, copySelection, pasteSelection, clipboardData,
+      startSelection, updateSelection, endSelection, copySelection, pasteSelection, cutSelection, clipboardData,
       saveProject, loadProject, newProject,
       undo, redo, canUndo: historyIndex > 0, canRedo: historyIndex < history.length - 1,
       isPlaying, playbackCursor, startPlayback, stopPlayback, togglePlay,
@@ -1187,7 +1192,6 @@ export const MusicProvider = ({ children }) => {
       currentTime, totalTime, seek,
       INSTRUMENT_CONFIG,
       
-      // ⭐ สิ่งที่ส่งเพิ่มเติมให้หน้า UI ดึงไปใช้งาน
       isLoopAll, setIsLoopAll,
       isLoopOne, setIsLoopOne,
       skipToNext, skipToPrev,
