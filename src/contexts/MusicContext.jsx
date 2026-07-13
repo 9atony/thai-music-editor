@@ -4,6 +4,16 @@ import { preloadSounds, playNote, initAudioContext } from '../utils/audioEngine'
 
 export const MusicContext = createContext();
 
+const getVisualIndex = (rowIndex, rowTypesArray) => {
+  let vIdx = 0;
+  for (let i = 0; i < rowIndex; i++) {
+    if (rowTypesArray[i] === 'single' || rowTypesArray[i] === 'double-right') {
+      vIdx++;
+    }
+  }
+  return vIdx;
+};
+
 const getFlattenedCol = (row, rType, targetM, targetC) => {
   if (!row || rType === 'text' || rType === 'page-break') return 0;
   let col = 0;
@@ -1091,12 +1101,20 @@ export const MusicProvider = ({ children }) => {
   };
 
   // ⭐ useEffect ชุดที่ถูกต้อง วางไว้ที่นี่
+  // ⭐ useEffect ชุดที่ถูกต้อง (แก้ไขเพิ่ม Spacebar)
   useEffect(() => {
     const handleKeyDown = (e) => {
       const tag = e.target?.tagName;
       const isEditable = e.target?.isContentEditable || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
       
       if (isEditable) return; 
+
+      // ⭐ เพิ่มการดักจับปุ่ม Spacebar ตรงนี้ครับ
+      if (e.code === 'Space') {
+        e.preventDefault(); // บล็อกไม่ให้หน้าเว็บเลื่อนลง
+        togglePlay();       // สลับสถานะ เล่น/หยุดเพลง
+        return;             // จบการทำงานรอบนี้
+      }
 
       if (e.ctrlKey || e.metaKey) {
         if (e.code === 'KeyZ') { e.preventDefault(); undo(); } 
@@ -1106,9 +1124,12 @@ export const MusicProvider = ({ children }) => {
         else if (e.code === 'KeyX') { e.preventDefault(); cutSelection(); }
       }
     };
+    
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [undo, redo, copySelection, pasteSelection, cutSelection]);
+    
+  // ⭐ สำคัญมาก: อย่าลืมเพิ่ม togglePlay ในอาร์เรย์วงเล็บเหลี่ยมด้านล่างนี้ด้วยครับ
+  }, [undo, redo, copySelection, pasteSelection, cutSelection, togglePlay]);
 
   useEffect(() => {
     const saved = localStorage.getItem('thaiMusicEditorAutoSave');

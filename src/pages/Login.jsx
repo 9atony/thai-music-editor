@@ -2,31 +2,42 @@ import React, { useState } from 'react';
 // นำเข้าไฟล์รูปภาพโลโก้
 import logoImg from '../assets/logo wep.png';
 // ⭐ ต้องมีบรรทัดนี้เพิ่มเข้าไปครับ เพื่อดึงคำสั่งล็อกอินจาก Firebase
-import { signInWithEmailAndPassword } from 'firebase/auth'; 
+import { 
+  signInWithEmailAndPassword, 
+  setPersistence, 
+  browserLocalPersistence, 
+  browserSessionPersistence 
+} from 'firebase/auth';
+
 import { auth } from '../utils/firebase';
 
 const Login = ({ onLoginSuccess }) => {
   const [email, setEmail] = useState('');
+  const [rememberMe, setRememberMe] = useState(true); 
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
- const handleLogin = async (e) => {
+const handleLogin = async (e) => {
     e.preventDefault();
     setIsLoading(true);
     setError('');
 
     try {
+      // ⭐ 1. ตั้งค่าการจดจำรหัสผ่านก่อน
+      const persistenceType = rememberMe ? browserLocalPersistence : browserSessionPersistence;
+      await setPersistence(auth, persistenceType);
+
+      // ⭐ 2. ทำการล็อกอินตามปกติ
       await signInWithEmailAndPassword(auth, email, password);
+      
       if (onLoginSuccess) onLoginSuccess();
     } catch (err) {
-      // ⭐ แก้เป็นบรรทัดนี้ครับ:
-      setError('Error: ' + err.message); 
+      setError('Error: ' + err.message);
       setIsLoading(false);
     }
   };
-
   
 
   const handleGoogleLogin = async () => {
@@ -148,8 +159,13 @@ const Login = ({ onLoginSuccess }) => {
 
               <div className="flex items-center justify-between mt-1">
                 <label className="flex items-center gap-2 cursor-pointer">
-                  <input type="checkbox" className="w-4 h-4 rounded border-slate-300 text-slate-900 focus:ring-slate-900 cursor-pointer accent-slate-900" defaultChecked />
-                  <span className="text-sm text-slate-600 font-medium">Remember me</span>
+                  <input 
+  type="checkbox" 
+  checked={rememberMe}
+  onChange={(e) => setRememberMe(e.target.checked)}
+  className="w-4 h-4 rounded border-slate-300 text-sky-500 focus:ring-sky-500"
+/>
+<span className="text-sm font-semibold text-slate-600">Remember me</span>
                 </label>
                 <a href="#" className="text-sm text-[#3B82F6] font-medium hover:underline">Forgot password?</a>
               </div>

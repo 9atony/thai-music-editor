@@ -241,7 +241,7 @@ const PlaybackControls = () => {
       case 'default': 
       default:
         return (
-          <div className="flex items-center gap-6 flex-wrap animate-fadeIn w-full">
+          <div className="flex items-center gap-6 animate-fadeIn w-full">
             
             {/* ⭐ อัปเดตกลุ่มปุ่ม Playback Control แบบเต็มสูบ */}
             <div className="flex items-center gap-1 border-r border-slate-200 pr-5">
@@ -330,8 +330,8 @@ const PlaybackControls = () => {
         </svg>
       </button>
 
-      <div className={`overflow-hidden transition-all duration-300 ease-in-out px-6 ${isCollapsed ? 'h-0 opacity-0 py-0' : 'h-[60px] opacity-100 py-3'}`}>
-        <div key={toolbarMode} className="h-full flex items-center">
+      <div className={`overflow-x-auto overflow-y-hidden transition-all duration-300 ease-in-out px-6 ${isCollapsed ? 'h-0 opacity-0 py-0' : 'h-[60px] opacity-100 py-3'} [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]`}>
+        <div key={toolbarMode} className="h-full flex items-center min-w-max">
            {renderModeContent()}
         </div>
       </div>
