@@ -1,54 +1,63 @@
-import React, { useState, useEffect } from 'react'; // ⭐ เพิ่ม useEffect
+import React, { useState, useEffect } from 'react';
 import useDevice from './hooks/useDevice';
 import DesktopEditor from './views/DesktopEditor';
 import MobilePlayer from './views/MobilePlayer';
 import Login from './pages/Login'; 
 
-// ⭐ 1. นำเข้าคำสั่งของ Firebase
+// ⭐ นำเข้า Layout และ Home ที่เราเพิ่งสร้าง
+import DesktopLayout from './components/layout/DesktopLayout';
+import Home from './pages/Home';
+
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from './utils/firebase'; 
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  // ⭐ 2. เพิ่ม State สำหรับจังหวะโหลดเช็กข้อมูล
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+  
+  // ⭐ เพิ่ม State สำหรับคุมหน้าจอ (เริ่มต้นที่หน้า home)
+  const [currentView, setCurrentView] = useState('home'); 
 
   const { isMobile } = useDevice();
 
-  // ⭐ 3. ใช้ useEffect ให้ Firebase ตรวจสอบว่าเคยล็อกอินไว้หรือไม่ ตอนเปิดเว็บครั้งแรก
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        setIsAuthenticated(true); // ถ้ามีประวัติล็อกอิน ให้ผ่านเลย
-      } else {
-        setIsAuthenticated(false); // ถ้าไม่มี ค่อยให้ไปหน้า Login
-      }
-      setIsCheckingAuth(false); // ปิดหน้าต่างโหลด
+      if (user) setIsAuthenticated(true);
+      else setIsAuthenticated(false);
+      setIsCheckingAuth(false);
     });
-
-    return () => unsubscribe(); // ล้างคำสั่งเมื่อปิดหน้า
+    return () => unsubscribe();
   }, []);
 
-  // ⭐ 4. หน้าต่าง Loading... ป้องกันไม่ให้หน้า Login กระพริบขึ้นมาก่อน
   if (isCheckingAuth) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center font-sans text-slate-500 font-medium">
-        กำลังตรวจสอบข้อมูล...
-      </div>
-    );
+    return <div className="min-h-screen bg-slate-50 flex items-center justify-center font-sans text-slate-500 font-medium">กำลังตรวจสอบข้อมูล...</div>;
   }
 
-  // ถ้ายังไม่ได้ล็อกอิน ให้โชว์หน้า Login
   if (!isAuthenticated) {
     return <Login onLoginSuccess={() => setIsAuthenticated(true)} />;
   }
 
-  // ถ้าล็อกอินผ่านแล้ว ค่อยแสดงระบบสลับหน้าจอมือถือ/คอมฯ
-  return (
-    <>
-      {isMobile ? <MobilePlayer /> : <DesktopEditor />}
-    </>
-  );
+  // ⭐ ระบบแยกหน้าจอมือถือ/คอม
+  if (isMobile) {
+    return <MobilePlayer />;
+  }
+
+  // ⭐ ระบบสลับหน้าจอสำหรับ Desktop
+  if (currentView === 'home') {
+    return (
+      <DesktopLayout>
+        {/* ส่งฟังก์ชันเปลี่ยนหน้าไปให้ปุ่มใน Home */}
+        <Home onNewProject={() => setCurrentView('editor')} />
+      </DesktopLayout>
+    );
+  }
+
+  if (currentView === 'editor') {
+    // โชว์หน้าแต่งเพลง (เดี๋ยวเราค่อยไปทำปุ่ม 'กลับหน้าแรก' ในหน้า Editor ทีหลัง)
+    return <DesktopEditor onBack={() => setCurrentView('home')} />;
+  }
+
+  return null;
 }
 
 export default App;

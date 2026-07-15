@@ -1,110 +1,127 @@
 import React, { useState } from 'react';
-// นำเข้าไฟล์รูปภาพโลโก้
 import logoImg from '../assets/logo wep.png';
-// ⭐ ต้องมีบรรทัดนี้เพิ่มเข้าไปครับ เพื่อดึงคำสั่งล็อกอินจาก Firebase
 import { 
   signInWithEmailAndPassword, 
+  createUserWithEmailAndPassword, 
   setPersistence, 
   browserLocalPersistence, 
-  browserSessionPersistence 
+  browserSessionPersistence,
+  signInWithPopup,
+  GoogleAuthProvider,
+  updateProfile // ⭐ 1. เพิ่มคำสั่ง updateProfile จาก Firebase
 } from 'firebase/auth';
 
 import { auth } from '../utils/firebase';
 
 const Login = ({ onLoginSuccess }) => {
+  const [isSignUp, setIsSignUp] = useState(false);
+  
+  // ⭐ 2. เพิ่ม State สำหรับเก็บชื่อผู้ใช้
+  const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
-  const [rememberMe, setRememberMe] = useState(true); 
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState(''); 
+  const [rememberMe, setRememberMe] = useState(true); 
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-const handleLogin = async (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setIsLoading(true);
     setError('');
 
+    if (isSignUp && password !== confirmPassword) {
+      setError('รหัสผ่านและการยืนยันรหัสผ่านไม่ตรงกัน');
+      setIsLoading(false);
+      return;
+    }
+
     try {
-      // ⭐ 1. ตั้งค่าการจดจำรหัสผ่านก่อน
       const persistenceType = rememberMe ? browserLocalPersistence : browserSessionPersistence;
       await setPersistence(auth, persistenceType);
 
-      // ⭐ 2. ทำการล็อกอินตามปกติ
-      await signInWithEmailAndPassword(auth, email, password);
+      if (isSignUp) {
+        // กรณีสมัครบัญชีใหม่ ให้สร้างบัญชีก่อน
+        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        
+        // ⭐ เพิ่มบรรทัดนี้: สร้างลิงก์รูปโปรไฟล์อัตโนมัติจากชื่อที่กรอกเข้ามา (พร้อมสุ่มสีพื้นหลัง)
+        const autoAvatarURL = `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=random&color=fff&rounded=true&bold=true`;
+        
+        // ⭐ อัปเดตให้ Firebase เก็บทั้งชื่อ (displayName) และรูปภาพ (photoURL)
+        await updateProfile(userCredential.user, {
+          displayName: displayName,
+          photoURL: autoAvatarURL
+        });
+      } else {
+        // กรณีล็อกอินบัญชีเดิม
+        await signInWithEmailAndPassword(auth, email, password);
+      }
       
       if (onLoginSuccess) onLoginSuccess();
     } catch (err) {
-      setError('Error: ' + err.message);
+      console.error(err);
+      if (err.code === 'auth/email-already-in-use') {
+        setError('อีเมลนี้ถูกใช้งานแล้ว กรุณาเข้าสู่ระบบ');
+      } else if (err.code === 'auth/weak-password') {
+        setError('รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร');
+      } else if (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password') {
+        setError('อีเมลหรือรหัสผ่านไม่ถูกต้อง');
+      } else {
+        setError('เกิดข้อผิดพลาด: ' + err.message);
+      }
+    } finally {
       setIsLoading(false);
     }
   };
   
-
   const handleGoogleLogin = async () => {
-    /* ⭐ โค้ดสำหรับ Google Login
+    setIsLoading(true);
+    setError('');
     const provider = new GoogleAuthProvider();
+    
     try {
       await signInWithPopup(auth, provider);
       if (onLoginSuccess) onLoginSuccess();
     } catch (err) {
+      console.error(err);
       setError('เกิดข้อผิดพลาดในการเข้าสู่ระบบด้วย Google');
+      setIsLoading(false);
     }
-    */
-    alert("ระบบ Google Login จะพร้อมใช้งานเมื่อเชื่อมต่อ Firebase ครับ");
   };
 
   return (
     <div className="min-h-screen w-full relative flex items-center justify-center bg-slate-50 overflow-hidden font-sans text-slate-800">
       
-      {/* ⭐ พื้นหลัง (ภาพระนาดจางๆ) คุณหนุ่มสามารถเอาภาพระนาดมาใส่ในโฟลเดอร์ public แล้วเปลี่ยน url ได้เลยครับ */}
+      {/* พื้นหลัง */}
       <div 
         className="absolute inset-0 z-0 opacity-[0.03] pointer-events-none"
         style={{
-          backgroundImage: `url('/path-to-your-ranat-bg.png')`, // <-- เปลี่ยนตรงนี้
+          backgroundImage: `url('/path-to-your-ranat-bg.png')`, 
           backgroundSize: 'cover',
           backgroundPosition: 'center',
           backgroundRepeat: 'no-repeat'
         }}
       />
       
-      {/* Decorative Grid/Lines (จำลองลวดลายพื้นหลัง) */}
       <div className="absolute inset-0 z-0 bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:24px_24px]"></div>
-
-      {/* สวิตช์ Light/Dark Mode (ตกแต่งให้เหมือนในรูป) */}
-      <div className="absolute top-8 right-8 z-20 flex items-center bg-white/80 backdrop-blur px-1 py-1 rounded-full shadow-sm border border-slate-100">
-        <button className="flex items-center gap-2 px-4 py-1.5 bg-white rounded-full shadow-sm text-sm font-semibold">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
-          Light
-        </button>
-        <button className="flex items-center gap-2 px-4 py-1.5 text-slate-400 hover:text-slate-600 rounded-full text-sm font-semibold transition-colors">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path></svg>
-          Dark
-        </button>
-      </div>
 
       <div className="relative z-10 w-full max-w-6xl mx-auto px-6 flex flex-col lg:flex-row items-center justify-between gap-16">
         
-       {/* คอลัมน์ฝั่งซ้าย (ต้องใช้ flex-col และ items-center เพื่อคุมให้ทุกอย่างอยู่กลาง) */}
-<div className="flex-1 flex flex-col items-center text-center">
-  
-  {/* โลโก้ */}
-  <img 
-    src={logoImg} 
-    alt="Thai Music Editor Logo" 
-    className="w-full max-w-[450px] mb-10 drop-shadow-sm" 
-  />
+        <div className="flex-1 flex flex-col items-center text-center">
+          <img 
+            src={logoImg} 
+            alt="Thai Music Editor Logo" 
+            className="w-full max-w-[450px] mb-10 drop-shadow-sm" 
+          />
+          <p className="text-slate-800 font-bold leading-relaxed max-w-md text-lg">
+            เครื่องมือสร้างสรรค์ดนตรีไทยยุคใหม่ <br/>
+            เพื่อการเรียนรู้ แก้ไข และถ่ายทอดศิลปะทางดนตรีไทย
+          </p>
+        </div>
 
-  {/* ข้อความ */}
-  <p className="text-slate-800 font-bold leading-relaxed max-w-md text-lg">
-    เครื่องมือสร้างสรรค์ดนตรีไทยยุคใหม่ <br/>
-    เพื่อการเรียนรู้ แก้ไข และถ่ายทอดศิลปะทางดนตรีไทย
-  </p>
-  
-</div>
-
-        {/* ฝั่งขวา: Glassmorphism Login Card */}
         <div className="w-full max-w-md relative">
-          {/* แถบสีด้านข้าง (กิมมิคเล็กๆ จากในรูป) */}
+          
           <div className="absolute -right-2 top-12 bottom-12 w-1 flex flex-col justify-between py-12 z-0">
             <div className="w-1 h-6 bg-[#EF4444] rounded-r-md"></div>
             <div className="w-1 h-6 bg-[#3B82F6] rounded-r-md"></div>
@@ -112,10 +129,36 @@ const handleLogin = async (e) => {
           </div>
 
           <div className="relative z-10 bg-white/70 backdrop-blur-xl border border-white/60 shadow-[0_8px_30px_rgb(0,0,0,0.08)] rounded-3xl p-10 w-full">
-            <h2 className="text-3xl font-bold text-slate-900 mb-2">Welcome Back</h2>
-            <p className="text-slate-500 text-sm mb-8">Sign in to continue to Thai Music Editor</p>
+            <h2 className="text-3xl font-bold text-slate-900 mb-2">
+              {isSignUp ? 'Create Account' : 'Welcome Back'}
+            </h2>
+            <p className="text-slate-500 text-sm mb-8">
+              {isSignUp ? 'Sign up to start using Thai Music Editor' : 'Sign in to continue to Thai Music Editor'}
+            </p>
 
-            <form onSubmit={handleLogin} className="flex flex-col gap-5">
+            <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+              
+              {/* ⭐ 5. เพิ่มช่องกรอกชื่อผู้ใช้ (แสดงเฉพาะตอนกดสมัครสมาชิก) */}
+              {isSignUp && (
+                <div className="animate-fadeIn">
+                  <label className="block text-sm font-semibold text-slate-700 mb-1.5">Username</label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                      {/* ไอคอนรูปคน */}
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
+                    </div>
+                    <input 
+                      type="text" 
+                      required={isSignUp}
+                      value={displayName}
+                      onChange={(e) => setDisplayName(e.target.value)}
+                      placeholder="Display Name"
+                      className="w-full pl-11 pr-4 py-2.5 rounded-xl border border-slate-200 bg-white/50 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none text-sm placeholder:text-slate-400"
+                    />
+                  </div>
+                </div>
+              )}
+
               <div>
                 <label className="block text-sm font-semibold text-slate-700 mb-1.5">Email</label>
                 <div className="relative">
@@ -157,18 +200,38 @@ const handleLogin = async (e) => {
                 </div>
               </div>
 
-              <div className="flex items-center justify-between mt-1">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input 
-  type="checkbox" 
-  checked={rememberMe}
-  onChange={(e) => setRememberMe(e.target.checked)}
-  className="w-4 h-4 rounded border-slate-300 text-sky-500 focus:ring-sky-500"
-/>
-<span className="text-sm font-semibold text-slate-600">Remember me</span>
-                </label>
-                <a href="#" className="text-sm text-[#3B82F6] font-medium hover:underline">Forgot password?</a>
-              </div>
+              {isSignUp && (
+                <div className="animate-fadeIn">
+                  <label className="block text-sm font-semibold text-slate-700 mb-1.5">Confirm Password</label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+                    </div>
+                    <input 
+                      type={showPassword ? "text" : "password"} 
+                      required
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      placeholder="••••••••••••"
+                      className="w-full pl-11 pr-11 py-2.5 rounded-xl border border-slate-200 bg-white/50 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none text-sm font-medium tracking-wider placeholder:tracking-normal placeholder:text-slate-400"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {!isSignUp && (
+                <div className="flex items-center justify-between mt-1">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input 
+                      type="checkbox" 
+                      checked={rememberMe}
+                      onChange={(e) => setRememberMe(e.target.checked)}
+                      className="w-4 h-4 rounded border-slate-300 text-sky-500 focus:ring-sky-500"
+                    />
+                    <span className="text-sm font-semibold text-slate-600">Remember me</span>
+                  </label>
+                </div>
+              )}
 
               {error && <div className="text-red-500 text-sm font-medium text-center">{error}</div>}
 
@@ -177,7 +240,7 @@ const handleLogin = async (e) => {
                 disabled={isLoading}
                 className="w-full mt-2 flex items-center justify-center gap-2 bg-[#111827] hover:bg-[#1f2937] text-white py-3 rounded-xl font-medium transition-all active:scale-[0.98] disabled:opacity-70 group"
               >
-                {isLoading ? 'Signing In...' : 'Sign In'}
+                {isLoading ? (isSignUp ? 'Creating Account...' : 'Signing In...') : (isSignUp ? 'Sign Up' : 'Sign In')}
                 {!isLoading && (
                   <svg className="w-5 h-5 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
                 )}
@@ -190,27 +253,41 @@ const handleLogin = async (e) => {
               <div className="flex-1 h-px bg-slate-300"></div>
             </div>
 
-            <div className="grid grid-cols-3 gap-3">
-              <button onClick={handleGoogleLogin} className="flex items-center justify-center py-2.5 border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors bg-white/50">
-                <svg className="w-5 h-5" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
-              </button>
-              <button className="flex items-center justify-center py-2.5 border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors bg-white/50">
-                <svg className="w-5 h-5" viewBox="0 0 21 21"><path fill="#f25022" d="M1 1h9v9H1z"/><path fill="#00a4ef" d="M11 1h9v9h-9z"/><path fill="#7fba00" d="M1 11h9v9H1z"/><path fill="#ffb900" d="M11 11h9v9h-9z"/></svg>
-              </button>
-              <button className="flex items-center justify-center py-2.5 border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors bg-white/50">
-                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.04 2.34-.84 3.79-.69 1.48.16 2.65.74 3.41 1.8-3.16 1.83-2.65 6.07.41 7.23-.74 1.81-1.75 3.8-2.69 3.83M12.03 7.26c-.1-1.58.6-3.05 1.7-4.1.99-1.06 2.45-1.66 4.02-1.57.17 1.63-.58 3.19-1.68 4.2-1.01 1.04-2.58 1.64-4.04 1.47"/></svg>
-              </button>
-            </div>
+            <button 
+              onClick={handleGoogleLogin} 
+              disabled={isLoading}
+              className="w-full flex items-center justify-center gap-3 py-2.5 border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors bg-white/50 text-sm font-semibold text-slate-600"
+            >
+              <svg className="w-5 h-5" viewBox="0 0 24 24">
+                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+              </svg>
+              <span>Sign in with Google</span>
+            </button>
 
             <p className="text-center text-sm font-medium text-slate-500 mt-8">
-              Don't have an account? <a href="#" className="text-[#3B82F6] hover:underline">Create account</a>
+              {isSignUp ? "Already have an account?" : "Don't have an account?"} {' '}
+              <button 
+                type="button"
+                onClick={() => {
+                  setIsSignUp(!isSignUp);
+                  setError(''); 
+                  setPassword('');
+                  setConfirmPassword('');
+                  setDisplayName(''); // ⭐ 6. เคลียร์ชื่อผู้ใช้ออกเวลาสลับหน้า
+                }} 
+                className="text-[#3B82F6] hover:underline"
+              >
+                {isSignUp ? 'Sign In' : 'Create account'}
+              </button>
             </p>
 
           </div>
         </div>
       </div>
 
-      {/* Footer สีสันด้านล่าง */}
       <div className="absolute bottom-0 left-0 right-0 px-8 py-6 flex items-center justify-between text-xs font-semibold text-slate-400">
         <div className="flex items-center gap-2">
           <div className="w-6 h-1 rounded-full bg-[#EF4444]"></div>
@@ -225,7 +302,6 @@ const handleLogin = async (e) => {
           <span>© 2026 Rattanachai Sakchai</span>
         </div>
       </div>
-
     </div>
   );
 };

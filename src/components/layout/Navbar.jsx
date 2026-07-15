@@ -7,7 +7,7 @@ import openIcon from '../../assets/icons/open.png';
 import pdfIcon from '../../assets/icons/pdf.png';
 import saveIcon from '../../assets/icons/save.png';
 
-const Navbar = ({ onPrint, onToggleSidebar }) => {
+const Navbar = ({ onPrint, onToggleSidebar, onBack }) => {
   const { 
     saveProject, 
     loadProject, 
@@ -16,7 +16,10 @@ const Navbar = ({ onPrint, onToggleSidebar }) => {
     redo, 
     canUndo, 
     canRedo,
-    stopPlayback 
+    stopPlayback,
+    // ⭐ ดึง State ชื่อโปรเจกต์มาใช้งานที่นี่
+    projectName, 
+    setProjectName 
   } = useContext(MusicContext);
 
   return (
@@ -24,7 +27,7 @@ const Navbar = ({ onPrint, onToggleSidebar }) => {
       
       <div className="px-5 py-3 flex items-center justify-between">
         
-        {/* ส่วนซ้าย: เมนูแฮมเบอร์เกอร์ + โลโก้ใหม่ */}
+        {/* ส่วนซ้าย: เมนูแฮมเบอร์เกอร์ + โลโก้ + ชื่อโปรเจกต์ */}
         <div className="flex items-center gap-4">
           <button 
             onClick={onToggleSidebar}
@@ -35,16 +38,38 @@ const Navbar = ({ onPrint, onToggleSidebar }) => {
             </svg>
           </button>
           
-          <div className="flex items-center gap-2 select-none">
+          <button 
+            onClick={onBack}
+            className="p-2 hover:bg-sky-50 rounded-lg text-slate-500 hover:text-sky-600 transition-all active:scale-95 flex items-center justify-center"
+            title="กลับหน้าหลัก"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+
+          <div className="flex items-center gap-4 select-none border-r border-slate-200 pr-4">
             <img 
               src={logo} 
               alt="Thai Music Editor Logo" 
               className="h-10 w-auto object-contain" 
             />
           </div>
+
+          {/* ⭐ ส่วนที่เพิ่มใหม่: ช่องสำหรับตั้งชื่อโปรเจกต์ (อยู่หลังโลโก้) */}
+          <div className="hidden sm:flex items-center">
+            <input 
+              type="text" 
+              value={projectName || ''} 
+              onChange={(e) => setProjectName(e.target.value)}
+              placeholder="โปรเจกต์ไม่มีชื่อ"
+              className="text-lg font-bold text-slate-700 bg-transparent border-b-2 border-transparent hover:border-slate-200 focus:border-sky-500 focus:outline-none focus:ring-0 placeholder:text-slate-300 w-40 md:w-64 truncate transition-colors px-1 py-0.5"
+              title="คลิกเพื่อเปลี่ยนชื่อเพลง"
+            />
+          </div>
         </div>
 
-        {/* ส่วนขวา: ปุ่มคำสั่งต่างๆ (ใช้ไอคอนที่เตรียมมา) */}
+        {/* ส่วนขวา: ปุ่มคำสั่งต่างๆ */}
         <div className="flex items-center gap-1 sm:gap-2">
           
           <div className="flex bg-slate-50/50 rounded-lg border border-slate-200 p-0.5 mr-2">

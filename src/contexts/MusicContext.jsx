@@ -1,6 +1,7 @@
 import React, { createContext, useState, useMemo, useEffect, useRef } from 'react';
 import { INSTRUMENT_CONFIG } from '../utils/instrumentConfig';
 import { preloadSounds, playNote, initAudioContext } from '../utils/audioEngine'; 
+import { auth, saveProjectToDB } from '../utils/firebase';
 
 export const MusicContext = createContext();
 
@@ -77,7 +78,11 @@ export const MusicProvider = ({ children }) => {
   const [rowTypes, setRowTypes] = useState(Array(4).fill('single'));
   const [rowMargins, setRowMargins] = useState(Array(4).fill({ top: 0, bottom: 0, left: 0 }));
   const [selectedCell, setSelectedCell] = useState([0, 0, 0]);
+  
   const [songName, setSongName] = useState("เพลงลาวดวงเดือน");
+  // ⭐ เพิ่ม State สำหรับชื่อโปรเจกต์แยกต่างหาก
+  const [projectName, setProjectName] = useState("โปรเจกต์ไม่มีชื่อ");
+  
   const [sectionLabels, setSectionLabels] = useState({});
   const [selectionRange, setSelectionRange] = useState(null); 
   const [symbols, setSymbols] = useState([]); 
@@ -90,7 +95,6 @@ export const MusicProvider = ({ children }) => {
   const [activeLoop, setActiveLoop] = useState(1); 
   
   const [isLoopAll, setIsLoopAll] = useState(false);
-  // ⭐ ฟีเจอร์วนลูปท่อนเดียว (Loop One)
   const [isLoopOne, setIsLoopOne] = useState(false);
 
   const [isDragging, setIsDragging] = useState(false);
@@ -99,6 +103,19 @@ export const MusicProvider = ({ children }) => {
   const [history, setHistory] = useState([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [projectId, setProjectId] = useState(null); 
+
+  const autoSaveToFirebase = async (data) => {
+    const uid = auth.currentUser?.uid;
+    if (!uid) return; 
+
+    try {
+      const id = await saveProjectToDB(uid, projectId, data);
+      if (!projectId && id) setProjectId(id); 
+    } catch (err) {
+      console.error("Auto-save failed:", err);
+    }
+  };
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackCursor, setPlaybackCursor] = useState(null);
@@ -868,20 +885,28 @@ export const MusicProvider = ({ children }) => {
     commitChange(sheetData, rowTypes, newState);
   };
 
+  // ⭐ อัปเดตให้บันทึกชื่อโปรเจกต์ (projectName) ในฟังก์ชันนี้
   const saveProject = () => {
-    const projectData = { songName, sheetData, rowTypes, sectionLabels, symbols, layoutConfig, headerDetails, currentInstrument: currentInstrument.id, rowMargins, playbackSequence };
+    const projectData = { name: projectName, songName, sheetData, rowTypes, sectionLabels, symbols, layoutConfig, headerDetails, currentInstrument: currentInstrument.id, rowMargins, playbackSequence };
     const url = URL.createObjectURL(new Blob([JSON.stringify(projectData, null, 2)], { type: 'application/json' }));
-    const a = document.createElement('a'); a.href = url; a.download = `${songName || 'my-song'}.tme`; a.click(); URL.revokeObjectURL(url);
+    const a = document.createElement('a'); a.href = url; a.download = `${projectName || 'my-song'}.tme`; a.click(); URL.revokeObjectURL(url);
   };
 
+  // ⭐ อัปเดตให้โหลดชื่อโปรเจกต์ (projectName) จากไฟล์
   const loadProject = (file) => {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
         const data = JSON.parse(e.target.result);
+        if (data.name !== undefined) setProjectName(data.name);
         if (data.songName !== undefined) setSongName(data.songName);
-        if (data.sheetData) setSheetData(data.sheetData);
+        if (data.sheetData) {
+          const parsedSheetData = typeof data.sheetData === 'string' 
+            ? JSON.parse(data.sheetData) 
+            : data.sheetData;
+          setSheetData(parsedSheetData);
+        }
         if (data.rowTypes) setRowTypes(data.rowTypes);
         if (data.sectionLabels) setSectionLabels(data.sectionLabels);
         if (data.symbols) setSymbols(data.symbols);
@@ -900,7 +925,12 @@ export const MusicProvider = ({ children }) => {
   const newProject = () => {
     if (window.confirm("คุณต้องการสร้างกระดาษใหม่ใช่หรือไม่? (ข้อมูลที่ยังไม่ได้เซฟจะหายไปทั้งหมด)")) {
       const initSheet = Array(4).fill().map(() => Array(8).fill().map(() => Array(4).fill('-'))), initType = Array(4).fill('single'), initMar = Array(4).fill({ top: 0, bottom: 0, left: 0 });
-      setSongName("เพลงใหม่"); setSheetData(initSheet); setRowTypes(initType); setRowMargins(initMar); setSectionLabels({}); setSymbols([]);
+      setSongName("เพลงใหม่"); 
+      setProjectName("โปรเจกต์ไม่มีชื่อ"); 
+      
+      setProjectId(null); // ⭐ เพิ่มบรรทัดนี้: ล้าง ID เก่าทิ้ง เพื่อให้เซฟเป็นไฟล์ใหม่
+      
+      setSheetData(initSheet); setRowTypes(initType); setRowMargins(initMar); setSectionLabels({}); setSymbols([]);
       setHeaderDetails([{ id: 1, label: "อัตราจังหวะ", value: "๒ ชั้น" }, { id: 2, label: "หน้าทับ", value: "สองไม้" }, { id: 3, label: "บันไดเสียง", value: "ทางเพียงออ" }, { id: 4, label: "ผู้บันทึก", value: "9atony" }]);
       setSelectedCell([0, 0, 0]); setSelectionRange(null); setHistoryIndex(-1); setHistory([]); localStorage.removeItem('thaiMusicEditorAutoSave');
       commitChange(initSheet, initType, {}, [], initMar);
@@ -1100,8 +1130,6 @@ export const MusicProvider = ({ children }) => {
     }
   };
 
-  // ⭐ useEffect ชุดที่ถูกต้อง วางไว้ที่นี่
-  // ⭐ useEffect ชุดที่ถูกต้อง (แก้ไขเพิ่ม Spacebar)
   useEffect(() => {
     const handleKeyDown = (e) => {
       const tag = e.target?.tagName;
@@ -1109,11 +1137,10 @@ export const MusicProvider = ({ children }) => {
       
       if (isEditable) return; 
 
-      // ⭐ เพิ่มการดักจับปุ่ม Spacebar ตรงนี้ครับ
       if (e.code === 'Space') {
-        e.preventDefault(); // บล็อกไม่ให้หน้าเว็บเลื่อนลง
-        togglePlay();       // สลับสถานะ เล่น/หยุดเพลง
-        return;             // จบการทำงานรอบนี้
+        e.preventDefault(); 
+        togglePlay();       
+        return;             
       }
 
       if (e.ctrlKey || e.metaKey) {
@@ -1128,7 +1155,6 @@ export const MusicProvider = ({ children }) => {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
     
-  // ⭐ สำคัญมาก: อย่าลืมเพิ่ม togglePlay ในอาร์เรย์วงเล็บเหลี่ยมด้านล่างนี้ด้วยครับ
   }, [undo, redo, copySelection, pasteSelection, cutSelection, togglePlay]);
 
   useEffect(() => {
@@ -1136,6 +1162,7 @@ export const MusicProvider = ({ children }) => {
     if (saved) {
       try {
         const data = JSON.parse(saved);
+        if (data.name !== undefined) setProjectName(data.name);
         if (data.songName !== undefined) setSongName(data.songName);
         if (data.sheetData) setSheetData(data.sheetData);
         if (data.rowTypes) setRowTypes(data.rowTypes);
@@ -1157,11 +1184,15 @@ export const MusicProvider = ({ children }) => {
     setIsLoaded(true);
   }, []);
 
-  useEffect(() => {
+ useEffect(() => {
     if (!isLoaded) return; 
-    const projectData = { songName, sheetData, rowTypes, sectionLabels, symbols, layoutConfig, headerDetails, currentInstrument: currentInstrument.id, rowMargins, playbackSequence };
+    // ⭐ อัปเดตให้ดึงค่า projectName เข้าไปบันทึกอัตโนมัติด้วย
+    const projectData = { name: projectName, songName, sheetData, rowTypes, sectionLabels, symbols, layoutConfig, headerDetails, currentInstrument: currentInstrument.id, rowMargins, playbackSequence };
+    
     localStorage.setItem('thaiMusicEditorAutoSave', JSON.stringify(projectData));
-  }, [isLoaded, songName, sheetData, rowTypes, sectionLabels, symbols, layoutConfig, headerDetails, currentInstrument, rowMargins, playbackSequence]);
+    autoSaveToFirebase(projectData);
+
+  }, [isLoaded, projectName, songName, sheetData, rowTypes, sectionLabels, symbols, layoutConfig, headerDetails, currentInstrument, rowMargins, playbackSequence]);
 
   const updateRowMarginsList = (arg1, arg2, arg3) => {
     const newRowMargins = [...rowMargins];
@@ -1189,16 +1220,45 @@ export const MusicProvider = ({ children }) => {
   const removeDetail = (id) => setHeaderDetails(headerDetails.filter(detail => detail.id !== id));
   const updateDetail = (id, key, newValue) => setHeaderDetails(headerDetails.map(detail => detail.id === id ? { ...detail, [key]: newValue } : detail));
   const changeInstrument = (instrumentId) => setCurrentInstrument(INSTRUMENT_CONFIG[instrumentId]);
+  
+  const loadProjectFromFirebase = (projectData) => {
+    try {
+      const parsedSheetData = typeof projectData.sheetData === 'string' 
+        ? JSON.parse(projectData.sheetData) 
+        : projectData.sheetData;
 
+      // ⭐ เพิ่มบรรทัดนี้: ให้ระบบจำ ID ของไฟล์ที่เพิ่งเปิด จะได้เซฟถูกไฟล์
+      if (projectData.id) setProjectId(projectData.id);
+
+      if (projectData.name !== undefined) setProjectName(projectData.name);
+      if (projectData.songName !== undefined) setSongName(projectData.songName);
+      
+      if (parsedSheetData) setSheetData(parsedSheetData);
+      if (projectData.rowTypes) setRowTypes(projectData.rowTypes);
+      if (projectData.sectionLabels) setSectionLabels(projectData.sectionLabels);
+      if (projectData.symbols) setSymbols(projectData.symbols);
+      if (projectData.layoutConfig) setLayoutConfig(projectData.layoutConfig);
+      if (projectData.headerDetails) setHeaderDetails(projectData.headerDetails);
+      
+      setSelectedCell([0, 0, 0]);
+      setSelectionRange(null);
+    } catch (error) {
+      console.error("โหลดโปรเจกต์ไม่สำเร็จ:", error);
+      alert("ไม่สามารถโหลดข้อมูลจาก Firebase ได้!");
+    }
+  };
   return (
     <MusicContext.Provider value={{ 
       currentInstrument, changeInstrument, sheetData, selectedCell, setSelectedCell, inputNote,
       layoutConfig, setLayoutConfig, headerDetails, addDetail, removeDetail, updateDetail,
-      songName, setSongName, sectionLabels, addSectionLabel, updateSectionLabel, removeSectionLabel,
+      songName, setSongName, 
+      // ⭐ อย่าลืมส่ง projectName ออกไปให้ไฟล์อื่นๆ ใช้
+      projectName, setProjectName,
+      sectionLabels, addSectionLabel, updateSectionLabel, removeSectionLabel,
       addRow, removeRow, addMeasure, removeMeasure, selectionRange, setSelectionRange,
       addNoteColumn, removeNoteColumn, rowTypes, addDoubleRow, addPageBreak, visualRowCount,
       startSelection, updateSelection, endSelection, copySelection, pasteSelection, cutSelection, clipboardData,
-      saveProject, loadProject, newProject,
+      saveProject, loadProject, loadProjectFromFirebase, newProject,
       undo, redo, canUndo: historyIndex > 0, canRedo: historyIndex < history.length - 1,
       isPlaying, playbackCursor, startPlayback, stopPlayback, togglePlay,
       symbols, addSymbol, updateSymbol, removeSymbol, removeSymbolByCell,
