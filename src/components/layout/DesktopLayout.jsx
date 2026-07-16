@@ -3,7 +3,8 @@ import logoImg from '../../assets/logo wep.png';
 import { auth } from '../../utils/firebase'; 
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 
-const DesktopLayout = ({ children }) => {
+// ⭐ 1. รับค่า currentPage และ onPageChange เข้ามาตรงนี้
+const DesktopLayout = ({ children, currentPage, onPageChange }) => {
   const [user, setUser] = useState(null);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
 
@@ -33,22 +34,35 @@ const DesktopLayout = ({ children }) => {
           <img src={logoImg} alt="TME Logo" className="w-[200px] object-contain" />
         </div>
 
-        {/* รายการเมนูหลัก (ใส่มาให้ครบแล้วครับ) */}
+        {/* รายการเมนูหลัก */}
         <div className="flex-1 px-4 py-2 space-y-1.5 overflow-y-auto">
           
-          <button className="w-full flex items-center gap-4 px-4 py-3 bg-slate-50/80 text-slate-800 rounded-xl relative group">
-            <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-6 bg-[#EF4444] rounded-r-md"></div>
-            <svg className="w-5 h-5 text-[#EF4444]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          {/* ⭐ 2. ปุ่มหน้าหลัก (อัปเดตให้เช็คหน้าปัจจุบัน) */}
+          <button 
+            onClick={() => onPageChange('home')}
+            className={`w-full flex items-center gap-4 px-4 py-3 rounded-xl relative group transition-all ${
+              currentPage === 'home' ? 'bg-slate-50/80 text-slate-800' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
+            }`}
+          >
+            {currentPage === 'home' && <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-6 bg-[#EF4444] rounded-r-md"></div>}
+            <svg className={`w-5 h-5 ${currentPage === 'home' ? 'text-[#EF4444]' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
             </svg>
-            <span className="font-semibold text-[15px]">หน้าหลัก</span>
+            <span className={`text-[15px] ${currentPage === 'home' ? 'font-semibold' : 'font-medium'}`}>หน้าหลัก</span>
           </button>
 
-          <button className="w-full flex items-center gap-4 px-4 py-3 text-slate-500 hover:bg-slate-50 hover:text-slate-700 rounded-xl transition-colors">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          {/* ⭐ 3. ปุ่มโปรเจกต์ของฉัน (อัปเดตให้เช็คหน้าปัจจุบัน) */}
+          <button 
+            onClick={() => onPageChange('my-projects')}
+            className={`w-full flex items-center gap-4 px-4 py-3 rounded-xl relative group transition-all ${
+              currentPage === 'my-projects' ? 'bg-slate-50/80 text-slate-800' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
+            }`}
+          >
+            {currentPage === 'my-projects' && <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-6 bg-[#EF4444] rounded-r-md"></div>}
+            <svg className={`w-5 h-5 ${currentPage === 'my-projects' ? 'text-[#EF4444]' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
             </svg>
-            <span className="font-medium text-[15px]">โปรเจกต์ของฉัน</span>
+            <span className={`text-[15px] ${currentPage === 'my-projects' ? 'font-semibold' : 'font-medium'}`}>โปรเจกต์ของฉัน</span>
           </button>
 
           <button className="w-full flex items-center gap-4 px-4 py-3 text-slate-500 hover:bg-slate-50 hover:text-slate-700 rounded-xl transition-colors">

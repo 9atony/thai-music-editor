@@ -4,9 +4,10 @@ import DesktopEditor from './views/DesktopEditor';
 import MobilePlayer from './views/MobilePlayer';
 import Login from './pages/Login'; 
 
-// ⭐ นำเข้า Layout และ Home ที่เราเพิ่งสร้าง
+// ⭐ นำเข้า Layout และหน้าต่างๆ
 import DesktopLayout from './components/layout/DesktopLayout';
 import Home from './pages/Home';
+import MyProjects from './pages/MyProjects'; // ⭐ 1. นำเข้าหน้า MyProjects เข้ามา
 
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from './utils/firebase'; 
@@ -15,7 +16,7 @@ function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   
-  // ⭐ เพิ่ม State สำหรับคุมหน้าจอ (เริ่มต้นที่หน้า home)
+  // State สำหรับคุมหน้าจอ (home, my-projects, editor)
   const [currentView, setCurrentView] = useState('home'); 
 
   const { isMobile } = useDevice();
@@ -37,27 +38,34 @@ function App() {
     return <Login onLoginSuccess={() => setIsAuthenticated(true)} />;
   }
 
-  // ⭐ ระบบแยกหน้าจอมือถือ/คอม
+  // ระบบแยกหน้าจอมือถือ
   if (isMobile) {
     return <MobilePlayer />;
   }
 
-  // ⭐ ระบบสลับหน้าจอสำหรับ Desktop
-  if (currentView === 'home') {
-    return (
-      <DesktopLayout>
-        {/* ส่งฟังก์ชันเปลี่ยนหน้าไปให้ปุ่มใน Home */}
-        <Home onNewProject={() => setCurrentView('editor')} />
-      </DesktopLayout>
-    );
-  }
-
+  // ⭐ 2. ถ้าเป็นหน้า Editor ให้แสดงแบบเต็มจอไปเลย (ไม่แสดงเมนูด้านซ้าย)
   if (currentView === 'editor') {
-    // โชว์หน้าแต่งเพลง (เดี๋ยวเราค่อยไปทำปุ่ม 'กลับหน้าแรก' ในหน้า Editor ทีหลัง)
     return <DesktopEditor onBack={() => setCurrentView('home')} />;
   }
 
-  return null;
+  // ⭐ 3. สำหรับหน้าอื่นๆ ให้แสดงผ่าน DesktopLayout (มีเมนูด้านซ้าย)
+  return (
+    <DesktopLayout 
+      currentPage={currentView} 
+      onPageChange={(page) => setCurrentView(page)} // ส่งคำสั่งเปลี่ยนหน้าไปให้เมนูซ้าย
+    >
+      
+      {/* สลับการแสดงผลตามค่า currentView */}
+      {currentView === 'home' && (
+        <Home onNewProject={() => setCurrentView('editor')} />
+      )}
+      
+      {currentView === 'my-projects' && (
+        <MyProjects onNewProject={() => setCurrentView('editor')} />
+      )}
+
+    </DesktopLayout>
+  );
 }
 
 export default App;
