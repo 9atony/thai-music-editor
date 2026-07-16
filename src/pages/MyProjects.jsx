@@ -3,6 +3,7 @@ import { auth, db } from '../utils/firebase';
 import { fetchRecentProjects } from '../utils/firebase'; 
 import { doc, deleteDoc, updateDoc, serverTimestamp } from 'firebase/firestore'; 
 import { MusicContext } from '../contexts/MusicContext';
+import TmeIcon from '../assets/icon.png';
 
 const MyProjects = ({ onNewProject }) => {
   const { newProject, loadProjectFromFirebase } = useContext(MusicContext);
@@ -136,9 +137,10 @@ const handleFileUpload = (e) => {
 };
 
   return (
-
-    <div className="max-w-7xl mx-auto w-full animate-fadeIn font-sans text-slate-800 flex flex-col min-h-full pb-12">
-      
+    <div 
+      className="max-w-7xl mx-auto w-full animate-fadeIn text-slate-800 flex flex-col min-h-full pb-12"
+      style={{ fontFamily: 'Prompt, sans-serif' }} // ⭐ ล็อกฟอนต์ให้เหมือนหน้า Login
+    >
       {/* 1. ส่วน Header & Search */}
       <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
         <div>
@@ -224,8 +226,10 @@ const handleFileUpload = (e) => {
             <button 
               key={`grid-${project.id}`} 
               onClick={() => handleOpenProject(project)}
-              className="bg-white p-4 rounded-2xl border border-slate-200 hover:border-sky-300 hover:shadow-md transition-all flex flex-col group cursor-pointer relative text-left"
+              // ⭐ ปรับกรอบนอก: หนาขึ้น, เงาชัดขึ้น, และเด้งลอยขึ้น (-translate-y-1) เวลาเอาเมาส์ชี้
+              className="bg-white p-3.5 rounded-2xl border-2 border-slate-100 hover:border-sky-400 hover:shadow-xl hover:-translate-y-1 transition-all duration-300 flex flex-col group cursor-pointer relative text-left"
             >
+              {/* ส่วนของจุด 3 จุด (ลบ/เปลี่ยนชื่อ) ยังคงเหมือนเดิม */}
               <div className="absolute top-3 right-3 z-20">
                 <div 
                   onClick={(e) => { e.stopPropagation(); setOpenMenuId(openMenuId === project.id ? null : project.id); }}
@@ -241,20 +245,21 @@ const handleFileUpload = (e) => {
                 )}
               </div>
               
-              <div className="w-full h-28 bg-slate-50 rounded-xl mb-4 flex items-center justify-center border border-slate-100 group-hover:bg-sky-50/50 transition-colors">
-                 <div className="relative w-12 h-14 bg-white border border-slate-200 rounded shadow-sm flex items-center justify-center">
-                    <div className="absolute top-0 right-0 w-4 h-4 bg-slate-100 border-l border-b border-slate-200 rounded-bl"></div>
-                    <span className="text-[10px] font-black tracking-tighter">
-                      <span className="text-slate-800">T</span><span className="text-slate-800">M</span><span className="text-yellow-500">Ξ</span>
-                    </span>
+              {/* ⭐ 1. ปรับกล่องหลังไอคอน: สูงขึ้นเป็นแนวตั้ง (h-36), ไล่สี (gradient), และมีขอบคมชัด */}
+              <div className="w-4/5 mx-auto h-40 bg-gradient-to-b from-slate-50 to-slate-100 rounded-xl mb-4 flex items-center justify-center border-2 border-slate-200/50 group-hover:from-sky-50/50 group-hover:to-sky-100/50 transition-colors shadow-inner overflow-hidden">
+                 
+                 {/* ⭐ 2. ปรับไอคอน: ขนาดใหญ่ขึ้น (w-20 h-20), เงาเข้ม (drop-shadow-xl), และขยายตัวเวลาชี้ (group-hover:scale-110) */}
+                 <div className="w-20 h-20 flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
+                    <img src={TmeIcon} alt="File Icon" className="w-full h-full object-contain drop-shadow-[0_10px_15px_rgba(0,0,0,0.15)]" />
                  </div>
               </div>
               
-              <h4 className="font-bold text-slate-800 text-sm w-full truncate mb-1">{project.name || "โปรเจกต์ไม่มีชื่อ"}</h4>
-              <p className="text-[11px] text-slate-400 font-medium mb-3">{formatTime(project.updatedAt)}</p>
+              {/* ส่วนของ Text ปรับให้หนาและชัดขึ้นนิดหน่อย */}
+              <h4 className="font-bold text-slate-900 text-sm w-full truncate mb-1">{project.name || "โปรเจกต์ไม่มีชื่อ"}</h4>
+              <p className="text-[11px] text-slate-500 font-medium mb-3">{formatTime(project.updatedAt)}</p>
               
-              <div className="mt-auto w-full flex items-center justify-between text-[11px] font-medium text-slate-400">
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+              <div className="mt-auto w-full flex items-center justify-between text-[11px] font-bold text-slate-400">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
                 <span>{formatSize(project.sheetData)}</span>
               </div>
             </button>
@@ -306,11 +311,10 @@ const handleFileUpload = (e) => {
                   >
                     <td className="py-3 px-5">
                       <div className="flex items-center gap-3">
-                        <div className="w-7 h-8 bg-white border border-slate-200 rounded shadow-[0_1px_2px_rgba(0,0,0,0.05)] flex items-center justify-center shrink-0">
-                          <span className="text-[7px] font-black tracking-tighter">
-                            <span className="text-slate-800">T</span><span className="text-slate-800">M</span><span className="text-yellow-500">Ξ</span>
-                          </span>
-                        </div>
+                        <div className="w-8 h-8 flex items-center justify-center shrink-0">
+  {/* ⭐ ใช้ TmeIcon ในตาราง */}
+  <img src={TmeIcon} alt="File Icon" className="w-full h-full object-contain" />
+</div>
                         <span className="text-sm font-bold text-slate-700 truncate">{file.name || "โปรเจกต์ไม่มีชื่อ"}</span>
                       </div>
                     </td>

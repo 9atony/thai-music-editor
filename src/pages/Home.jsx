@@ -56,7 +56,10 @@ const Home = ({ onNewProject }) => {
   };
 
   return (
-    <div className="max-w-6xl mx-auto w-full animate-fadeIn font-sans text-slate-800 pb-12">
+    <div 
+      className="max-w-6xl mx-auto w-full animate-fadeIn text-slate-800 pb-12"
+      style={{ fontFamily: 'Prompt, sans-serif' }} // ⭐ ล็อกฟอนต์ให้เหมือนหน้า Login
+    >
       
       {/* ส่วนหัวต้อนรับ */}
       <div className="mb-8">
@@ -131,11 +134,13 @@ const Home = ({ onNewProject }) => {
           </button>
         </div>
         
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+        {/* ⭐ 1. ปรับ Grid ให้เป็น 6 คอลัมน์ เพื่อให้การ์ดแคบลงเหมือนหน้า MyProjects */}
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-5">
           {recentProjects.map((project) => (
             <button 
               key={project.id} 
-              className="bg-white p-4 rounded-xl border border-slate-200 hover:border-sky-300 hover:shadow-md transition-all flex flex-col items-center justify-center text-center gap-2"
+              // ⭐ 2. ปรับกรอบนอก: หนาขึ้น, เงาชัดขึ้น, และเด้งลอยขึ้น (-translate-y-1) เวลาเอาเมาส์ชี้
+              className="bg-white p-3.5 rounded-2xl border-2 border-slate-100 hover:border-sky-400 hover:shadow-xl hover:-translate-y-1 transition-all duration-300 flex flex-col group cursor-pointer relative text-center"
               onClick={() => {
                 const parsedData = {
                   ...project,
@@ -148,16 +153,21 @@ const Home = ({ onNewProject }) => {
                 onNewProject(); 
               }}
             >
-              <div className="w-12 h-12 flex items-center justify-center">
-                <img src={TmeIcon} alt="File Icon" className="w-full h-full object-contain" />
+              {/* ⭐ 3. ปรับกล่องหลังไอคอน: สูงแนวตั้ง (h-40), แคบซ้ายขวา (w-4/5), ไล่สี, และมีขอบคมชัด */}
+              <div className="w-4/5 mx-auto h-40 bg-gradient-to-b from-slate-50 to-slate-100 rounded-xl mb-4 flex items-center justify-center border-2 border-slate-200/50 group-hover:from-sky-50/50 group-hover:to-sky-100/50 transition-colors shadow-inner overflow-hidden">
+                 
+                 {/* ⭐ 4. ปรับไอคอน: ขนาดใหญ่ขึ้น (w-20 h-20), เงาเข้ม (drop-shadow), และเด้งเวลาชี้ (group-hover:scale-110) */}
+                 <div className="w-20 h-20 flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
+                    <img src={TmeIcon} alt="File Icon" className="w-full h-full object-contain drop-shadow-[0_10px_15px_rgba(0,0,0,0.15)]" />
+                 </div>
               </div>
               
               <div className="w-full">
-                <h4 className="font-bold text-slate-700 text-sm truncate">
+                <h4 className="font-bold text-slate-900 text-sm w-full truncate mb-1">
                   {project.name || "โปรเจกต์ไม่มีชื่อ"}
                 </h4>
-                <p className="text-[11px] text-slate-400 mt-0.5">
-                  แก้ไขล่าสุด: {project.updatedAt?.seconds 
+                <p className="text-[11px] text-slate-500 font-medium">
+                  {project.updatedAt?.seconds 
                     ? new Date(project.updatedAt.seconds * 1000).toLocaleDateString('th-TH') 
                     : "ไม่มีข้อมูลเวลา"}
                 </p>

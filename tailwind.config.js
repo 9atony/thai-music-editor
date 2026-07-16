@@ -5,7 +5,12 @@ export default {
     "./src/**/*.{js,ts,jsx,tsx}",
   ],
   theme: {
-    extend: {},
+    extend: {
+      // ⭐ เพิ่มโค้ดส่วนนี้เข้าไป เพื่อบอกให้ Tailwind รู้จักฟอนต์ Prompt
+      fontFamily: {
+        sans: ['Prompt', 'sans-serif'], 
+      },
+    },
   },
   plugins: [],
 }

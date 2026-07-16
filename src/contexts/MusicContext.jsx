@@ -1186,13 +1186,27 @@ export const MusicProvider = ({ children }) => {
 
  useEffect(() => {
     if (!isLoaded) return; 
-    // ⭐ อัปเดตให้ดึงค่า projectName เข้าไปบันทึกอัตโนมัติด้วย
-    const projectData = { name: projectName, songName, sheetData, rowTypes, sectionLabels, symbols, layoutConfig, headerDetails, currentInstrument: currentInstrument.id, rowMargins, playbackSequence };
     
-    localStorage.setItem('thaiMusicEditorAutoSave', JSON.stringify(projectData));
-    autoSaveToFirebase(projectData);
+    // ⭐ 1. สร้างเงื่อนไขเช็กว่าเป็น "โปรเจกต์ใหม่เอี่ยม" หรือไม่
+    // ถ้ายังไม่มี ID ในฐานข้อมูล + ยังไม่มีการแก้กระดาษโน้ต (historyIndex <= 0) + ชื่อเป็นค่าเริ่มต้น
+    const isFreshProject = !projectId && historyIndex <= 0 && projectName === "โปรเจกต์ไม่มีชื่อ" && songName === "เพลงใหม่";
 
-  }, [isLoaded, projectName, songName, sheetData, rowTypes, sectionLabels, symbols, layoutConfig, headerDetails, currentInstrument, rowMargins, playbackSequence]);
+    const projectData = { 
+      name: projectName, songName, sheetData, rowTypes, sectionLabels, 
+      symbols, layoutConfig, headerDetails, currentInstrument: currentInstrument.id, 
+      rowMargins, playbackSequence 
+    };
+    
+    // สำรองข้อมูลลงเครื่อง (localStorage) ไว้เผื่อเน็ตหลุดเสมอ
+    localStorage.setItem('thaiMusicEditorAutoSave', JSON.stringify(projectData));
+    
+    // ⭐ 2. ถ้า "ไม่ใช่" โปรเจกต์ใหม่เอี่ยม (คือมีการแก้ไขแล้ว) ค่อยสั่งเซฟลง Firebase
+    if (!isFreshProject) {
+      autoSaveToFirebase(projectData);
+    }
+
+  // ⭐ 3. อย่าลืมเพิ่ม projectId และ historyIndex เข้ามาต่อท้ายในวงเล็บ Dependency ด้วยนะครับ
+  }, [isLoaded, projectName, songName, sheetData, rowTypes, sectionLabels, symbols, layoutConfig, headerDetails, currentInstrument, rowMargins, playbackSequence, projectId, historyIndex]);
 
   const updateRowMarginsList = (arg1, arg2, arg3) => {
     const newRowMargins = [...rowMargins];
