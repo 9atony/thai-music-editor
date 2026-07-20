@@ -94,7 +94,12 @@ const MyProjects = ({ onNewProject }) => {
     }
     
     try {
-      await updateDoc(doc(db, 'projects', projectToRename.id), {
+      // 1. ดึง uid ออกมาใช้งาน
+      const uid = auth.currentUser?.uid;
+      
+      // 2. แก้ไข path ให้เป็น users/{uid}/projects/{projectId} 
+      // เพื่อให้ตรงกับโครงสร้างฐานข้อมูลครับ
+      await updateDoc(doc(db, 'users', uid, 'projects', projectToRename.id), {
         name: newProjectName.trim(),
         updatedAt: serverTimestamp() 
       });
@@ -108,7 +113,7 @@ const MyProjects = ({ onNewProject }) => {
       alert("เกิดข้อผิดพลาดในการเปลี่ยนชื่อครับ");
     }
   };
-
+  
   const handleDeleteProject = async (e, projectId) => {
     e.stopPropagation(); 
     setOpenMenuId(null); 
