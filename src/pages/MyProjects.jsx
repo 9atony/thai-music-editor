@@ -1,7 +1,7 @@
 import React, { useRef, useState, useEffect, useContext } from 'react';
 import { auth, db } from '../utils/firebase'; 
 import { fetchRecentProjects } from '../utils/firebase'; 
-import { doc, deleteDoc, updateDoc, serverTimestamp } from 'firebase/firestore'; 
+import { doc, deleteDoc, updateDoc, serverTimestamp, collection, query, orderBy, getDocs } from 'firebase/firestore';
 import { MusicContext } from '../contexts/MusicContext';
 import TmeIcon from '../assets/icon.png';
 
@@ -22,12 +22,28 @@ const MyProjects = ({ onNewProject }) => {
   const [projectToRename, setProjectToRename] = useState(null);
   const [newProjectName, setNewProjectName] = useState("");
 
-  useEffect(() => {
+useEffect(() => {
     const loadProjects = async () => {
       const uid = auth.currentUser?.uid;
       if (uid) {
-        const data = await fetchRecentProjects(uid);
-        setProjects(data); 
+        try {
+          // ⭐ ดึงโปรเจกต์ทั้งหมดจาก collection ของ User คนนี้โดยตรง แบบไม่จำกัดจำนวน
+          const q = query(
+            collection(db, 'users', uid, 'projects'),
+            orderBy('updatedAt', 'desc')
+          );
+          const querySnapshot = await getDocs(q);
+          const allProjects = querySnapshot.docs.map(docSnap => ({
+            id: docSnap.id,
+            ...docSnap.data()
+          }));
+          setProjects(allProjects);
+        } catch (error) {
+          console.error("Error loading all projects:", error);
+          // ถ้าเกิดข้อผิดพลาด ให้ fallback กลับไปใช้ฟังก์ชันเดิมสำรอง
+          const data = await fetchRecentProjects(uid);
+          setProjects(data);
+        }
       }
     };
     loadProjects();
@@ -57,6 +73,26 @@ const MyProjects = ({ onNewProject }) => {
     return date.toLocaleDateString('th-TH', { 
       month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
     });
+  };
+
+  // ⭐ ฟังก์ชันคำนวณพื้นที่จัดเก็บรวมทั้งหมดของโปรเจกต์ใน Firebase (หน่วยเป็น Bytes)
+  const calculateTotalStorageUsed = () => {
+    let totalBytes = 0;
+    projects.forEach(project => {
+      const projectString = JSON.stringify(project);
+      totalBytes += new Blob([projectString]).size;
+    });
+    return totalBytes;
+  };
+
+  // ฟังก์ชันแปลงหน่วย Bytes เป็นขนาดที่อ่านง่าย (KB, MB)
+  const formatStorageSize = (bytes) => {
+    if (bytes === 0) return "0 KB";
+    if (bytes < 1024 * 1024) {
+      return (bytes / 1024).toFixed(1) + " KB";
+    } else {
+      return (bytes / (1024 * 1024)).toFixed(2) + " MB";
+    }
   };
 
   const formatSize = (data) => {
@@ -378,7 +414,7 @@ const MyProjects = ({ onNewProject }) => {
         </div>
 
         {/* Mobile View: List Vertical */}
-        <div className="flex flex-col gap-3 md:hidden mb-6">
+        <div className="flex flex-col gap-3 md:hidden mb-6 flex-1 overflow-y-auto max-h-[500px] pr-1">
           {displayedProjects.map((file) => (
             <div key={`mlist-${file.id}`} onClick={() => handleOpenProject(file)} className="flex items-center p-3 bg-white border border-slate-100 shadow-sm rounded-2xl active:scale-[0.98] transition-transform w-full text-left relative">
               <div className="w-12 h-14 bg-slate-50 rounded-xl flex items-center justify-center border border-slate-200/60 shrink-0 mr-3">
@@ -412,23 +448,34 @@ const MyProjects = ({ onNewProject }) => {
         </div>
       </div>
 
-      {/* 5. ส่วน Storage Status */}
-      <div className="mt-auto flex flex-col items-center justify-between text-[10px] md:text-xs font-semibold text-slate-400 bg-white border border-slate-100 md:border-slate-200 rounded-xl px-4 md:px-5 py-3 shadow-sm shrink-0">
-        <div className="flex items-center justify-between w-full mb-2">
-          <div className="flex items-center gap-1.5">
-             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
-             <span>ทั้งหมด {projects.length} ไฟล์</span>
-          </div>
-          <span>ใช้ไป 1.28 GB จาก 10 GB</span>
-        </div>
+      {/* 5. ส่วน Storage Status (จำกัดโควตาคนละ 1 MB) */}
+      {(() => {
+        const usedBytes = calculateTotalStorageUsed();
+        const maxLimitBytes = 1 * 1024 * 1024; // ⭐ กำหนดโควต้าต่อคนไว้ที่ 1 MB
+        const percentage = Math.min(Math.max((usedBytes / maxLimitBytes) * 100, 0.1), 100).toFixed(2);
         
-        <div className="flex items-center gap-3 w-full">
-          <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-            <div className="h-full bg-blue-500 rounded-full" style={{ width: '12.8%' }}></div>
+        // คำนวณพื้นที่คงเหลือ
+        const remainingBytes = Math.max(maxLimitBytes - usedBytes, 0);
+
+        return (
+          <div className="mt-auto flex flex-col items-center justify-between text-[10px] md:text-xs font-semibold text-slate-400 bg-white border border-slate-100 md:border-slate-200 rounded-xl px-4 md:px-5 py-3 shadow-sm shrink-0">
+            <div className="flex items-center justify-between w-full mb-2">
+              <div className="flex items-center gap-1.5">
+                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
+                 <span>ทั้งหมด {projects.length} ไฟล์</span>
+              </div>
+              <span>ใช้ไป {formatStorageSize(usedBytes)} จาก 1 MB</span>
+            </div>
+            
+            <div className="flex items-center gap-3 w-full">
+              <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                <div className="h-full bg-blue-500 rounded-full transition-all duration-500" style={{ width: `${percentage}%` }}></div>
+              </div>
+              <span className="whitespace-nowrap text-sky-500">เหลือ {formatStorageSize(remainingBytes)}</span>
+            </div>
           </div>
-          <span className="whitespace-nowrap text-sky-500">เหลือ 8.72 GB</span>
-        </div>
-      </div>
+        );
+      })()}
 
       {/* ⭐ 6. ป๊อปอัปเปลี่ยนชื่อ (Custom Rename Modal) */}
       {renameModalOpen && (

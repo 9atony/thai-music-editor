@@ -63,7 +63,10 @@ function App() {
   const renderContent = () => (
     <>
       {currentView === 'home' && (
-        <Home onNewProject={() => setCurrentView('editor')} />
+        <Home 
+          onNewProject={() => setCurrentView('editor')} 
+          onPageChange={(page) => setCurrentView(page)} 
+        />
       )}
       
       {currentView === 'my-projects' && (

@@ -12,6 +12,10 @@ const getVisualIndex = (rowIndex, rowTypesArray) => {
       vIdx++;
     }
   }
+  // ⭐ เพิ่มเงื่อนไข: ถ้าเป็นมือซ้าย ให้ถอย Index กลับมาใช้ร่วมกับมือขวาด้านบน
+  if (rowTypesArray[rowIndex] === 'double-left') {
+    return Math.max(0, vIdx - 1);
+  }
   return vIdx;
 };
 
@@ -82,6 +86,13 @@ export const MusicProvider = ({ children }) => {
   const [songName, setSongName] = useState("เพลงลาวดวงเดือน");
   // ⭐ เพิ่ม State สำหรับชื่อโปรเจกต์แยกต่างหาก
   const [projectName, setProjectName] = useState("โปรเจกต์ไม่มีชื่อ");
+  const handleSetSongName = (newName) => {
+    // ถ้าชื่อโปรเจกต์ยังเป็นค่าเริ่มต้น หรือชื่อโปรเจกต์เหมือนกับชื่อเพลงเดิม ให้เปลี่ยนชื่อโปรเจกต์ตามไปด้วย
+    if (projectName === "โปรเจกต์ไม่มีชื่อ" || projectName === "เพลงใหม่" || projectName === songName) {
+      setProjectName(newName);
+    }
+    setSongName(newName);
+  };
   
   const [sectionLabels, setSectionLabels] = useState({});
   const [selectionRange, setSelectionRange] = useState(null); 
@@ -893,14 +904,22 @@ export const MusicProvider = ({ children }) => {
   };
 
   // ⭐ อัปเดตให้โหลดชื่อโปรเจกต์ (projectName) จากไฟล์
-  const loadProject = (file) => {
+ const loadProject = (file) => {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
         const data = JSON.parse(e.target.result);
-        if (data.name !== undefined) setProjectName(data.name);
-        if (data.songName !== undefined) setSongName(data.songName);
+        
+       // 1. ดึงชื่อไฟล์จริงจากคอมพิวเตอร์มาก่อน (เอาไว้เป็นหลัก)
+        const fileNameWithoutExt = file.name ? file.name.replace(/\.[^/.]+$/, "") : "";
+        
+        // 2. ⭐ สลับให้เอา "ชื่อไฟล์ปัจจุบันในคอม" ขึ้นมาก่อน! (ถ้าไม่มี ค่อยไปดูชื่อข้างในไฟล์)
+        const targetName = fileNameWithoutExt || data.name || data.songName || "โปรเจกต์ไม่มีชื่อ";
+        
+        setProjectName(targetName);
+        setSongName(targetName);
+      
         if (data.sheetData) {
           const parsedSheetData = typeof data.sheetData === 'string' 
             ? JSON.parse(data.sheetData) 
@@ -912,16 +931,22 @@ export const MusicProvider = ({ children }) => {
         if (data.symbols) setSymbols(data.symbols);
         if (data.layoutConfig) setLayoutConfig(data.layoutConfig);
         if (data.headerDetails) setHeaderDetails(data.headerDetails);
-        if (data.currentInstrument && INSTRUMENT_CONFIG[data.currentInstrument]) setCurrentInstrument(INSTRUMENT_CONFIG[data.currentInstrument]);
+        if (data.currentInstrument && INSTRUMENT_CONFIG[data.currentInstrument]) {
+          setCurrentInstrument(INSTRUMENT_CONFIG[data.currentInstrument]);
+        }
+        
         const loadedMargins = data.rowMargins || Array(data.sheetData?.length || 4).fill({ top: 0, bottom: 0, left: 0 });
         setRowMargins(loadedMargins);
-        setSelectedCell([0, 0, 0]); setSelectionRange(null);
+        setSelectedCell([0, 0, 0]); 
+        setSelectionRange(null);
         commitChange(data.sheetData, data.rowTypes, data.sectionLabels, data.symbols, loadedMargins);
-      } catch (error) { alert("ไฟล์ไม่ถูกต้อง หรือไฟล์เสียหายครับ!"); }
+      } catch (error) { 
+        console.error("Load project error:", error);
+        alert("ไฟล์ไม่ถูกต้อง หรือไฟล์เสียหายครับ!"); 
+      }
     };
     reader.readAsText(file);
   };
-
   const newProject = () => {
     if (window.confirm("คุณต้องการสร้างกระดาษใหม่ใช่หรือไม่? (ข้อมูลที่ยังไม่ได้เซฟจะหายไปทั้งหมด)")) {
       const initSheet = Array(4).fill().map(() => Array(8).fill().map(() => Array(4).fill('-'))), initType = Array(4).fill('single'), initMar = Array(4).fill({ top: 0, bottom: 0, left: 0 });
@@ -1265,7 +1290,7 @@ export const MusicProvider = ({ children }) => {
     <MusicContext.Provider value={{ 
       currentInstrument, changeInstrument, sheetData, selectedCell, setSelectedCell, inputNote,
       layoutConfig, setLayoutConfig, headerDetails, addDetail, removeDetail, updateDetail,
-      songName, setSongName, 
+      songName, setSongName: handleSetSongName, 
       // ⭐ อย่าลืมส่ง projectName ออกไปให้ไฟล์อื่นๆ ใช้
       projectName, setProjectName,
       sectionLabels, addSectionLabel, updateSectionLabel, removeSectionLabel,

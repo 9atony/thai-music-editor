@@ -8,6 +8,7 @@ const Sidebar = ({ isOpen }) => {
     layoutConfig, setLayoutConfig,
     headerDetails, addDetail, removeDetail, updateDetail,
     songName, setSongName,
+    projectName, setProjectName, // ⭐ เพิ่มบรรทัดนี้เข้ามาครับ
     selectedCell, sectionLabels, addSectionLabel, updateSectionLabel, removeSectionLabel,
     rowTypes
   } = useContext(MusicContext);

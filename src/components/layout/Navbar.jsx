@@ -105,9 +105,17 @@ const Navbar = ({ onPrint, onToggleSidebar, onBack }) => {
             <span className="hidden md:inline">เปิดไฟล์</span>
             <input 
               type="file" 
-              accept=".thai,.tme,.json"
+              accept=".thai,.tme,.json,.thai"
               onChange={(e) => {
-                loadProject(e.target.files[0]);
+                const file = e.target.files[0];
+                if (file) {
+                  loadProject(file);
+                  // ⭐ เพิ่มการดึงชื่อไฟล์จากเครื่องมาเซ็ตที่ช่อง Navbar ทันทีเพื่อความชัวร์
+                  const rawName = file.name.replace(/\.[^/.]+$/, "");
+                  if (typeof setProjectName === 'function') {
+                    setProjectName(rawName);
+                  }
+                }
                 e.target.value = null; 
               }} 
               className="hidden" 
