@@ -694,6 +694,7 @@ export const MusicProvider = ({ children }) => {
   };
 
   const addRow = () => { 
+    if (isPlayingRef.current) stopPlayback(); // ⭐ สั่งหยุดเพลง
     setSelectionRange(null); 
     const isFirstHalf = selectedCell[1] < 4;
     let insertIdx = isFirstHalf ? selectedCell[0] : selectedCell[0] + 1;
@@ -727,6 +728,7 @@ export const MusicProvider = ({ children }) => {
   };
 
   const addDoubleRow = (insertAtTop = false) => {
+    if (isPlayingRef.current) stopPlayback(); // ⭐ สั่งหยุดเพลง
     setSelectionRange(null); 
     let insertIdx = insertAtTop ? selectedCell[0] : selectedCell[0] + 1;
     if (insertAtTop && rowTypes[insertIdx] === 'double-left' && rowTypes[insertIdx - 1] === 'double-right') insertIdx -= 1;
@@ -758,6 +760,7 @@ export const MusicProvider = ({ children }) => {
   };
 
   const addPageBreak = (insertAtTop = false) => {
+    if (isPlayingRef.current) stopPlayback(); // ⭐ สั่งหยุดเพลง
     setSelectionRange(null);
     let insertIdx = insertAtTop ? selectedCell[0] : selectedCell[0] + 1;
     if (insertAtTop && rowTypes[insertIdx] === 'double-left' && rowTypes[insertIdx - 1] === 'double-right') insertIdx -= 1;
@@ -778,6 +781,7 @@ export const MusicProvider = ({ children }) => {
   };
 
   const addTextRow = (insertAtTop = false) => {
+    if (isPlayingRef.current) stopPlayback(); // ⭐ สั่งหยุดเพลง
     setSelectionRange(null);
     let insertIdx = insertAtTop ? selectedCell[0] : selectedCell[0] + 1;
     if (insertAtTop && rowTypes[insertIdx] === 'double-left' && rowTypes[insertIdx - 1] === 'double-right') insertIdx -= 1;
@@ -800,6 +804,7 @@ export const MusicProvider = ({ children }) => {
   const updateTextRow = (rIndex, text) => { const newData = [...sheetData]; newData[rIndex] = [[text]]; setSheetData(newData); };
 
   const removeRow = () => {
+    if (isPlayingRef.current) stopPlayback(); // ⭐ สั่งหยุดเพลง
     setSelectionRange(null); 
     const rowIdx = selectedCell[0];
     let deleteCount = 1, startIndex = rowIdx;

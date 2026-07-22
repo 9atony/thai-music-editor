@@ -46,7 +46,8 @@ const Sheet = forwardRef((props, ref) => {
     addTextRow,
     rowMargins, 
     updateRowMarginsList,
-    setToolbarMode 
+    setToolbarMode,
+    stopPlayback
   } = useContext(MusicContext);
 
   const [pageSvgPaths, setPageSvgPaths] = useState({});
@@ -87,23 +88,26 @@ const Sheet = forwardRef((props, ref) => {
       setToolbarMode('text'); 
       setTimeout(() => {
         const textEl = document.getElementById(`text-row-${r}`);
-        if (textEl && document.activeElement !== textEl) {
-          textEl.focus();
-          
-          if (window.getSelection && document.createRange) {
-            const range = document.createRange();
-            const sel = window.getSelection();
-            range.selectNodeContents(textEl);
-            range.collapse(false); 
-            sel.removeAllRanges();
-            sel.addRange(range);
+        if (textEl) {
+          const sel = window.getSelection();
+          // ⭐ เช็กว่าถ้าเคอร์เซอร์ "ไม่ได้" อยู่ในกล่องข้อความนี้ (เช่น โดนเรียกจากปุ่มเพิ่มบรรทัด) ค่อยบังคับดึงเคอร์เซอร์
+          // แต่ถ้าคลิกเข้ามาแล้ว (contains) ให้ปล่อยเคอร์เซอร์ไว้ตรงที่ผู้ใช้คลิกเลย!
+          if (!textEl.contains(sel.anchorNode)) {
+            textEl.focus();
+            if (document.createRange) {
+              const range = document.createRange();
+              range.selectNodeContents(textEl);
+              range.collapse(false); 
+              sel.removeAllRanges();
+              sel.addRange(range);
+            }
           }
         }
       }, 10); 
     } else {
       setToolbarMode('default'); 
     }
-  }, [selectedCell[0], rowTypes]); 
+  }, [selectedCell[0], rowTypes]);
 
   useEffect(() => {
     if (selectedSymbolId) {
@@ -160,9 +164,24 @@ const Sheet = forwardRef((props, ref) => {
       }
 
       if (rType === 'text') {
-        const textLineHeight = layoutConfig.textLineHeight || 1.5;
-        const textRowHeight = Math.max(20, (layoutConfig.textFontSize || 16) * textLineHeight) + rMarginTop + rMarginBot; 
+        // 1. ดึงข้อความปัจจุบันออกมาเช็ก
+        let textValue = '';
+        if (row && row[0] && typeof row[0][0] === 'string') {
+            textValue = row[0][0];
+        }
         
+        // 2. นับจำนวนบรรทัดจากการกด Enter (หาแท็ก <br>, <div>, <p>)
+        const breakCount = (textValue.match(/<br\s*\/?>/gi) || []).length;
+        const divCount = (textValue.match(/<div/gi) || []).length;
+        const pCount = (textValue.match(/<p/gi) || []).length;
+        const totalLines = Math.max(1, 1 + breakCount + divCount + pCount);
+
+        // 3. คำนวณความสูงใหม่ โดยเอาความสูงบรรทัดปกติ คูณกับ จำนวนบรรทัดที่นับได้
+        const textLineHeight = layoutConfig.textLineHeight || 1.5;
+        const baseLineHeight = Math.max(20, (layoutConfig.textFontSize || 16) * textLineHeight);
+        const textRowHeight = (baseLineHeight * totalLines) + rMarginTop + rMarginBot; 
+        
+        // 4. เช็กเพื่อตัดหน้ากระดาษตามความสูงจริง
         if ((currentUsedHeight + textRowHeight + headerSpace + PAGE_PADDING + FOOTER_SPACE > A4_HEIGHT_PX) && currentRows.length > 0) {
           calculatedPages.push({ rows: currentRows, startIndex: i - currentRows.length });
           currentRows = [row];
@@ -598,17 +617,28 @@ const Sheet = forwardRef((props, ref) => {
                           contentEditable
                           suppressContentEditableWarning
                           onMouseDown={(e) => {
-                            e.stopPropagation(); // ⭐ นี่คือตัวหยุดปัญหาการคลิกทะลุ!
-                            if (selectedCell[0] !== rIndex) {
-                              setSelectedCell([rIndex, 0, 0]); 
-                            }
-                            if (setSelectedSymbolId) setSelectedSymbolId(null);
-                            if (setToolbarMode) setToolbarMode('text');
-                          }}
-                          onClick={(e) => e.stopPropagation()} // ⭐ ป้องกันไว้ชั้นที่สอง
+    // ปล่อยให้เบราว์เซอร์วางเคอร์เซอร์ให้เสร็จก่อน เราแค่หยุดการคลิกไม่ให้ทะลุก็พอ
+    e.stopPropagation(); 
+  }}
+  onMouseUp={(e) => {
+    e.stopPropagation();
+    // เมื่อเคอร์เซอร์วางถูกที่แล้ว ค่อยให้ React อัปเดตเครื่องมือและสถานะ
+    if (selectedCell[0] !== rIndex) {
+      setSelectedCell([rIndex, 0, 0]); 
+    }
+    if (setSelectedSymbolId) setSelectedSymbolId(null);
+    if (setToolbarMode) setToolbarMode('text');
+  }}
+  onClick={(e) => e.stopPropagation()}
                           onInput={(e) => {
                             if (sheetData[rIndex] && sheetData[rIndex][0]) {
                               sheetData[rIndex][0][0] = e.target.innerHTML;
+                            }
+                          }}
+                          // ⭐ เพิ่ม onKeyUp เพื่อให้เวลาลบข้อความแล้วหน้ากระดาษอัปเดตความสูงแบบ Real-time ทันที
+                          onKeyUp={(e) => {
+                            if (e.key === 'Backspace' || e.key === 'Delete') {
+                              if (updateTextRow) updateTextRow(rIndex, e.target.innerHTML);
                             }
                           }}
                           onBlur={(e) => {
@@ -618,32 +648,78 @@ const Sheet = forwardRef((props, ref) => {
                             if (updateTextRow) updateTextRow(rIndex, e.target.innerHTML);
                           }}
                           onKeyDown={(e) => {
-                            if (e.key === 'Tab') {
-                              e.preventDefault(); 
-                              if (updateRowMarginsList) {
-                                const currentLeft = rIndent || 0;
-                                const newLeft = e.shiftKey ? Math.max(0, currentLeft - 40) : currentLeft + 40;
-                                updateRowMarginsList([{ index: rIndex, changes: { left: newLeft } }]);
-                              }
+                            if (isPlaying) stopPlayback();
+
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              document.execCommand('insertLineBreak');
+                              
+                              // ⭐ บังคับอัปเดตข้อมูลทันที เพื่อให้ระบบตัดหน้ากระดาษใหม่แบบ Real-time ตอนกด Enter
+                              setTimeout(() => {
+                                if (updateTextRow) updateTextRow(rIndex, e.target.innerHTML);
+                              }, 10);
                               return;
                             }
 
-                            const selection = window.getSelection();
-                            if (e.key === 'Enter') {
+                            if (e.key === 'Tab') {
                               e.preventDefault(); 
-                              if (selection.rangeCount > 0) {
-                                const range = selection.getRangeAt(0);
-                                const isAtStart = range.startOffset === 0 && (!range.startContainer.previousSibling || range.startContainer.previousSibling.nodeName === 'BR');
-                                addTextRow(isAtStart); 
-                              } else {
-                                addTextRow(false); 
-                              }
+                              document.execCommand('insertHTML', false, '&nbsp;&nbsp;&nbsp;&nbsp;');
+                              return;
                             }
-                            else if (e.key === 'Backspace' || e.key === 'Delete') {
-                              const content = e.target.innerHTML.trim();
-                              if (content === '' || content === '<br>') {
-                                e.preventDefault();
-                                if (removeRow) removeRow();
+                            
+                            // ⭐ ระบบลบข้อความอัจฉริยะ (ดึงข้อความขึ้นบรรทัดบน)
+                            if (e.key === 'Backspace') {
+                              let isAtStart = false;
+                              const sel = window.getSelection();
+                              
+                              if (sel.rangeCount > 0) {
+                                 const range = sel.getRangeAt(0);
+                                 const preCaretRange = range.cloneRange();
+                                 preCaretRange.selectNodeContents(e.target);
+                                 preCaretRange.setEnd(range.startContainer, range.startOffset);
+                                 
+                                 const tempDiv = document.createElement('div');
+                                 tempDiv.appendChild(preCaretRange.cloneContents());
+                                 if (tempDiv.textContent.length === 0 && !tempDiv.innerHTML.includes('<br>')) {
+                                     isAtStart = true;
+                                 }
+                              }
+
+                              if (isAtStart) {
+                                  e.preventDefault(); 
+                                  
+                                  const htmlContent = e.target.innerHTML;
+                                  const isEmpty = e.target.textContent.trim() === '' && !htmlContent.includes('<img');
+                                  
+                                  if (isEmpty || htmlContent === '<br>') {
+                                      if (removeRow) removeRow();
+                                  } else if (rIndex > 0 && rowTypes[rIndex - 1] === 'text') {
+                                      const prevText = sheetData[rIndex - 1][0][0];
+                                      sheetData[rIndex - 1][0][0] = prevText + htmlContent; 
+                                      
+                                      if (removeRow) removeRow(); 
+                                      
+                                      setTimeout(() => {
+                                          setSelectedCell([rIndex - 1, 0, 0]);
+                                          const prevEl = document.getElementById(`text-row-${rIndex - 1}`);
+                                          if (prevEl) {
+                                              prevEl.focus();
+                                              const newSel = window.getSelection();
+                                              const newRange = document.createRange();
+                                              newRange.selectNodeContents(prevEl);
+                                              newRange.collapse(false); 
+                                              newSel.removeAllRanges();
+                                              newSel.addRange(newRange);
+                                          }
+                                      }, 50);
+                                  }
+                                  return;
+                              }
+                            } else if (e.key === 'Delete') {
+                              if (e.target.textContent.trim() === '' || e.target.innerHTML === '<br>') {
+                                 e.preventDefault();
+                                 if (removeRow) removeRow();
                               }
                             }
                           }}
