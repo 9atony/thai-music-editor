@@ -693,11 +693,16 @@ export const MusicProvider = ({ children }) => {
     }
   };
 
-  const addRow = () => { 
-    if (isPlayingRef.current) stopPlayback(); // ⭐ สั่งหยุดเพลง
+  const addRow = (insertAtTop = null) => { 
+    if (isPlayingRef.current) stopPlayback(); 
     setSelectionRange(null); 
-    const isFirstHalf = selectedCell[1] < 4;
-    let insertIdx = isFirstHalf ? selectedCell[0] : selectedCell[0] + 1;
+    
+    const [rIdx, mIdx] = selectedCell;
+    const isDouble = rowTypes[rIdx]?.startsWith('double');
+    // ⭐ ตรรกะใหม่: 4 ห้องแรก (ขึ้นบน) | 4 ห้องหลัง (ลงล่าง) (รองรับบรรทัดคู่ที่ index 0 เป็นข้อความ)
+    const isFirstHalf = typeof insertAtTop === 'boolean' ? insertAtTop : (isDouble ? mIdx < 5 : mIdx < 4);
+    
+    let insertIdx = isFirstHalf ? rIdx : rIdx + 1;
 
     if (isFirstHalf && rowTypes[insertIdx] === 'double-left' && rowTypes[insertIdx - 1] === 'double-right') insertIdx -= 1; 
     else if (!isFirstHalf && rowTypes[insertIdx - 1] === 'double-right' && rowTypes[insertIdx] === 'double-left') insertIdx += 1; 
@@ -727,12 +732,18 @@ export const MusicProvider = ({ children }) => {
     if (isFirstHalf) setSelectedCell([insertIdx + 1, 0, 0]); 
   };
 
-  const addDoubleRow = (insertAtTop = false) => {
-    if (isPlayingRef.current) stopPlayback(); // ⭐ สั่งหยุดเพลง
+  const addDoubleRow = (insertAtTop = null) => {
+    if (isPlayingRef.current) stopPlayback(); 
     setSelectionRange(null); 
-    let insertIdx = insertAtTop ? selectedCell[0] : selectedCell[0] + 1;
-    if (insertAtTop && rowTypes[insertIdx] === 'double-left' && rowTypes[insertIdx - 1] === 'double-right') insertIdx -= 1;
-    else if (!insertAtTop && rowTypes[insertIdx - 1] === 'double-right' && rowTypes[insertIdx] === 'double-left') insertIdx += 1;
+    
+    const [rIdx, mIdx] = selectedCell;
+    const isDouble = rowTypes[rIdx]?.startsWith('double');
+    const isFirstHalf = typeof insertAtTop === 'boolean' ? insertAtTop : (isDouble ? mIdx < 5 : mIdx < 4);
+    
+    let insertIdx = isFirstHalf ? rIdx : rIdx + 1;
+    
+    if (isFirstHalf && rowTypes[insertIdx] === 'double-left' && rowTypes[insertIdx - 1] === 'double-right') insertIdx -= 1;
+    else if (!isFirstHalf && rowTypes[insertIdx - 1] === 'double-right' && rowTypes[insertIdx] === 'double-left') insertIdx += 1;
 
     let targetVisualIndex = 0;
     for (let i = 0; i < insertIdx; i++) if (rowTypes[i] === 'single' || rowTypes[i] === 'double-right') targetVisualIndex++;
@@ -759,12 +770,18 @@ export const MusicProvider = ({ children }) => {
     if (insertAtTop) setSelectedCell([insertIdx + 2, 0, 0]);
   };
 
-  const addPageBreak = (insertAtTop = false) => {
-    if (isPlayingRef.current) stopPlayback(); // ⭐ สั่งหยุดเพลง
+  const addPageBreak = (insertAtTop = null) => {
+    if (isPlayingRef.current) stopPlayback(); 
     setSelectionRange(null);
-    let insertIdx = insertAtTop ? selectedCell[0] : selectedCell[0] + 1;
-    if (insertAtTop && rowTypes[insertIdx] === 'double-left' && rowTypes[insertIdx - 1] === 'double-right') insertIdx -= 1;
-    else if (!insertAtTop && rowTypes[insertIdx - 1] === 'double-right' && rowTypes[insertIdx] === 'double-left') insertIdx += 1;
+    
+    const [rIdx, mIdx] = selectedCell;
+    const isDouble = rowTypes[rIdx]?.startsWith('double');
+    const isFirstHalf = typeof insertAtTop === 'boolean' ? insertAtTop : (isDouble ? mIdx < 5 : mIdx < 4);
+    
+    let insertIdx = isFirstHalf ? rIdx : rIdx + 1;
+    
+    if (isFirstHalf && rowTypes[insertIdx] === 'double-left' && rowTypes[insertIdx - 1] === 'double-right') insertIdx -= 1;
+    else if (!isFirstHalf && rowTypes[insertIdx - 1] === 'double-right' && rowTypes[insertIdx] === 'double-left') insertIdx += 1;
 
     const newData = [...sheetData], newRowTypes = [...rowTypes], newRowMargins = [...rowMargins];
     newData.splice(insertIdx, 0, Array(8).fill().map(() => Array(4).fill('-')));
@@ -780,12 +797,18 @@ export const MusicProvider = ({ children }) => {
     setSelectedCell([insertIdx, 0, 0]);
   };
 
-  const addTextRow = (insertAtTop = false) => {
-    if (isPlayingRef.current) stopPlayback(); // ⭐ สั่งหยุดเพลง
+  const addTextRow = (insertAtTop = null) => {
+    if (isPlayingRef.current) stopPlayback(); 
     setSelectionRange(null);
-    let insertIdx = insertAtTop ? selectedCell[0] : selectedCell[0] + 1;
-    if (insertAtTop && rowTypes[insertIdx] === 'double-left' && rowTypes[insertIdx - 1] === 'double-right') insertIdx -= 1;
-    else if (!insertAtTop && rowTypes[insertIdx - 1] === 'double-right' && rowTypes[insertIdx] === 'double-left') insertIdx += 1;
+    
+    const [rIdx,  mIdx] = selectedCell;
+    const isDouble = rowTypes[rIdx]?.startsWith('double');
+    const isFirstHalf = typeof insertAtTop === 'boolean' ? insertAtTop : (isDouble ? mIdx < 5 : mIdx < 4);
+    
+    let insertIdx = isFirstHalf ? rIdx : rIdx + 1;
+    
+    if (isFirstHalf && rowTypes[insertIdx] === 'double-left' && rowTypes[insertIdx - 1] === 'double-right') insertIdx -= 1;
+    else if (!isFirstHalf && rowTypes[insertIdx - 1] === 'double-right' && rowTypes[insertIdx] === 'double-left') insertIdx += 1;
 
     const newData = [...sheetData], newRowTypes = [...rowTypes], newRowMargins = [...rowMargins];
     newData.splice(insertIdx, 0, [[""]]); 
@@ -980,18 +1003,30 @@ export const MusicProvider = ({ children }) => {
     let lastValidRow = 0;
     let lastProcessedVIdx = -1;
     for (let r = 0; r < currentSheetData.length; r++) {
-      if (currentRowTypes[r] === 'page-break' || currentRowTypes[r] === 'text') continue;
-      const vIdx = getVisualIndex(r, currentRowTypes);
-      const labels = currentSectionLabels[vIdx] || [];
-      const validLabels = labels.filter(l => !l.text.includes('กลับต้น') && l.text.trim() !== '');
-      if (validLabels.length > 0 && vIdx !== lastProcessedVIdx) {
-        if (sheetSections.length > 0) sheetSections[sheetSections.length - 1].endRow = lastValidRow;
-        sheetSections.push({ label: validLabels[0].text.trim(), startRow: r, endRow: currentSheetData.length - 1 });
-        lastProcessedVIdx = vIdx;
-      }
-      lastValidRow = r;
-      if (currentRowTypes[r] === 'double-right') lastValidRow = r + 1;
-    }
+            if (currentRowTypes[r] === 'page-break' || currentRowTypes[r] === 'text') continue;
+            const vIdx = getVisualIndex(r, currentRowTypes);
+            const labels = currentSectionLabels[vIdx] || [];
+            const validLabels = labels.filter(l => !l.text.includes('กลับต้น') && l.text.trim() !== '');
+
+            if (validLabels.length > 0 && vIdx !== lastProcessedVIdx) {
+                // ⭐ 1. อัปเดตบรรทัดจบให้ "ทุกป้ายกำกับ" ของท่อนก่อนหน้านี้ให้เรียบร้อย
+                sheetSections.forEach(sec => {
+                    if (sec.endRow === currentSheetData.length - 1) sec.endRow = lastValidRow;
+                });
+                
+                // ⭐ 2. ดึง "ทุกป้ายกำกับ" ในบรรทัดนี้ (ไม่ว่าจะมุมไหน) มาสร้างเป็นท่อนเล่นเพลงทั้งหมด
+                validLabels.forEach(vl => {
+                    sheetSections.push({ label: vl.text.trim(), startRow: r, endRow: currentSheetData.length - 1 });
+                });
+                lastProcessedVIdx = vIdx; 
+            }
+            lastValidRow = r;
+            if (currentRowTypes[r] === 'double-right') lastValidRow = r + 1; 
+        }
+        // ⭐ 3. ปิดท้ายบรรทัดจบของเพลงให้ครบทุกป้าย
+        sheetSections.forEach(sec => {
+            if (sec.endRow === currentSheetData.length - 1) sec.endRow = lastValidRow;
+        });
     if (sheetSections.length > 0) sheetSections[sheetSections.length - 1].endRow = lastValidRow;
 
     const currentBpm = layoutConfigRef.current.bpm || 80;
