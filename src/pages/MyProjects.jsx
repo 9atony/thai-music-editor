@@ -288,7 +288,7 @@ useEffect(() => {
           {recentProjects.map((project) => (
             <button key={`grid-${project.id}`} onClick={() => handleOpenProject(project)} className="bg-white p-3.5 rounded-2xl border-2 border-slate-100 hover:border-sky-400 hover:shadow-xl hover:-translate-y-1 transition-all duration-300 flex flex-col group cursor-pointer relative text-left">
               <div className="absolute top-3 right-3 z-20">
-                <div onClick={(e) => { e.stopPropagation(); setOpenMenuId(openMenuId === project.id ? null : project.id); }} className="text-slate-300 hover:text-slate-600 opacity-0 group-hover:opacity-100 transition-all p-1 bg-white hover:bg-slate-100 rounded-md">
+                <div onClick={(e) => { e.stopPropagation(); setOpenMenuId(openMenuId === project.id ? null : project.id); }} className="text-slate-400 hover:text-slate-700 transition-all p-1 bg-white hover:bg-slate-100 rounded-md shadow-sm border border-slate-100">
                   <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg>
                 </div>
                 {openMenuId === project.id && (
@@ -387,7 +387,7 @@ useEffect(() => {
                     <td className="py-3 px-5 text-xs font-medium text-slate-500 whitespace-nowrap">{formatTime(file.updatedAt)}</td>
                     <td className="py-3 px-5 text-right relative">
                       <div className="relative inline-block z-10">
-                        <button onClick={(e) => { e.stopPropagation(); setOpenMenuId(openMenuId === `list-${file.id}` ? null : `list-${file.id}`); }} className="text-slate-300 hover:text-slate-600 opacity-0 group-hover:opacity-100 transition-all p-1 bg-white hover:bg-slate-100 rounded-md">
+                        <button onClick={(e) => { e.stopPropagation(); setOpenMenuId(openMenuId === `list-${file.id}` ? null : `list-${file.id}`); }} className="text-slate-400 hover:text-slate-700 transition-all p-1 bg-white hover:bg-slate-100 rounded-md shadow-sm border border-slate-100">
                           <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg>
                         </button>
                         {openMenuId === `list-${file.id}` && (

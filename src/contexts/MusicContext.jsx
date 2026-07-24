@@ -1227,7 +1227,7 @@ export const MusicProvider = ({ children }) => {
       if (newHistory.length > 30) newHistory.shift(); 
       return newHistory;
     });
-    setHistoryIndex(prev => Math.min(prev + 1, 30));
+    setHistoryIndex(prev => Math.min(prev + 1, 29));
   };
 
   const undo = () => {

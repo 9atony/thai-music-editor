@@ -65,34 +65,58 @@ const DesktopLayout = ({ children, currentPage, onPageChange }) => {
             <span className={`text-[15px] ${currentPage === 'my-projects' ? 'font-bold' : 'font-medium'}`}>โปรเจกต์ของฉัน</span>
           </button>
 
-          <button className="w-full flex items-center gap-4 px-4 py-3 text-slate-500 hover:bg-slate-50 hover:text-slate-800 rounded-xl transition-colors group">
-            <svg className="w-5 h-5 group-hover:text-slate-600 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <button 
+            onClick={() => onPageChange('templates')}
+            className={`w-full flex items-center gap-4 px-4 py-3 rounded-xl relative group transition-all ${
+              currentPage === 'templates' ? 'bg-white shadow-sm border border-slate-100 text-slate-900' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
+            }`}
+          >
+            {currentPage === 'templates' && <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-6 bg-[#3B82F6] rounded-r-md"></div>}
+            <svg className={`w-5 h-5 transition-colors ${currentPage === 'templates' ? 'text-[#3B82F6]' : 'group-hover:text-slate-600'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
             </svg>
-            <span className="font-medium text-[15px]">เทมเพลต</span>
+            <span className={`text-[15px] ${currentPage === 'templates' ? 'font-bold' : 'font-medium'}`}>เทมเพลต</span>
           </button>
 
-          <button className="w-full flex items-center gap-4 px-4 py-3 text-slate-500 hover:bg-slate-50 hover:text-slate-800 rounded-xl transition-colors group">
-            <svg className="w-5 h-5 group-hover:text-slate-600 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <button 
+            onClick={() => onPageChange('samples')}
+            className={`w-full flex items-center gap-4 px-4 py-3 rounded-xl relative group transition-all ${
+              currentPage === 'samples' ? 'bg-white shadow-sm border border-slate-100 text-slate-900' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
+            }`}
+          >
+            {currentPage === 'samples' && <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-6 bg-[#3B82F6] rounded-r-md"></div>}
+            <svg className={`w-5 h-5 transition-colors ${currentPage === 'samples' ? 'text-[#3B82F6]' : 'group-hover:text-slate-600'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
             </svg>
-            <span className="font-medium text-[15px]">ตัวอย่างเพลง</span>
+            <span className={`text-[15px] ${currentPage === 'samples' ? 'font-bold' : 'font-medium'}`}>ตัวอย่างเพลง</span>
           </button>
 
-          <button className="w-full flex items-center gap-4 px-4 py-3 text-slate-500 hover:bg-slate-50 hover:text-slate-800 rounded-xl transition-colors group">
-            <svg className="w-5 h-5 group-hover:text-slate-600 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <button 
+            onClick={() => onPageChange('tools')}
+            className={`w-full flex items-center gap-4 px-4 py-3 rounded-xl relative group transition-all ${
+              currentPage === 'tools' ? 'bg-white shadow-sm border border-slate-100 text-slate-900' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
+            }`}
+          >
+            {currentPage === 'tools' && <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-6 bg-[#3B82F6] rounded-r-md"></div>}
+            <svg className={`w-5 h-5 transition-colors ${currentPage === 'tools' ? 'text-[#3B82F6]' : 'group-hover:text-slate-600'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
             </svg>
-            <span className="font-medium text-[15px]">เครื่องมือ</span>
+            <span className={`text-[15px] ${currentPage === 'tools' ? 'font-bold' : 'font-medium'}`}>เครื่องมือ</span>
           </button>
 
-          <button className="w-full flex items-center gap-4 px-4 py-3 text-slate-500 hover:bg-slate-50 hover:text-slate-800 rounded-xl transition-colors group">
-            <svg className="w-5 h-5 group-hover:text-slate-600 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <button 
+            onClick={() => onPageChange('settings')}
+            className={`w-full flex items-center gap-4 px-4 py-3 rounded-xl relative group transition-all ${
+              currentPage === 'settings' ? 'bg-white shadow-sm border border-slate-100 text-slate-900' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
+            }`}
+          >
+            {currentPage === 'settings' && <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-6 bg-[#3B82F6] rounded-r-md"></div>}
+            <svg className={`w-5 h-5 transition-colors ${currentPage === 'settings' ? 'text-[#3B82F6]' : 'group-hover:text-slate-600'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
             </svg>
-            <span className="font-medium text-[15px]">การตั้งค่า</span>
+            <span className={`text-[15px] ${currentPage === 'settings' ? 'font-bold' : 'font-medium'}`}>การตั้งค่า</span>
           </button>
 
         </div>
