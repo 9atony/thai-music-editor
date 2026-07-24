@@ -6,7 +6,7 @@ import { MusicContext } from '../contexts/MusicContext';
 import TmeIcon from '../assets/icon.png';
 
 const MyProjects = ({ onNewProject }) => {
-  const { newProject, loadProjectFromFirebase } = useContext(MusicContext);
+  const { newProject, loadProjectFromFirebase, loadProject } = useContext(MusicContext);
   const fileInputRef = useRef(null);
   
   const [projects, setProjects] = useState([]);
@@ -109,7 +109,7 @@ useEffect(() => {
                  ? JSON.parse(project.sheetData) 
                  : project.sheetData
     };
-    loadProjectFromFirebase(parsedData); 
+    loadProjectFromFirebase(parsedData, true);
     onNewProject(); 
   };
 
@@ -207,18 +207,10 @@ useEffect(() => {
     const file = e.target.files[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const fileContent = JSON.parse(event.target.result);
-        loadProjectFromFirebase(fileContent);
-        onNewProject(); 
-      } catch (error) {
-        console.error("อ่านไฟล์ไม่สำเร็จ:", error);
-        alert("ไฟล์นี้ไม่สามารถใช้งานได้ครับ");
-      }
-    };
-    reader.readAsText(file);
+    // ส่งไฟล์ให้ MusicContext จัดการ (แนบ true เพื่อข้ามการแจ้งเตือน)
+    loadProject(file, true); 
+    onNewProject(); 
+    
     e.target.value = null; 
   };
 
@@ -254,7 +246,7 @@ useEffect(() => {
 
       {/* 2. ส่วน Quick Actions */}
       <div className="grid grid-cols-3 gap-3 mb-8 md:hidden">
-        <button onClick={() => { newProject(); onNewProject(); }} className="bg-white rounded-2xl p-3 flex flex-col items-center justify-center gap-2 border border-slate-100 shadow-[0_2px_10px_rgba(0,0,0,0.02)] active:scale-95 transition-all">
+        <button onClick={() => { newProject(true); onNewProject(); }} className="bg-white rounded-2xl p-3 flex flex-col items-center justify-center gap-2 border border-slate-100 shadow-[0_2px_10px_rgba(0,0,0,0.02)] active:scale-95 transition-all">
           <div className="w-10 h-10 rounded-full bg-red-50 text-red-500 flex items-center justify-center"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" /></svg></div>
           <span className="text-[10px] font-bold text-slate-700">โปรเจกต์ใหม่</span>
         </button>
@@ -269,7 +261,7 @@ useEffect(() => {
       </div>
 
       <div className="hidden md:flex flex-wrap gap-4 mb-10">
-        <button onClick={() => { newProject(); onNewProject(); }} className="flex-1 min-w-[200px] bg-white border border-slate-200 rounded-2xl p-4 flex items-center gap-4 hover:border-sky-400 hover:shadow-sm transition-all text-left group">
+        <button onClick={() => { newProject(true); onNewProject(); }} className="flex-1 min-w-[200px] bg-white border border-slate-200 rounded-2xl p-4 flex items-center gap-4 hover:border-sky-400 hover:shadow-sm transition-all text-left group">
           <div className="w-12 h-12 bg-slate-900 rounded-full flex items-center justify-center text-white shrink-0 group-hover:bg-sky-500 transition-colors shadow-sm"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" /></svg></div>
           <div>
             <h3 className="font-bold text-slate-800 text-sm">โปรเจกต์ใหม่</h3>

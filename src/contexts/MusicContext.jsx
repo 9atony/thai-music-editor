@@ -115,7 +115,28 @@ export const MusicProvider = ({ children }) => {
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [isLoaded, setIsLoaded] = useState(false);
   const [projectId, setProjectId] = useState(null); 
+  // ⭐ State สำหรับระบบแจ้งเตือนก่อนเปิดทับ
+  const [pendingAction, setPendingAction] = useState({ isOpen: false, type: null, payload: null });
+  
+  // ⭐ เพิ่มพารามิเตอร์ skipWarning เข้ามา
+  const checkUnsavedAndPrompt = (type, payload, skipWarning = false) => {
+    const isFreshProject = !projectId && historyIndex <= 0 && projectName === "โปรเจกต์ไม่มีชื่อ";
+    
+    // ถ้ามี "บัตรผ่าน" (กดจาก Home/MyProjects) หรือเป็นโปรเจกต์ใหม่เอี่ยม ให้รันทันทีไม่ต้องเตือน
+    if (skipWarning || isFreshProject) {
+      executeAction(type, payload);
+    } else {
+      setPendingAction({ isOpen: true, type, payload });
+    }
+  };
 
+  const executeAction = (type, payload) => {
+    if (type === 'NEW') performNewProject();
+    else if (type === 'LOAD_LOCAL') performLoadProject(payload);
+    else if (type === 'LOAD_FIREBASE') performLoadProjectFromFirebase(payload);
+    
+    setPendingAction({ isOpen: false, type: null, payload: null });
+  };
   const autoSaveToFirebase = async (data) => {
     const uid = auth.currentUser?.uid;
     if (!uid) return; 
@@ -163,6 +184,8 @@ export const MusicProvider = ({ children }) => {
   const isLoopAllRef = useRef(isLoopAll); 
   const isLoopOneRef = useRef(isLoopOne); 
   const sheetMapRef = useRef([]);
+  // ⭐ 1. สร้างป้ายแขวนหน้าประตู เพื่อล็อกการเซฟรัวๆ
+  const isImportingRef = useRef(false);
 
   useEffect(() => { layoutConfigRef.current = layoutConfig; }, [layoutConfig]);
   useEffect(() => { sheetDataRef.current = sheetData; }, [sheetData]);
@@ -932,24 +955,29 @@ export const MusicProvider = ({ children }) => {
   };
 
   // ⭐ อัปเดตให้โหลดชื่อโปรเจกต์ (projectName) จากไฟล์
- const loadProject = (file) => {
+ // ⭐ เปลี่ยนฟังก์ชันให้อ่านแบบ async เพื่อรอการบันทึกลงฐานข้อมูล
+  const performLoadProject = (file) => {
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (e) => {
+    
+    reader.onload = async (e) => {
+      isImportingRef.current = true; // ⭐ แขวนป้าย: ล็อกออโต้เซฟทันทีที่เริ่มอ่านไฟล์
       try {
         const data = JSON.parse(e.target.result);
         
-       // 1. ดึงชื่อไฟล์จริงจากคอมพิวเตอร์มาก่อน (เอาไว้เป็นหลัก)
+        // 1. ดึงชื่อไฟล์มาเป็นชื่อโปรเจกต์
         const fileNameWithoutExt = file.name ? file.name.replace(/\.[^/.]+$/, "") : "";
-        
-        // 2. ⭐ สลับให้เอา "ชื่อไฟล์ปัจจุบันในคอม" ขึ้นมาก่อน! (ถ้าไม่มี ค่อยไปดูชื่อข้างในไฟล์)
         const targetName = fileNameWithoutExt || data.name || data.songName || "โปรเจกต์ไม่มีชื่อ";
         
         setProjectName(targetName);
         setSongName(targetName);
+        
+        // ⭐ 2. บังคับล้าง ID เก่าทิ้ง! ป้องกันไม่ให้ไฟล์ที่เปิดจากเครื่อง ไปทับโปรเจกต์ที่เปิดค้างอยู่บนจอ
+        setProjectId(null);
       
+        let parsedSheetData = data.sheetData;
         if (data.sheetData) {
-          const parsedSheetData = typeof data.sheetData === 'string' 
+          parsedSheetData = typeof data.sheetData === 'string' 
             ? JSON.parse(data.sheetData) 
             : data.sheetData;
           setSheetData(parsedSheetData);
@@ -967,27 +995,58 @@ export const MusicProvider = ({ children }) => {
         setRowMargins(loadedMargins);
         setSelectedCell([0, 0, 0]); 
         setSelectionRange(null);
-        commitChange(data.sheetData, data.rowTypes, data.sectionLabels, data.symbols, loadedMargins);
+        commitChange(parsedSheetData, data.rowTypes, data.sectionLabels, data.symbols, loadedMargins);
+
+        // ⭐ 3. สร้างก้อนข้อมูลและสั่งบันทึกลงฐานข้อมูลทันที
+        const uid = auth.currentUser?.uid;
+        if (uid) {
+           const projectDataToSave = { 
+             name: targetName, 
+             songName: targetName, 
+             sheetData: parsedSheetData || sheetData, 
+             rowTypes: data.rowTypes || rowTypes, 
+             sectionLabels: data.sectionLabels || sectionLabels, 
+             symbols: data.symbols || symbols, 
+             layoutConfig: data.layoutConfig || layoutConfig, 
+             headerDetails: data.headerDetails || headerDetails, 
+             currentInstrument: data.currentInstrument || currentInstrument?.id || 'ranat-ek', 
+             rowMargins: loadedMargins, 
+             playbackSequence: data.playbackSequence || playbackSequence 
+           };
+           
+           // ส่ง null เป็นพารามิเตอร์ที่ 2 เพื่อบังคับให้ Firebase สร้างไฟล์ ID ใหม่
+           const newId = await saveProjectToDB(uid, null, projectDataToSave);
+           if (newId) setProjectId(newId); // เซ็ต ID ใหม่ให้ระบบรู้จัก เพื่อให้ออโต้เซฟครั้งต่อไปทับไฟล์เดิม
+        }
+
       } catch (error) { 
         console.error("Load project error:", error);
         alert("ไฟล์ไม่ถูกต้อง หรือไฟล์เสียหายครับ!"); 
+      } finally {
+        // ⭐ ปลดป้าย: ปลดล็อกออโต้เซฟหลังโหลดเสร็จสิ้น (หน่วงเวลา 1 วินาทีให้ UI นิ่ง)
+        setTimeout(() => { isImportingRef.current = false; }, 1000);
       }
     };
     reader.readAsText(file);
   };
-  const newProject = () => {
-    if (window.confirm("คุณต้องการสร้างกระดาษใหม่ใช่หรือไม่? (ข้อมูลที่ยังไม่ได้เซฟจะหายไปทั้งหมด)")) {
-      const initSheet = Array(4).fill().map(() => Array(8).fill().map(() => Array(4).fill('-'))), initType = Array(4).fill('single'), initMar = Array(4).fill({ top: 0, bottom: 0, left: 0 });
-      setSongName("เพลงใหม่"); 
-      setProjectName("โปรเจกต์ไม่มีชื่อ"); 
-      
-      setProjectId(null); // ⭐ เพิ่มบรรทัดนี้: ล้าง ID เก่าทิ้ง เพื่อให้เซฟเป็นไฟล์ใหม่
-      
-      setSheetData(initSheet); setRowTypes(initType); setRowMargins(initMar); setSectionLabels({}); setSymbols([]);
-      setHeaderDetails([{ id: 1, label: "อัตราจังหวะ", value: "๒ ชั้น" }, { id: 2, label: "หน้าทับ", value: "สองไม้" }, { id: 3, label: "บันไดเสียง", value: "ทางเพียงออ" }, { id: 4, label: "ผู้บันทึก", value: "9atony" }]);
-      setSelectedCell([0, 0, 0]); setSelectionRange(null); setHistoryIndex(-1); setHistory([]); localStorage.removeItem('thaiMusicEditorAutoSave');
-      commitChange(initSheet, initType, {}, [], initMar);
-    }
+
+  const performNewProject = () => {
+    isImportingRef.current = true; // ⭐ แขวนป้าย: ล็อกออโต้เซฟ
+    // เอา if (window.confirm(...)) ออก เพราะเรามี UI แจ้งเตือนแล้ว
+    const initSheet = Array(4).fill().map(() => Array(8).fill().map(() => Array(4).fill('-')));
+    const initType = Array(4).fill('single');
+    const initMar = Array(4).fill({ top: 0, bottom: 0, left: 0 });
+    
+    setSongName("เพลงใหม่"); 
+    setProjectName("โปรเจกต์ไม่มีชื่อ"); 
+    setProjectId(null); 
+    setSheetData(initSheet); setRowTypes(initType); setRowMargins(initMar); setSectionLabels({}); setSymbols([]);
+    setHeaderDetails([{ id: 1, label: "อัตราจังหวะ", value: "๒ ชั้น" }, { id: 2, label: "หน้าทับ", value: "สองไม้" }, { id: 3, label: "บันไดเสียง", value: "ทางเพียงออ" }, { id: 4, label: "ผู้บันทึก", value: "9atony" }]);
+    setSelectedCell([0, 0, 0]); setSelectionRange(null); setHistoryIndex(-1); setHistory([]); localStorage.removeItem('thaiMusicEditorAutoSave');
+    commitChange(initSheet, initType, {}, [], initMar);
+    
+    // ⭐ ปลดป้าย: ปลดล็อกออโต้เซฟ
+    setTimeout(() => { isImportingRef.current = false; }, 1000);
   };
 
   const visualRowCount = useMemo(() => rowTypes.filter(type => type === 'single' || type === 'double-right').length, [rowTypes]);
@@ -1250,7 +1309,8 @@ export const MusicProvider = ({ children }) => {
   }, []);
 
  useEffect(() => {
-    if (!isLoaded) return; 
+    // ⭐ 2. ถ้ามีป้ายแขวนว่ากำลังโหลดไฟล์อยู่ (isImportingRef) ให้หยุดทำงานเด็ดขาด!
+    if (!isLoaded || isImportingRef.current) return; 
     
     // ⭐ 1. สร้างเงื่อนไขเช็กว่าเป็น "โปรเจกต์ใหม่เอี่ยม" หรือไม่
     // ถ้ายังไม่มี ID ในฐานข้อมูล + ยังไม่มีการแก้กระดาษโน้ต (historyIndex <= 0) + ชื่อเป็นค่าเริ่มต้น
@@ -1300,7 +1360,8 @@ export const MusicProvider = ({ children }) => {
   const updateDetail = (id, key, newValue) => setHeaderDetails(headerDetails.map(detail => detail.id === id ? { ...detail, [key]: newValue } : detail));
   const changeInstrument = (instrumentId) => setCurrentInstrument(INSTRUMENT_CONFIG[instrumentId]);
   
-  const loadProjectFromFirebase = (projectData) => {
+  const performLoadProjectFromFirebase = (projectData) => {
+    isImportingRef.current = true; // ⭐ แขวนป้าย: ล็อกออโต้เซฟ
     try {
       const parsedSheetData = typeof projectData.sheetData === 'string' 
         ? JSON.parse(projectData.sheetData) 
@@ -1324,8 +1385,16 @@ export const MusicProvider = ({ children }) => {
     } catch (error) {
       console.error("โหลดโปรเจกต์ไม่สำเร็จ:", error);
       alert("ไม่สามารถโหลดข้อมูลจาก Firebase ได้!");
+    } finally {
+      // ⭐ ปลดป้าย: ปลดล็อกออโต้เซฟ
+      setTimeout(() => { isImportingRef.current = false; }, 1000);
     }
   };
+
+  // ⭐ อัปเดตคำสั่งสาธารณะ ให้รับค่าบัตรผ่าน (skipWarning) แล้วส่งต่อให้ตัวดักจับ
+  const newProject = (skipWarning = false) => checkUnsavedAndPrompt('NEW', null, skipWarning);
+  const loadProject = (file, skipWarning = false) => checkUnsavedAndPrompt('LOAD_LOCAL', file, skipWarning);
+  const loadProjectFromFirebase = (data, skipWarning = false) => checkUnsavedAndPrompt('LOAD_FIREBASE', data, skipWarning);
   return (
     <MusicContext.Provider value={{ 
       currentInstrument, changeInstrument, sheetData, selectedCell, setSelectedCell, inputNote,
@@ -1357,7 +1426,60 @@ export const MusicProvider = ({ children }) => {
       skipToNext, skipToPrev,
       availableSections
     }}>
+    {/* ⭐ ระบบ UI Pop-up แจ้งเตือนก่อนเปิดทับ (ซ้อนทับทุกหน้าเว็บ) */}
+      {pendingAction.isOpen && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white rounded-3xl p-6 md:p-8 w-full max-w-md shadow-2xl scale-100 animate-slideUp text-center" style={{ fontFamily: 'Prompt, sans-serif' }}>
+            <div className="w-16 h-16 bg-amber-100 text-amber-500 rounded-full flex items-center justify-center mx-auto mb-4">
+              <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+            </div>
+            
+            <h3 className="text-xl font-bold text-slate-800 mb-2">คุณมีงานที่ค้างอยู่</h3>
+            <p className="text-sm text-slate-500 mb-6">หากเปิดโปรเจกต์ใหม่ตอนนี้ ข้อมูลบนหน้าจอที่ยังไม่ได้บันทึกจะหายไป ต้องการบันทึกก่อนหรือไม่?</p>
+            
+            <div className="flex flex-col gap-3">
+              <button 
+                onClick={async () => {
+                  // 1. แพ็กข้อมูลโปรเจกต์ปัจจุบันทั้งหมดเพื่อเตรียมส่งขึ้นฐานข้อมูล
+                  const projectData = { 
+                    name: projectName, songName, sheetData, rowTypes, sectionLabels, 
+                    symbols, layoutConfig, headerDetails, currentInstrument: currentInstrument.id, 
+                    rowMargins, playbackSequence 
+                  };
+                  
+                  // 2. สั่งบันทึกลงฐานข้อมูล Firebase (และรอให้เซฟเสร็จก่อน)
+                  await autoSaveToFirebase(projectData);
+                  
+                  // 3. รันคำสั่งเปิดไฟล์ใหม่ หรือกระดาษใหม่ ที่ค้างเอาไว้ต่อทันที
+                  executeAction(pendingAction.type, pendingAction.payload);
+                }} 
+                className="w-full py-3 font-bold text-white bg-sky-500 hover:bg-sky-600 rounded-xl transition-all shadow-md shadow-sky-500/20 active:scale-[0.98]"
+              >
+                บันทึกลงฐานข้อมูล
+              </button>
+              
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => setPendingAction({ isOpen: false, type: null, payload: null })} 
+                  className="flex-1 py-3 font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors active:scale-[0.98]"
+                >
+                  ยกเลิก
+                </button>
+                <button 
+                  onClick={() => executeAction(pendingAction.type, pendingAction.payload)} 
+                  className="flex-1 py-3 font-bold text-red-500 bg-red-50 hover:bg-red-100 rounded-xl transition-colors active:scale-[0.98]"
+                >
+                  ไม่บันทึก (ทิ้งงาน)
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+  
       {children}
     </MusicContext.Provider>
   );
 };
+

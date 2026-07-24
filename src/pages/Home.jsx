@@ -5,7 +5,7 @@ import { MusicContext } from '../contexts/MusicContext';
 import TmeIcon from '../assets/icon.png'; 
 
 const Home = ({ onNewProject, onPageChange }) => {
-  const { newProject, loadProjectFromFirebase } = useContext(MusicContext);
+  const { newProject, loadProjectFromFirebase, loadProject } = useContext(MusicContext);
   const [recentProjects, setRecentProjects] = useState([]);
   const fileInputRef = useRef(null);
 
@@ -42,24 +42,10 @@ const Home = ({ onNewProject, onPageChange }) => {
     const file = e.target.files[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const jsonData = JSON.parse(event.target.result);
-        const parsedData = {
-          ...jsonData,
-          sheetData: typeof jsonData.sheetData === 'string' 
-                     ? JSON.parse(jsonData.sheetData) 
-                     : jsonData.sheetData
-        };
-        loadProjectFromFirebase(parsedData); 
-        onNewProject(); 
-      } catch (error) {
-        console.error("Error parsing project file:", error);
-        alert("ไฟล์โปรเจกต์ไม่ถูกต้องหรือไม่สามารถเปิดได้ครับ");
-      }
-    };
-    reader.readAsText(file);
+    // ส่งไฟล์ให้ MusicContext จัดการ (แนบ true เพื่อข้ามการแจ้งเตือน)
+    loadProject(file, true); 
+    onNewProject(); 
+    
     e.target.value = null; 
   };
 
@@ -70,7 +56,7 @@ const Home = ({ onNewProject, onPageChange }) => {
                  ? JSON.parse(project.sheetData) 
                  : project.sheetData
     };
-    loadProjectFromFirebase(parsedData); 
+    loadProjectFromFirebase(parsedData, true);
     onNewProject(); 
   };
 
@@ -98,7 +84,7 @@ const Home = ({ onNewProject, onPageChange }) => {
       {/* ⭐ 1. Quick Actions: บนมือถือเป็น 3 คอลัมน์เล็กๆ กล่องสี่เหลี่ยม / คอมเป็นแนวยาว */}
       <div className="grid grid-cols-3 md:grid-cols-3 gap-3 md:gap-6 mb-8 md:mb-12">
         <button 
-          onClick={() => { newProject(); onNewProject(); }}
+          onClick={() => { newProject(true); onNewProject(); }}
           className="bg-white border border-slate-100 md:border-slate-200 rounded-2xl p-4 md:p-6 flex flex-col md:flex-row items-center md:items-start gap-3 md:gap-5 hover:border-blue-400 hover:shadow-md transition-all text-center md:text-left shadow-sm md:shadow-none group"
         >
           <div className="w-12 h-12 md:w-14 md:h-14 bg-blue-50 text-blue-500 rounded-xl flex items-center justify-center transition-colors">
