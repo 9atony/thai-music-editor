@@ -1,24 +1,21 @@
 import React, { useContext, useState } from 'react';
 import { MusicContext } from '../contexts/MusicContext';
-import { logoutUser } from '../utils/firebase';
 
 const Settings = () => {
   const { layoutConfig, setLayoutConfig } = useContext(MusicContext);
-  // ⭐ เพิ่ม State สำหรับควบคุมการเปิด/ปิด Popup ออกจากระบบ
-  const [showLogoutModal, setShowLogoutModal] = useState(false);
+
+  // State จำลองสำหรับการตั้งค่าต่างๆ (สามารถนำไปผูกกับ Context หรือ Firebase ได้ในอนาคต)
+  const [autoSave, setAutoSave] = useState(true);
+  const [defaultInstrument, setDefaultInstrument] = useState('ranat-ek');
+  const [tuningSystem, setTuningSystem] = useState('thai-7');
+  const [notationSize, setNotationSize] = useState('medium');
 
   const handleVolumeChange = (e) => {
     setLayoutConfig({ ...layoutConfig, volume: parseInt(e.target.value) });
   };
 
-  // ⭐ เปลี่ยนฟังก์ชันให้ออกจากระบบทันทีเมื่อกด "ยืนยัน" ใน Popup
-  const handleLogoutConfirm = async () => {
-    try {
-      await logoutUser();
-      window.location.href = '/login'; 
-    } catch (error) {
-      console.error("ออกจากระบบไม่สำเร็จ:", error);
-    }
+  const handleExportData = () => {
+    alert('กำลังเตรียมไฟล์แบคอัป... (ฟีเจอร์นี้อยู่ระหว่างการพัฒนา)');
   };
 
   return (
@@ -27,47 +24,28 @@ const Settings = () => {
       style={{ fontFamily: 'Prompt, sans-serif' }}
     >
       {/* Header */}
-      <div className="mb-8">
-        <h2 className="text-2xl md:text-3xl font-extrabold text-slate-900 mb-2">การตั้งค่า</h2>
-        <p className="text-sm text-slate-500 font-medium">ปรับแต่งการใช้งาน Thai Music Editor ในแบบของคุณ</p>
+      <div className="mb-8 px-1">
+        <h2 className="text-2xl md:text-3xl font-extrabold text-slate-900 mb-2">การตั้งค่า ⚙️</h2>
+        <p className="text-sm text-slate-500 font-medium">ปรับแต่งสภาพแวดล้อมการเขียนโน้ตและระบบเสียงของแอป</p>
       </div>
 
       <div className="space-y-6">
         
-        {/* 1. หมวดการแสดงผล */}
+        {/* 1. หมวดเสียงและการเล่น */}
         <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50">
-            <h3 className="font-bold text-slate-800 flex items-center gap-2">
-              <span className="text-lg">🎨</span> การแสดงผลและหน้าตา
+          <div className="px-5 md:px-6 py-4 border-b border-slate-100 bg-slate-50/50">
+            <h3 className="font-bold text-slate-800 flex items-center gap-2 text-sm md:text-base">
+              <span className="text-lg">🎵</span> เสียงและการจำลองเครื่องดนตรี
             </h3>
           </div>
-          <div className="p-6 space-y-6">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div>
-                <h4 className="text-sm font-bold text-slate-700">ธีมแอปพลิเคชัน</h4>
-                <p className="text-xs text-slate-500 mt-1">เลือกโหมดสว่างหรือโหมดมืด (อยู่ระหว่างพัฒนา)</p>
-              </div>
-              <div className="flex bg-slate-100 p-1 rounded-lg">
-                <button className="px-4 py-1.5 text-sm font-bold bg-white text-slate-800 rounded-md shadow-sm">สว่าง</button>
-                <button className="px-4 py-1.5 text-sm font-medium text-slate-500 hover:text-slate-700">มืด</button>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* 2. หมวดเสียงและการเล่น */}
-        <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50">
-            <h3 className="font-bold text-slate-800 flex items-center gap-2">
-              <span className="text-lg">🎵</span> เสียงและการเล่น
-            </h3>
-          </div>
-          <div className="p-6 space-y-6">
+          <div className="p-5 md:p-6 space-y-6">
+            
+            {/* ระดับเสียงหลัก */}
             <div className="flex flex-col gap-3">
               <div className="flex justify-between items-center">
                 <div>
                   <h4 className="text-sm font-bold text-slate-700">ระดับเสียงหลัก (Master Volume)</h4>
-                  <p className="text-xs text-slate-500 mt-1">ปรับความดังเริ่มต้นของเครื่องดนตรีทั้งหมด</p>
+                  <p className="text-xs text-slate-500 mt-1">ปรับความดังเริ่มต้นของการเล่นเสียงทั้งหมด</p>
                 </div>
                 <span className="text-sm font-bold text-sky-500 bg-sky-50 px-2 py-1 rounded-md">
                   {layoutConfig.volume !== undefined ? layoutConfig.volume : 100}%
@@ -82,63 +60,125 @@ const Settings = () => {
                 className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-sky-500" 
               />
             </div>
+
+            <hr className="border-slate-100" />
+
+            {/* ระบบจูนเสียง */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h4 className="text-sm font-bold text-slate-700">ระบบจำลองระดับเสียง (Tuning)</h4>
+                <p className="text-xs text-slate-500 mt-1">เลือกความห่างของเสียงให้ตรงกับมาตรฐานที่ต้องการ</p>
+              </div>
+              <select 
+                value={tuningSystem}
+                onChange={(e) => setTuningSystem(e.target.value)}
+                className="bg-slate-50 border border-slate-200 text-slate-700 text-sm rounded-xl focus:ring-sky-500 focus:border-sky-500 block w-full md:w-48 p-2.5 font-medium outline-none"
+              >
+                <option value="thai-7">7 เสียงเท่า (ดนตรีไทย)</option>
+                <option value="western">สากล (Western Equal Temperament)</option>
+              </select>
+            </div>
+
           </div>
         </section>
 
-        {/* 3. หมวดบัญชีผู้ใช้ (เฉพาะมือถือ) */}
-        <section className="md:hidden bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden mb-6">
-          <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50">
-            <h3 className="font-bold text-slate-800 flex items-center gap-2">
-              <span className="text-lg">👤</span> บัญชีของฉัน
+        {/* 2. หมวดการตั้งค่าหน้ากระดาษและเอดิเตอร์ */}
+        <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="px-5 md:px-6 py-4 border-b border-slate-100 bg-slate-50/50">
+            <h3 className="font-bold text-slate-800 flex items-center gap-2 text-sm md:text-base">
+              <span className="text-lg">📝</span> หน้ากระดาษและตัวโน้ต
             </h3>
           </div>
-          <div className="p-6">
-            {/* ⭐ เปลี่ยนจากการเรียกฟังก์ชันตรงๆ เป็นการสั่งเปิด Popup แทน */}
+          <div className="p-5 md:p-6 space-y-6">
+            
+            {/* เครื่องดนตรีเริ่มต้น */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h4 className="text-sm font-bold text-slate-700">หน้ากระดาษเริ่มต้น</h4>
+                <p className="text-xs text-slate-500 mt-1">ตั้งค่าฟอร์แมตกระดาษเวลาสร้างโปรเจกต์ใหม่</p>
+              </div>
+              <select 
+                value={defaultInstrument}
+                onChange={(e) => setDefaultInstrument(e.target.value)}
+                className="bg-slate-50 border border-slate-200 text-slate-700 text-sm rounded-xl focus:ring-sky-500 focus:border-sky-500 block w-full md:w-48 p-2.5 font-medium outline-none"
+              >
+                <option value="blank">เอกสารเปล่า</option>
+                <option value="ranat-ek">ระนาดเอก</option>
+                <option value="khong-wong-yai">ฆ้องวงใหญ่</option>
+              </select>
+            </div>
+
+            <hr className="border-slate-100" />
+
+            {/* ขนาดตัวโน้ต */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h4 className="text-sm font-bold text-slate-700">ขนาดตัวอักษรโน้ต</h4>
+                <p className="text-xs text-slate-500 mt-1">ปรับขนาดการแสดงผลของตัวโน้ตในตาราง</p>
+              </div>
+              <div className="flex bg-slate-100 p-1 rounded-lg shrink-0">
+                <button 
+                  onClick={() => setNotationSize('small')}
+                  className={`px-4 py-1.5 text-sm font-bold rounded-md transition-all ${notationSize === 'small' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                  เล็ก
+                </button>
+                <button 
+                  onClick={() => setNotationSize('medium')}
+                  className={`px-4 py-1.5 text-sm font-bold rounded-md transition-all ${notationSize === 'medium' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                  กลาง
+                </button>
+                <button 
+                  onClick={() => setNotationSize('large')}
+                  className={`px-4 py-1.5 text-sm font-bold rounded-md transition-all ${notationSize === 'large' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                  ใหญ่
+                </button>
+              </div>
+            </div>
+
+            <hr className="border-slate-100" />
+
+            {/* บันทึกอัตโนมัติ */}
+            <div className="flex items-center justify-between">
+              <div>
+                <h4 className="text-sm font-bold text-slate-700">บันทึกอัตโนมัติ (Auto-Save)</h4>
+                <p className="text-xs text-slate-500 mt-1">เซฟข้อมูลลงอุปกรณ์โดยอัตโนมัติขณะแก้ไข</p>
+              </div>
+              <button 
+                onClick={() => setAutoSave(!autoSave)}
+                className={`w-12 h-6 rounded-full p-1 transition-colors ${autoSave ? 'bg-sky-500' : 'bg-slate-200'}`}
+              >
+                <div className={`w-4 h-4 bg-white rounded-full shadow-sm transform transition-transform ${autoSave ? 'translate-x-6' : 'translate-x-0'}`}></div>
+              </button>
+            </div>
+
+          </div>
+        </section>
+
+        {/* 3. หมวดการซิงค์และสำรองข้อมูล */}
+        <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden mb-6">
+          <div className="px-5 md:px-6 py-4 border-b border-slate-100 bg-slate-50/50">
+            <h3 className="font-bold text-slate-800 flex items-center gap-2 text-sm md:text-base">
+              <span className="text-lg">🔄</span> การสำรองข้อมูล
+            </h3>
+          </div>
+          <div className="p-5 md:p-6">
+            <p className="text-xs text-slate-500 mb-4 leading-relaxed">
+              คุณสามารถดาวน์โหลดโปรเจกต์ทั้งหมดที่บันทึกไว้ในระบบ ออกมาเป็นไฟล์ Backup (.zip) เพื่อเก็บไว้ในเครื่องของคุณได้
+            </p>
             <button 
-              onClick={() => setShowLogoutModal(true)}
-              className="w-full flex items-center justify-center gap-2 py-3 bg-rose-50 text-rose-600 font-bold rounded-xl hover:bg-rose-100 transition-colors active:scale-[0.98]"
+              onClick={handleExportData}
+              className="w-full md:w-auto flex items-center justify-center gap-2 py-2.5 px-6 bg-slate-800 text-white font-bold rounded-xl hover:bg-slate-900 transition-colors active:scale-[0.98] text-sm shadow-sm"
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
-              ออกจากระบบ
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+              ดาวน์โหลดข้อมูลทั้งหมด
             </button>
           </div>
         </section>
+
       </div>
-
-      {/* ⭐ ระบบ UI Popup ยืนยันการออกจากระบบ */}
-      {showLogoutModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fadeIn">
-          <div className="bg-white rounded-3xl p-6 md:p-8 w-full max-w-sm shadow-2xl scale-100 animate-slideUp text-center">
-            
-            {/* ไอคอนเตือนสีแดง */}
-            <div className="w-16 h-16 bg-rose-100 text-rose-500 rounded-full flex items-center justify-center mx-auto mb-4">
-              <svg className="w-8 h-8 -ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-              </svg>
-            </div>
-            
-            <h3 className="text-xl font-bold text-slate-800 mb-2">ออกจากระบบ</h3>
-            <p className="text-sm text-slate-500 mb-6">คุณแน่ใจหรือไม่ว่าต้องการออกจากระบบ? <br className="hidden md:block" />คุณจะต้องเข้าสู่ระบบใหม่ในครั้งถัดไป</p>
-            
-            <div className="flex gap-3">
-              <button 
-                onClick={() => setShowLogoutModal(false)}
-                className="flex-1 py-3 font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors active:scale-[0.98]"
-              >
-                ยกเลิก
-              </button>
-              <button 
-                onClick={handleLogoutConfirm}
-                className="flex-1 py-3 font-bold text-white bg-rose-500 hover:bg-rose-600 rounded-xl transition-all shadow-md shadow-rose-500/20 active:scale-[0.98]"
-              >
-                ยืนยัน
-              </button>
-            </div>
-
-          </div>
-        </div>
-      )}
-
     </div>
   );
 };

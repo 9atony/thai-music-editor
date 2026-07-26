@@ -15,7 +15,8 @@ import {
 
 import { auth } from '../utils/firebase';
 
-const Login = ({ onLoginSuccess }) => {
+// ⭐ เพิ่ม onBackToLanding เข้ามาใน Props
+const Login = ({ onLoginSuccess, onBackToLanding }) => {
   const [isSignUp, setIsSignUp] = useState(false);
   
   const [displayName, setDisplayName] = useState('');
@@ -90,7 +91,17 @@ const Login = ({ onLoginSuccess }) => {
   return (
     <div className="min-h-screen w-full relative flex items-center justify-center bg-slate-50 overflow-hidden antialiased text-slate-800">
       
-      {/* ⭐ 1. ปรับ Animation ให้เลื่อนแค่แกน Y (เพราะเราหมุนตัวกรอบแทนแล้ว) */}
+      {/* ⭐ ปุ่มกลับหน้าหลัก จัดวางมุมซ้ายบน (Absolute) */}
+      <button 
+        onClick={onBackToLanding}
+        className="absolute top-6 left-6 z-50 flex items-center gap-2 px-4 py-2 bg-white/70 backdrop-blur-md border border-slate-200 rounded-full text-sm font-bold text-slate-600 hover:text-slate-900 hover:bg-white transition-all shadow-sm"
+      >
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+        </svg>
+        กลับหน้าหลัก
+      </button>
+
       <style>
         {`
           @keyframes slide-tilted {
@@ -105,7 +116,7 @@ const Login = ({ onLoginSuccess }) => {
         `}
       </style>
 
-      {/* ⭐ 2. เลเยอร์รูปภาพ: ขยายกว้าง/สูง 200% กันขอบแหว่ง แล้วจับหมุน (rotate) */}
+      {/* เลเยอร์รูปภาพ */}
       <div 
         className="absolute z-0 opacity-[0.06] pointer-events-none animate-bg-slide"
         style={{
@@ -113,14 +124,14 @@ const Login = ({ onLoginSuccess }) => {
           height: '200vh',
           top: '-50vh',
           left: '-50vw',
-          transform: 'rotate(-45deg)', /* องศาความเฉียง: เปลี่ยนเป็น 45deg ได้ถ้าอยากให้เฉียงไปอีกฝั่ง */
+          transform: 'rotate(-45deg)', 
           backgroundImage: `url(${bgImg})`, 
           backgroundSize: '800px', 
           backgroundRepeat: 'repeat', 
         }}
       />
       
-      {/* ⭐ 3. เลเยอร์เส้นตาราง: ยังคงเหมือนเดิม ไม่ได้ถูกหมุนตาม */}
+      {/* เลเยอร์เส้นตาราง */}
       <div className="absolute inset-0 z-0 bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:24px_24px] pointer-events-none"></div>
       <div className="relative z-10 w-full max-w-6xl mx-auto px-6 flex flex-col lg:flex-row items-center justify-between gap-16">
         
