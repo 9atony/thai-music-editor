@@ -761,18 +761,28 @@ const Sheet = forwardRef((props, ref) => {
                   >     
                       <div className="relative w-full">
                         
-                        {displayRowNumbers[rIndex] !== '' && (
-                          <div className={`absolute -left-8 -translate-y-1/2 text-slate-300 text-[12px] font-bold print-hidden select-none ${isDoubleRight ? 'top-full' : 'top-1/2'}`} style={{ fontFamily: textFontFamily }}>
+                        {/* อัปเดต: ตัวเลขบรรทัด */}
+                        {(displayRowNumbers[rIndex] !== '' && layoutConfig?.showRowNumber !== false) && (
+                          <div 
+                            className={`absolute -left-8 -translate-y-1/2 text-[12px] font-bold print-hidden select-none ${isDoubleRight ? 'top-full' : 'top-1/2'}`} 
+                            style={{ 
+                              fontFamily: textFontFamily,
+                              color: layoutConfig?.rowNumberColor || '#cbd5e1'
+                            }}
+                          >
                             {displayRowNumbers[rIndex]}
                           </div>
                         )}
 
-                        {isDoubleRight && (
+                        {/* อัปเดต: เส้นปีกกาบรรทัดคู่ */}
+                        {(isDoubleRight && layoutConfig?.showRowNumber !== false) && (
                           <div 
-                            className="absolute top-0 border-l-[3px] border-t-[3px] border-b-[3px] border-slate-300 print:border-slate-400"
+                            className="absolute top-0 border-l border-t border-b print:border-slate-400"
                             style={{
                               left: '-10px', width: '6px', height: `${layoutConfig.measureHeight * 2}px`,
-                              borderTopLeftRadius: '4px', borderBottomLeftRadius: '4px', zIndex: 10
+                              borderTopLeftRadius: '4px', borderBottomLeftRadius: '4px', zIndex: 10,
+                              borderColor: layoutConfig?.rowNumberColor || '#cbd5e1',
+                              borderWidth: `${layoutConfig?.rowNumberWidth ?? 3}px 0 ${layoutConfig?.rowNumberWidth ?? 3}px ${layoutConfig?.rowNumberWidth ?? 3}px`
                             }}
                           />
                         )}
@@ -799,10 +809,13 @@ const Sheet = forwardRef((props, ref) => {
                                 style={{ 
                                   gridTemplateColumns: isLabelMeasure ? '1fr' : `repeat(${measure.length}, minmax(0, 1fr))`,
                                   height: `${layoutConfig.measureHeight}px`,
-                                  borderTop: `${layoutConfig.borderWidth}px solid ${layoutConfig.borderColor}`,
-                                  borderBottom: isDoubleRight ? 'none' : `${layoutConfig.borderWidth}px solid ${layoutConfig.borderColor}`,
-                                  borderRight: `${layoutConfig.borderWidth}px solid ${layoutConfig.borderColor}`,
-                                  borderLeft: isFirstInLine ? `${layoutConfig.borderWidth}px solid ${layoutConfig.borderColor}` : 'none',
+                                  
+                                  // ✨ อัปเดต: เปลี่ยนมาใช้ outerBorderWidth แทน borderWidth
+                                  borderTop: `${layoutConfig.outerBorderWidth ?? 1}px solid ${layoutConfig.borderColor || '#0f172a'}`,
+                                  borderBottom: isDoubleRight ? 'none' : `${layoutConfig.outerBorderWidth ?? 1}px solid ${layoutConfig.borderColor || '#0f172a'}`,
+                                  borderRight: `${layoutConfig.outerBorderWidth ?? 1}px solid ${layoutConfig.borderColor || '#0f172a'}`,
+                                  borderLeft: isFirstInLine ? `${layoutConfig.outerBorderWidth ?? 1}px solid ${layoutConfig.borderColor || '#0f172a'}` : 'none',
+                                  
                                   borderTopLeftRadius: (isFirstInLine && !isDoubleLeft) ? `${layoutConfig.borderRadius}px` : 0,
                                   borderBottomLeftRadius: (isFirstInLine && !isDoubleRight) ? `${layoutConfig.borderRadius}px` : 0,
                                   borderTopRightRadius: (isLastInLine && !isDoubleLeft) ? `${layoutConfig.borderRadius}px` : 0,

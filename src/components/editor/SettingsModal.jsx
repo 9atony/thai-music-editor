@@ -7,9 +7,7 @@ const SettingsModal = ({ isOpen, onClose }) => {
     currentInstrument, changeInstrument, 
     layoutConfig, setLayoutConfig,
     headerDetails, addDetail, removeDetail, updateDetail,
-    songName, setSongName,
-    selectedCell, sectionLabels, addSectionLabel, updateSectionLabel, removeSectionLabel,
-    rowTypes
+    songName, setSongName
   } = useContext(MusicContext);
   
   const [activeTab, setActiveTab] = useState('info');
@@ -39,23 +37,6 @@ const SettingsModal = ({ isOpen, onClose }) => {
     });
   };
 
-  const currentRow = selectedCell ? selectedCell[0] : 0;
-
-  const getVisualRowNumber = (rowIndex) => {
-    if (!rowTypes) return 1;
-    let count = 0;
-    for (let i = 0; i <= rowIndex; i++) {
-      if (rowTypes[i] === 'single' || rowTypes[i] === 'double-right') {
-        count++;
-      }
-    }
-    return count;
-  };
-
-  const visualRowNumber = getVisualRowNumber(currentRow);
-  const visualIndex = visualRowNumber > 0 ? visualRowNumber - 1 : 0; 
-  const currentLabels = sectionLabels ? (sectionLabels[visualIndex] || []) : [];
-
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm transition-opacity">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden animate-fade-in-up">
@@ -68,11 +49,10 @@ const SettingsModal = ({ isOpen, onClose }) => {
           </button>
         </div>
 
-        {/* Tabs */}
+        {/* Tabs - ลบแท็บป้ายกำกับออกเหลือแค่ 2 แท็บ */}
         <div className="flex px-6 pt-4 gap-2 border-b border-slate-200 bg-white">
           {[
             { id: 'info', label: 'ข้อมูลโปรเจกต์', icon: '📄' },
-            { id: 'labels', label: 'ป้ายกำกับ', icon: '🏷️' },
             { id: 'style', label: 'ตั้งค่ากระดาษ', icon: '⚙️' }
           ].map(tab => (
             <button 
@@ -142,46 +122,6 @@ const SettingsModal = ({ isOpen, onClose }) => {
                   </div>
                 </div>
               </section>
-            </div>
-          )}
-
-          {/* ป้ายกำกับ */}
-          {activeTab === 'labels' && (
-            <div className="space-y-4">
-              <div className="bg-sky-50 border border-sky-100 p-4 rounded-lg text-center mb-4">
-                 <span className="text-sm text-slate-600">กำลังเลือกบรรทัดที่: </span>
-                 <span className="text-xl font-black text-sky-600">{visualRowNumber}</span>
-              </div>
-              <button onClick={() => addSectionLabel(visualIndex)} className="w-full py-2.5 bg-sky-500 text-white rounded-lg hover:bg-sky-600 font-bold shadow-sm transition-all text-sm flex justify-center gap-2">
-                + สร้างป้ายกำกับใหม่ (บรรทัดที่ {visualRowNumber})
-              </button>
-              
-              <div className="space-y-4 mt-4">
-                {currentLabels.map((label) => (
-                  <div key={label.id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm relative group">
-                    <button onClick={() => removeSectionLabel(visualIndex, label.id)} className="absolute -top-2 -right-2 bg-rose-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity z-10">✕</button>
-                    <input type="text" placeholder="เช่น ท่อน ๑, ลูกล้อ..." value={label.text} onChange={(e) => updateSectionLabel(visualIndex, label.id, { text: e.target.value })} className="w-full p-2.5 mb-3 text-sm text-sky-900 bg-slate-50 border border-slate-200 rounded-md focus:outline-none focus:border-sky-400 font-bold" />
-                    
-                    <div className="flex gap-4 items-end mb-3">
-                      <div className="flex-1">
-                        <label className="text-xs text-slate-500 flex justify-between mb-1.5"><span>ขนาดตัวอักษร</span><span className="font-bold text-sky-600">{label.fontSize}px</span></label>
-                        <input type="range" min="10" max="40" value={label.fontSize} onChange={(e) => updateSectionLabel(visualIndex, label.id, { fontSize: parseInt(e.target.value) })} className="w-full h-1.5 bg-slate-200 rounded-lg accent-sky-500 cursor-pointer" />
-                      </div>
-                      <button onClick={() => updateSectionLabel(visualIndex, label.id, { isBold: !label.isBold })} className={`w-10 h-8 flex items-center justify-center rounded-md text-sm transition-all border ${label.isBold ? 'bg-slate-800 text-white font-bold border-slate-800' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'}`}>B</button>
-                    </div>
-
-                    <div className="mb-4">
-                        <label className="text-xs text-slate-500 flex justify-between mb-1.5"><span>ระยะห่างแนวตั้ง (ลอยขึ้น-ลง)</span><span className="font-bold text-sky-600">{label.offsetY !== undefined ? label.offsetY : 6}px</span></label>
-                        <input type="range" min="-30" max="60" value={label.offsetY !== undefined ? label.offsetY : 6} onChange={(e) => updateSectionLabel(visualIndex, label.id, { offsetY: parseInt(e.target.value) })} className="w-full h-1.5 bg-slate-200 rounded-lg accent-sky-500 cursor-pointer" />
-                    </div>
-                  </div>
-                ))}
-                {currentLabels.length === 0 && (
-                  <div className="text-center py-10 text-sm text-slate-400 bg-white border border-dashed border-slate-200 rounded-lg">
-                    ยังไม่มีป้ายกำกับในบรรทัดนี้
-                  </div>
-                )}
-              </div>
             </div>
           )}
 

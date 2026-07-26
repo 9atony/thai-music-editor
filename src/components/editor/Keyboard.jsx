@@ -9,20 +9,14 @@ const Keyboard = () => {
     addRow, removeRow, addDoubleRow,
     addMeasure, removeMeasure, addNoteColumn, removeNoteColumn,
     copySelection, pasteSelection, clipboardData, addPageBreak,
-    isOctaveMode, setIsOctaveMode,
-    playbackSequence, setPlaybackSequence,
-    activeSequenceIdx, activeLoop,
-    isPlaying, sectionLabels
+    isOctaveMode, setIsOctaveMode
   } = useContext(MusicContext);
 
   const [hoveredIdx, setHoveredIdx] = useState(null);
   const [activeIdx, setActiveIdx] = useState(null);
 
   const [isMinimized, setIsMinimized] = useState(false);
-  const [isSequencerOpen, setIsSequencerOpen] = useState(false);
   const [isInstMenuOpen, setIsInstMenuOpen] = useState(false);
-
-  const [draggedSeqIdx, setDraggedSeqIdx] = useState(null);
 
   const getFormattedStr = (eng, thai) => {
     const octave = parseInt(eng.replace(/\D/g, ''));
@@ -75,8 +69,8 @@ const Keyboard = () => {
     );
   };
 
-  const ToolbarSection = ({ children, bodyClass = 'bg-white border border-slate-200' }) => (
-    <div className="flex shrink-0 items-center justify-center">
+  const ToolbarSection = ({ children, bodyClass = 'bg-white border border-slate-200', wrapperClass = '' }) => (
+    <div className={`flex shrink-0 items-center justify-center ${wrapperClass}`}>
       <div className={`flex items-stretch gap-1.5 rounded-2xl p-2 shadow-[0_1px_2px_rgba(15,23,42,0.04)] ${bodyClass}`}>
         {children}
       </div>
@@ -98,64 +92,6 @@ const Keyboard = () => {
 
   const iconClass = 'w-4 h-4';
 
-  const handleDragStart = (e, index) => {
-    setDraggedSeqIdx(index);
-    e.dataTransfer.effectAllowed = 'move';
-  };
-
-  const handleDragOver = (e, index) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-  };
-
-  const handleDrop = (e, targetIndex) => {
-    e.preventDefault();
-    if (draggedSeqIdx === null || draggedSeqIdx === targetIndex) return;
-
-    const newSeq = [...playbackSequence];
-    const draggedItem = newSeq[draggedSeqIdx];
-    newSeq.splice(draggedSeqIdx, 1);
-    newSeq.splice(targetIndex, 0, draggedItem);
-
-    setPlaybackSequence(newSeq);
-    setDraggedSeqIdx(null);
-  };
-
-  const updateSeqItem = (index, key, value) => {
-    const newSeq = [...playbackSequence];
-    newSeq[index] = { ...newSeq[index], [key]: value };
-    setPlaybackSequence(newSeq);
-  };
-
-  const addSeqItem = () => {
-    setPlaybackSequence([...playbackSequence, { id: Date.now(), label: 'ท่อนใหม่', loops: 1 }]);
-  };
-
-  const removeSeqItem = (index) => {
-    const newSeq = [...playbackSequence];
-    newSeq.splice(index, 1);
-    setPlaybackSequence(newSeq);
-  };
-
-  const autoScanSections = () => {
-    const newSeq = [];
-    const sortedIndices = Object.keys(sectionLabels).map(Number).sort((a, b) => a - b);
-
-    sortedIndices.forEach(vIdx => {
-      sectionLabels[vIdx].forEach(lbl => {
-        if (!lbl.text.includes('กลับต้น')) {
-          newSeq.push({ id: Date.now() + Math.random(), label: lbl.text.trim(), loops: 1 });
-        }
-      });
-    });
-
-    if (newSeq.length > 0) {
-      setPlaybackSequence(newSeq);
-    } else {
-      alert('ไม่พบป้ายกำกับบนกระดาษครับ กรุณาสร้างป้ายกำกับ (เช่น ท่อน 1) ก่อนกดสแกน');
-    }
-  };
-
   return (
     <div className={`relative flex flex-col z-10 w-full font-sans transition-colors duration-300 ${isOctaveMode && !isMinimized ? 'bg-[#fffdf0]' : 'bg-[#eaf4fc]'}`}>
 
@@ -172,221 +108,129 @@ const Keyboard = () => {
         </button>
       </div>
 
-      <div className={`border-t transition-all duration-500 ease-in-out flex flex-row w-full h-full relative ${isMinimized ? 'max-h-0 opacity-0 border-transparent' : `opacity-100 ${isOctaveMode ? 'border-amber-200' : 'border-sky-200'}`}`}>
-
-        {/* ================= ฝั่งซ้าย: แถบเครื่องมือ + คีย์บอร์ด ================= */}
-        <div className="flex-1 flex flex-col min-w-0 transition-all duration-300 overflow-visible">
+      <div className={`border-t transition-all duration-500 ease-in-out flex flex-col w-full relative ${isMinimized ? 'max-h-0 opacity-0 border-transparent' : `opacity-100 ${isOctaveMode ? 'border-amber-200' : 'border-sky-200'}`}`}>
+        
+        {/* แถบเครื่องมือ (Toolbar) */}
+        <div className="relative z-[120] w-full overflow-visible border-b border-slate-200/70 bg-[#f8f8fb]/95 p-2 shadow-[0_2px_10px_rgba(0,0,0,0.02)] backdrop-blur-sm flex items-center gap-3">
           
-          {/* แถบเครื่องมือ (Toolbar) */}
-          <div className="relative z-[120] w-full overflow-visible border-b border-slate-200/70 bg-[#f8f8fb]/95 p-2 shadow-[0_2px_10px_rgba(0,0,0,0.02)] backdrop-blur-sm flex items-center justify-between gap-3">
-            
-            {/* ⭐ แยกกลุ่มเครื่องดนตรีออกมาจากกล่องที่เลื่อนได้ (แก้ปัญหา Dropdown ดันหน้าจอ) */}
-            <div className="flex items-center gap-2 z-30 shrink-0">
-              <ToolbarSection bodyClass="bg-[#fffaf0] border border-amber-100">
-                <div className="relative">
-                  <div 
-                    onClick={() => setIsInstMenuOpen(!isInstMenuOpen)}
-                    className="relative flex items-center gap-2 rounded-xl bg-[#fff4d9] px-3 py-2 text-xs font-bold text-amber-900 border border-amber-200 min-w-[130px] hover:bg-[#ffeec2] transition-colors shadow-sm cursor-pointer select-none"
-                  >
-                    <span className="text-lg leading-none">🎼</span>
-                    <span className="flex-1 truncate">{currentInstrument.name}</span>
-                    <svg className={`h-3.5 w-3.5 text-amber-700 transition-transform ${isInstMenuOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 9l-7 7-7-7" /></svg>
-                  </div>
-
-                  {isInstMenuOpen && (
-                    <>
-                      <div className="fixed inset-0 z-[180]" onClick={() => setIsInstMenuOpen(false)}></div>
-                      <div className="absolute left-0 top-[calc(100%+8px)] z-[220] min-w-[220px] w-max max-w-[280px] bg-white border border-amber-200 rounded-xl shadow-[0_18px_40px_rgba(15,23,42,0.18)] overflow-hidden py-1">
-                        {Object.values(INSTRUMENT_CONFIG).map(inst => (
-                          <button
-                            key={inst.id}
-                            onClick={() => {
-                              changeInstrument(inst.id);
-                              setIsInstMenuOpen(false);
-                            }}
-                            className={`w-full text-left px-4 py-2 text-[11px] font-bold hover:bg-amber-50 transition-colors ${currentInstrument.id === inst.id ? 'bg-amber-100 text-amber-900' : 'text-slate-600'}`}
-                          >
-                            {inst.name}
-                          </button>
-                        ))}
-                      </div>
-                    </>
-                  )}
+          {/* โซน 1: ตั้งค่าหลัก (ซ้ายสุด) */}
+          <div className="flex items-center gap-2 z-30 shrink-0">
+            <ToolbarSection bodyClass="bg-[#fffaf0] border border-amber-100">
+              <div className="relative">
+                <div 
+                  onClick={() => setIsInstMenuOpen(!isInstMenuOpen)}
+                  className="relative flex items-center gap-2 rounded-xl bg-[#fff4d9] px-3 py-2 text-xs font-bold text-amber-900 border border-amber-200 min-w-[130px] hover:bg-[#ffeec2] transition-colors shadow-sm cursor-pointer select-none"
+                >
+                  <span className="text-lg leading-none">🎼</span>
+                  <span className="flex-1 truncate">{currentInstrument.name}</span>
+                  <svg className={`h-3.5 w-3.5 text-amber-700 transition-transform ${isInstMenuOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 9l-7 7-7-7" /></svg>
                 </div>
 
-                {currentInstrument.id === 'ranat-ek' && (
-                  <label className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-500 cursor-pointer shadow-sm">
-                    <input type="checkbox" className="sr-only" checked={isOctaveMode} onChange={(e) => setIsOctaveMode(e.target.checked)} />
-                    <span className="whitespace-nowrap">โหมด คู่ 8</span>
-                    <div className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${isOctaveMode ? 'bg-amber-400' : 'bg-slate-300'}`}>
-                      <div className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white transition-transform ${isOctaveMode ? 'translate-x-4' : ''}`}></div>
+                {isInstMenuOpen && (
+                  <>
+                    <div className="fixed inset-0 z-[180]" onClick={() => setIsInstMenuOpen(false)}></div>
+                    <div className="absolute left-0 top-[calc(100%+8px)] z-[220] min-w-[220px] w-max max-w-[280px] bg-white border border-amber-200 rounded-xl shadow-[0_18px_40px_rgba(15,23,42,0.18)] overflow-hidden py-1">
+                      {Object.values(INSTRUMENT_CONFIG).map(inst => (
+                        <button
+                          key={inst.id}
+                          onClick={() => {
+                            changeInstrument(inst.id);
+                            setIsInstMenuOpen(false);
+                          }}
+                          className={`w-full text-left px-4 py-2 text-[11px] font-bold hover:bg-amber-50 transition-colors ${currentInstrument.id === inst.id ? 'bg-amber-100 text-amber-900' : 'text-slate-600'}`}
+                        >
+                          {inst.name}
+                        </button>
+                      ))}
                     </div>
-                  </label>
+                  </>
                 )}
-              </ToolbarSection>
-            </div>
-
-            {/* กลุ่มเครื่องมือที่เลื่อนซ้ายขวาได้ */}
-            <div className="flex-1 overflow-x-auto custom-scrollbar flex items-center gap-3 pb-0.5">
-              <ToolbarSection>
-                <ToolButton onClick={() => handleSpecialKey('-')} bgClass="bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V4a2 2 0 10-4 0v1.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>} label="พักเสียง" title="ใส่ขีดพักเสียง" />
-                <ToolButton onClick={() => handleSpecialKey('BACKSPACE')} bgClass="bg-red-50 text-red-600 border-red-200 hover:bg-red-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2M3 12l6.414 6.414a2 2 0 001.414.586H19a2 2 0 002-2V7a2 2 0 00-2-2h-8.172a2 2 0 00-1.414.586L3 12z" /></svg>} label="ลบ" title="ลบโน้ต (Backspace)" />
-                <ToolButton onClick={copySelection} bgClass="bg-emerald-50 text-emerald-600 border-emerald-200 hover:bg-emerald-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>} label="คัดลอก" title="คัดลอกโน้ต" />
-                <ToolButton onClick={pasteSelection} disabled={clipboardData.length === 0} bgClass="bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>} label="วาง" title="วางโน้ต" />
-              </ToolbarSection>
-
-              <ToolbarSection bodyClass="bg-[#f6f7ff] border border-blue-100">
-                <ToolButton onClick={addNoteColumn} bgClass="bg-[#f2f4ff] text-blue-700 border-blue-100 hover:bg-[#e8ecff]" icon={<span className="text-lg leading-none">+</span>} label="โน้ต" title="เพิ่มคอลัมน์โน้ต" />
-                <ToolButton onClick={removeNoteColumn} bgClass="bg-[#f2f4ff] text-blue-700 border-blue-100 hover:bg-[#e8ecff]" icon={<span className="text-lg leading-none">−</span>} label="โน้ต" title="ลบคอลัมน์โน้ต" />
-              </ToolbarSection>
-
-              <ToolbarSection bodyClass="bg-[#f4fcf7] border border-emerald-100">
-                <ToolButton onClick={addMeasure} bgClass="bg-[#eefbf3] text-emerald-700 border-emerald-100 hover:bg-[#e1f7ea]" icon={<span className="text-lg leading-none">+</span>} label="ห้อง" title="เพิ่มห้องเพลง" />
-                <ToolButton onClick={removeMeasure} bgClass="bg-[#eefbf3] text-emerald-700 border-emerald-100 hover:bg-[#e1f7ea]" icon={<span className="text-lg leading-none">−</span>} label="ห้อง" title="ลบห้องเพลง" />
-              </ToolbarSection>
-
-              <ToolbarSection bodyClass="bg-[#faf5ff] border border-violet-100">
-                <ToolButton onClick={addRow} bgClass="bg-[#f7efff] text-violet-700 border-violet-100 hover:bg-[#efe2ff]" icon={<span className="text-lg leading-none">+</span>} label="บรรทัด" title="เพิ่มบรรทัดเดี่ยว" />
-                <ToolButton onClick={addDoubleRow} bgClass="bg-[#f7efff] text-violet-700 border-violet-100 hover:bg-[#efe2ff]" icon={<span className="text-lg leading-none">+</span>} label="บรรทัดคู่" title="เพิ่มบรรทัดคู่" />
-                <ToolButton onClick={removeRow} bgClass="bg-red-50 text-red-600 border-red-100 hover:bg-red-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 7h12M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-7 0l1 12h6l1-12" /></svg>} label="ลบบรรทัด" title="ลบบรรทัดปัจจุบัน" />
-                <ToolButton onClick={addPageBreak} bgClass="bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6zM14 3v5h5M16 13H8M16 17H8M10 9H8" /></svg>} label="ตัดหน้า" title="เพิ่มจุดตัดหน้ากระดาษ" />
-              </ToolbarSection>
-            </div>
-
-            {/* แทนที่ปุ่มเดิมด้วยปุ่มดีไซน์ใหม่นี้ครับ */}
-{!isSequencerOpen && (
-  <button
-    onClick={() => setIsSequencerOpen(true)}
-    className="shrink-0 flex h-[54px] ml-auto min-w-[130px] items-center justify-center gap-2 rounded-xl px-4 text-[11px] font-bold transition-all active:scale-[0.98] bg-white border-2 border-slate-200 text-slate-700 hover:border-sky-400 hover:text-sky-600 hover:bg-sky-50 shadow-sm"
-  >
-    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 19h16M7 16V8m5 8V5m5 11v-6" /></svg>
-    <span>ลำดับการเล่น</span>
-  </button>
-)}
-          </div>
-
-          {/* แผงแป้นคีย์บอร์ด */}
-          <div className="relative z-0 flex w-full overflow-hidden">
-            <div className="flex-1 overflow-x-auto pb-2 pt-2 custom-scrollbar transition-all duration-300">
-              <div className="flex bg-slate-800 p-1 rounded-xl shadow-inner w-max mx-auto gap-[2px]">
-                {currentInstrument.keys.map((k, i) => {
-                  const isBlocked = isOctaveMode && currentInstrument.id === 'ranat-ek' && i > 14;
-                  const isHovered = hoveredIdx === i || (isOctaveMode && currentInstrument.id === 'ranat-ek' && hoveredIdx !== null && i === hoveredIdx + 7);
-                  const isActive = activeIdx === i || (isOctaveMode && currentInstrument.id === 'ranat-ek' && activeIdx !== null && i === activeIdx + 7);
-
-                  let btnClass = 'w-14 h-[100px] shrink-0 border-b-[5px] rounded-b-md flex flex-col items-center justify-end pb-5 transition-all shadow-sm group select-none relative ';
-
-                  if (isActive) {
-                    btnClass += isOctaveMode ? 'bg-amber-300 border-amber-300 border-b-0 translate-y-1 text-amber-900 ' : 'bg-sky-200 border-sky-200 border-b-0 translate-y-1 text-sky-900 ';
-                  } else if (isHovered) {
-                    btnClass += isOctaveMode ? 'bg-amber-100 border-amber-400 text-amber-700 ' : 'bg-sky-50 border-sky-400 text-sky-600 ';
-                  } else if (isBlocked) {
-                    btnClass += 'bg-white border-slate-300 text-slate-700 cursor-not-allowed ';
-                  } else {
-                    btnClass += 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50 ';
-                  }
-
-                  return (
-                    <button
-                      key={i}
-                      onPointerDown={(e) => { e.preventDefault(); if (!isBlocked) setActiveIdx(i); }}
-                      onPointerUp={() => setActiveIdx(null)}
-                      onPointerLeave={() => { setActiveIdx(null); setHoveredIdx(null); }}
-                      onPointerCancel={() => { setActiveIdx(null); setHoveredIdx(null); }}
-                      onPointerEnter={() => { if (!isBlocked) setHoveredIdx(i); }}
-                      onContextMenu={(e) => e.preventDefault()}
-                      onClick={() => { if (!isBlocked) handleKeyClick(i); }}
-                      className={btnClass}
-                    >
-                      <span className={`absolute top-2 text-[10px] uppercase tracking-wider opacity-40 ${isHovered || isActive ? 'font-bold text-current opacity-70' : ''}`}>{k.eng}</span>
-                      {renderNoteLabel(k.thai, k.eng)}
-                    </button>
-                  );
-                })}
               </div>
-            </div>
+
+              {currentInstrument.id === 'ranat-ek' && (
+                <label className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-500 cursor-pointer shadow-sm">
+                  <input type="checkbox" className="sr-only" checked={isOctaveMode} onChange={(e) => setIsOctaveMode(e.target.checked)} />
+                  <span className="whitespace-nowrap">โหมด คู่ 8</span>
+                  <div className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${isOctaveMode ? 'bg-amber-400' : 'bg-slate-300'}`}>
+                    <div className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white transition-transform ${isOctaveMode ? 'translate-x-4' : ''}`}></div>
+                  </div>
+                </label>
+              )}
+            </ToolbarSection>
           </div>
 
+          <div className="flex-1 overflow-x-auto custom-scrollbar flex items-center gap-3 pb-0.5 w-full">
+            
+            {/* โซน 2: จัดการตัวโน้ต */}
+            <ToolbarSection>
+              <ToolButton onClick={() => handleSpecialKey('-')} bgClass="bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V4a2 2 0 10-4 0v1.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>} label="พักเสียง" title="ใส่ขีดพักเสียง" />
+              <ToolButton onClick={copySelection} bgClass="bg-emerald-50 text-emerald-600 border-emerald-200 hover:bg-emerald-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>} label="คัดลอก" title="คัดลอกโน้ต" />
+              <ToolButton onClick={pasteSelection} disabled={clipboardData.length === 0} bgClass="bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>} label="วาง" title="วางโน้ต" />
+            </ToolbarSection>
+
+            {/* โซน 3: สร้าง/เพิ่มโครงสร้าง */}
+            <ToolbarSection bodyClass="bg-slate-50 border border-slate-200">
+              <ToolButton onClick={addNoteColumn} bgClass="bg-[#f2f4ff] text-blue-700 border-blue-100 hover:bg-[#e8ecff]" icon={<span className="text-lg leading-none">+</span>} label="ช่อง" title="เพิ่มคอลัมน์โน้ต" />
+              <ToolButton onClick={addMeasure} bgClass="bg-[#eefbf3] text-emerald-700 border-emerald-100 hover:bg-[#e1f7ea]" icon={<span className="text-lg leading-none">+</span>} label="ห้อง" title="เพิ่มห้องเพลง" />
+              <ToolButton onClick={addRow} bgClass="bg-[#f7efff] text-violet-700 border-violet-100 hover:bg-[#efe2ff]" icon={<span className="text-lg leading-none">+</span>} label="บรรทัด" title="เพิ่มบรรทัดเดี่ยว" />
+              <ToolButton onClick={addDoubleRow} bgClass="bg-[#f7efff] text-violet-700 border-violet-100 hover:bg-[#efe2ff]" icon={<span className="text-lg leading-none">+</span>} label="บรรทัดคู่" title="เพิ่มบรรทัดคู่" />
+              <ToolButton onClick={addPageBreak} bgClass="bg-white text-slate-600 border-slate-200 hover:bg-slate-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6zM14 3v5h5M16 13H8M16 17H8M10 9H8" /></svg>} label="ตัดหน้า" title="เพิ่มจุดตัดหน้ากระดาษ" />
+            </ToolbarSection>
+
+            {/* Spacer เพื่อดันโซน 4 ไปขวาสุด */}
+            <div className="flex-1 min-w-[10px]"></div>
+
+            {/* โซน 4: ลบโครงสร้างและโน้ต (ขวาสุด สีแดงทั้งหมด) */}
+            <ToolbarSection wrapperClass="ml-auto" bodyClass="bg-red-50 border border-red-100">
+              <ToolButton onClick={() => handleSpecialKey('BACKSPACE')} bgClass="bg-white text-red-600 border-red-200 hover:bg-red-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2M3 12l6.414 6.414a2 2 0 001.414.586H19a2 2 0 002-2V7a2 2 0 00-2-2h-8.172a2 2 0 00-1.414.586L3 12z" /></svg>} label="ลบโน้ต" title="ลบโน้ต (Backspace)" />
+              <ToolButton onClick={removeNoteColumn} bgClass="bg-white text-red-600 border-red-200 hover:bg-red-100" icon={<span className="text-lg leading-none">−</span>} label="ลบช่อง" title="ลบคอลัมน์โน้ต" />
+              <ToolButton onClick={removeMeasure} bgClass="bg-white text-red-600 border-red-200 hover:bg-red-100" icon={<span className="text-lg leading-none">−</span>} label="ลบห้อง" title="ลบห้องเพลง" />
+              <ToolButton onClick={removeRow} bgClass="bg-white text-red-600 border-red-200 hover:bg-red-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 7h12M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-7 0l1 12h6l1-12" /></svg>} label="ลบบรรทัด" title="ลบบรรทัดปัจจุบัน" />
+            </ToolbarSection>
+          </div>
         </div>
 
-        {/* ================= ฝั่งขวา: แผงลำดับการเล่น (กะทัดรัดพิเศษ) ================= */}
-<div className={`shrink-0 transition-all duration-300 ease-in-out relative overflow-hidden ${isSequencerOpen ? 'w-[260px]' : 'w-0'}`}>
-  <div className={`absolute top-0 right-0 w-[260px] h-full flex flex-col bg-white border-l border-slate-200 shadow-[-10px_0_20px_rgba(0,0,0,0.03)] overflow-hidden transition-all duration-300 ${isSequencerOpen ? 'opacity-100 translate-x-0' : 'opacity-0 translate-x-full'}`}>
-    
-    {/* Header กะทัดรัด */}
-    <div className="p-2.5 bg-slate-50 border-b border-slate-100 flex justify-between items-center shrink-0">
-      <div className="flex items-center gap-1">
-        <button
-          onClick={() => setIsSequencerOpen(false)}
-          className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-200 rounded transition-colors"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" /></svg>
-        </button>
-        <h3 className="text-[11px] font-black text-slate-700">ลำดับการเล่น</h3>
-      </div>
-      <button onClick={autoScanSections} className="text-[9px] bg-white border border-slate-200 text-slate-600 px-2 py-1 rounded hover:bg-slate-100 font-bold active:scale-95 transition-all">
-        สแกน
-      </button>
-    </div>
+        {/* แผงแป้นคีย์บอร์ด */}
+        <div className="relative z-0 flex w-full overflow-hidden">
+          <div className="flex-1 overflow-x-auto pb-2 pt-2 custom-scrollbar transition-all duration-300">
+            <div className="flex bg-slate-800 p-1 rounded-xl shadow-inner w-max mx-auto gap-[2px]">
+              {currentInstrument.keys.map((k, i) => {
+                const isBlocked = isOctaveMode && currentInstrument.id === 'ranat-ek' && i > 14;
+                const isHovered = hoveredIdx === i || (isOctaveMode && currentInstrument.id === 'ranat-ek' && hoveredIdx !== null && i === hoveredIdx + 7);
+                const isActive = activeIdx === i || (isOctaveMode && currentInstrument.id === 'ranat-ek' && activeIdx !== null && i === activeIdx + 7);
 
-    {/* รายการท่อน (ปรับให้แน่นขึ้น) */}
-    <div className="flex-1 overflow-y-auto p-2 custom-scrollbar space-y-1">
-      {playbackSequence.map((item, idx) => {
-        const isCurrentlyPlaying = isPlaying && activeSequenceIdx === idx;
-        return (
-          <div
-            key={item.id}
-            draggable
-            onDragStart={(e) => handleDragStart(e, idx)}
-            onDragOver={(e) => handleDragOver(e, idx)}
-            onDrop={(e) => handleDrop(e, idx)}
-            className={`flex justify-between items-center px-2 py-1.5 rounded-lg border transition-all ${
-              isCurrentlyPlaying 
-                ? 'bg-sky-50 border-sky-200 text-sky-800' 
-                : 'bg-white border-slate-100 text-slate-600'
-            }`}
-          >
-            <div className="flex items-center gap-2 flex-1 overflow-hidden">
-              <span className="text-[10px] text-slate-300 cursor-grab">⠿</span>
-              <input
-                type="text"
-                value={item.label}
-                onChange={(e) => updateSeqItem(idx, 'label', e.target.value)}
-                className={`w-full bg-transparent outline-none font-bold text-[11px] truncate ${isCurrentlyPlaying ? 'text-sky-800' : 'text-slate-700'}`}
-              />
-            </div>
-            
-            <div className="flex items-center gap-1 shrink-0">
-              <input
-                type="number" min="1"
-                value={item.loops}
-                onChange={(e) => updateSeqItem(idx, 'loops', parseInt(e.target.value) || 1)}
-                className="w-8 text-center bg-slate-100 border-none rounded p-0.5 text-[10px] font-bold outline-none"
-              />
-              <button onClick={() => removeSeqItem(idx)} className="text-slate-300 hover:text-rose-500 text-[11px]">✕</button>
+                let btnClass = 'w-14 h-[100px] shrink-0 border-b-[5px] rounded-b-md flex flex-col items-center justify-end pb-5 transition-all shadow-sm group select-none relative ';
+
+                if (isActive) {
+                  btnClass += isOctaveMode ? 'bg-amber-300 border-amber-300 border-b-0 translate-y-1 text-amber-900 ' : 'bg-sky-200 border-sky-200 border-b-0 translate-y-1 text-sky-900 ';
+                } else if (isHovered) {
+                  btnClass += isOctaveMode ? 'bg-amber-100 border-amber-400 text-amber-700 ' : 'bg-sky-50 border-sky-400 text-sky-600 ';
+                } else if (isBlocked) {
+                  btnClass += 'bg-white border-slate-300 text-slate-700 cursor-not-allowed ';
+                } else {
+                  btnClass += 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50 ';
+                }
+
+                return (
+                  <button
+                    key={i}
+                    onPointerDown={(e) => { e.preventDefault(); if (!isBlocked) setActiveIdx(i); }}
+                    onPointerUp={() => setActiveIdx(null)}
+                    onPointerLeave={() => { setActiveIdx(null); setHoveredIdx(null); }}
+                    onPointerCancel={() => { setActiveIdx(null); setHoveredIdx(null); }}
+                    onPointerEnter={() => { if (!isBlocked) setHoveredIdx(i); }}
+                    onContextMenu={(e) => e.preventDefault()}
+                    onClick={() => { if (!isBlocked) handleKeyClick(i); }}
+                    className={btnClass}
+                  >
+                    <span className={`absolute top-2 text-[10px] uppercase tracking-wider opacity-40 ${isHovered || isActive ? 'font-bold text-current opacity-70' : ''}`}>{k.eng}</span>
+                    {renderNoteLabel(k.thai, k.eng)}
+                  </button>
+                );
+              })}
             </div>
           </div>
-        );
-      })}
-
-      <button
-        onClick={addSeqItem}
-        className="w-full py-2 mt-1 text-[10px] font-bold text-slate-400 border border-dashed border-slate-200 rounded-lg hover:border-slate-300 hover:text-slate-600 transition-all"
-      >
-        + เพิ่มท่อน
-      </button>
-    </div>
-
-    {/* สถานะด้านล่างแบบกะทัดรัด */}
-    <div className="p-2.5 bg-slate-900 text-white flex justify-between items-center text-[10px]">
-      <span className="text-slate-400">รอบที่เล่น</span>
-      <div className={`w-6 h-6 rounded-full flex items-center justify-center font-black ${isPlaying ? 'bg-sky-500 text-white' : 'bg-slate-700 text-slate-500'}`}>
-        {isPlaying ? activeLoop : '-'}
-      </div>
-    </div>
-  </div>
-</div>
-
+        </div>
       </div>
     </div>
   );
