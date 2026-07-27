@@ -38,7 +38,6 @@ If you are developing a production application, we recommend using TypeScript wi
 
 ## 📂 โครงสร้างไฟล์หลัก (Directory Structure)
 
-```text
 THAI-MUSIC-EDITOR/
 ├── node_modules/
 ├── public/
@@ -49,7 +48,7 @@ THAI-MUSIC-EDITOR/
 │   │   │   └── PlaybackControls.jsx
 │   │   ├── editor/                 # ส่วนประกอบของหน้าต่างเขียนโน้ต
 │   │   │   ├── Keyboard.jsx
-│   │   │   ├── SettingsModal.jsx   # ⚙️ ป๊อปอัปตั้งค่าโปรเจกต์ (ย้ายมาจาก Sidebar เดิม)
+│   │   │   ├── SettingsModal.jsx   # ⚙️ ป๊อปอัปตั้งค่าโปรเจกต์
 │   │   │   └── Sheet.jsx           # กระดาษโน้ตหลัก
 │   │   ├── layout/                 # Layout สำหรับคอมพิวเตอร์
 │   │   │   ├── DesktopLayout.jsx   # โครงสร้างหลักฝั่งเดสก์ท็อป (เมนูด้านซ้าย)

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react'; // ⭐ เพิ่ม useContext
 import useDevice from './hooks/useDevice';
 import DesktopEditor from './views/DesktopEditor';
 import MobileEditor from './views/MobileEditor'; 
@@ -17,11 +17,12 @@ import Settings from './pages/Settings';
 import Templates from './pages/Templates';
 import Samples from './pages/Samples';
 
-// ⭐ 1. นำเข้าหน้า Tools ที่เพิ่งสร้างใหม่
+// นำเข้าหน้า Tools ที่เพิ่งสร้างใหม่
 import Tools from './pages/Tools';
 
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from './utils/firebase'; 
+import { MusicContext } from './contexts/MusicContext'; // ⭐ นำเข้า MusicContext
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -31,8 +32,14 @@ function App() {
   const [showLogin, setShowLogin] = useState(false);
   
   const [currentView, setCurrentView] = useState('home'); 
+  
+  // ⭐ เพิ่ม State สำหรับจดจำหน้าก่อนหน้าที่จะเข้า Editor
+  const [previousView, setPreviousView] = useState('home'); 
 
   const { isMobile } = useDevice();
+
+  // ⭐ ดึงฟังก์ชัน applyTemplate ออกมาใช้งาน
+  const { applyTemplate } = useContext(MusicContext);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -72,35 +79,46 @@ function App() {
 
   // ===== ส่วนด้านล่างนี้คือหน้าสำหรับผู้ใช้ที่ล็อกอินแล้ว =====
 
+  // ⭐ สร้างฟังก์ชันตัวช่วยสำหรับเปิด Editor และจดจำหน้าปัจจุบันไว้
+  const handleOpenEditor = () => {
+    setPreviousView(currentView); // จำไว้ว่ามาจากหน้าไหน (เช่น templates, my-projects)
+    setCurrentView('editor');     // เปลี่ยนหน้าไปเป็น editor
+  };
+
   if (currentView === 'editor') {
     if (isMobile) {
-      return <MobileEditor onBack={() => setCurrentView('home')} />;
+      // ⭐ เปลี่ยนจาก 'home' เป็น previousView ที่เราบันทึกไว้
+      return <MobileEditor onBack={() => setCurrentView(previousView)} />;
     }
-    return <DesktopEditor onBack={() => setCurrentView('home')} />;
+    // ⭐ เปลี่ยนจาก 'home' เป็น previousView ที่เราบันทึกไว้
+    return <DesktopEditor onBack={() => setCurrentView(previousView)} />;
   }
 
   const renderContent = () => (
     <>
       {currentView === 'home' && (
         <Home 
-          onNewProject={() => setCurrentView('editor')} 
+          onNewProject={handleOpenEditor} // ⭐ เรียกใช้ฟังก์ชันที่สร้างไว้
           onPageChange={(page) => setCurrentView(page)} 
         />
       )}
       
       {currentView === 'my-projects' && (
-        <MyProjects onNewProject={() => setCurrentView('editor')} />
+        <MyProjects onNewProject={handleOpenEditor} /> // ⭐ เรียกใช้ฟังก์ชันที่สร้างไว้
       )}
 
       {currentView === 'templates' && (
-        <Templates onNewProject={() => setCurrentView('editor')} />
+        <Templates onNewProject={(templateData) => {
+          // ⭐ เมื่อเลือกเทมเพลต ให้อัปเดตข้อมูลลงกระดาษก่อนสลับหน้า
+          applyTemplate(templateData);
+          handleOpenEditor(); // ⭐ เรียกใช้ฟังก์ชันที่สร้างไว้
+        }} />
       )}
 
       {currentView === 'samples' && (
-        <Samples onOpenProject={() => setCurrentView('editor')} />
+        <Samples onOpenProject={handleOpenEditor} /> // ⭐ เรียกใช้ฟังก์ชันที่สร้างไว้
       )}
 
-      {/* ⭐ 2. เพิ่มเงื่อนไขให้แสดงหน้า Tools เมื่อ currentView เป็น 'tools' */}
       {currentView === 'tools' && (
         <Tools onPageChange={(page) => setCurrentView(page)} />
       )}

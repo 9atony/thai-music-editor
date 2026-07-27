@@ -1395,6 +1395,25 @@ export const MusicProvider = ({ children }) => {
   const newProject = (skipWarning = false) => checkUnsavedAndPrompt('NEW', null, skipWarning);
   const loadProject = (file, skipWarning = false) => checkUnsavedAndPrompt('LOAD_LOCAL', file, skipWarning);
   const loadProjectFromFirebase = (data, skipWarning = false) => checkUnsavedAndPrompt('LOAD_FIREBASE', data, skipWarning);
+
+  // ⭐ ฟังก์ชันสำหรับรับข้อมูลเทมเพลตและอัปเดตกระดาษ
+  const applyTemplate = (templateData) => {
+    // 1. ล้างข้อมูลโน้ตบนกระดาษออกให้หมด (เหมือนกดสร้างโปรเจกต์ใหม่)
+    setSheetData(Array(4).fill().map(() => Array(8).fill().map(() => Array(4).fill('-'))));
+    setRowTypes(Array(4).fill('single'));
+    setSectionLabels({});
+    setProjectId(null);
+
+    // 2. นำข้อมูลจากเทมเพลตมาใส่
+    setSongName(templateData.defaultSongName || "เพลงใหม่");
+    setProjectName("โปรเจกต์ไม่มีชื่อ");
+    setHeaderDetails(templateData.headerDetails || []);
+    
+    if (templateData.detailsAlign) {
+      setLayoutConfig(prev => ({ ...prev, detailsAlign: templateData.detailsAlign }));
+    }
+  };
+
   return (
     <MusicContext.Provider value={{ 
       currentInstrument, changeInstrument, sheetData, selectedCell, setSelectedCell, inputNote,
@@ -1424,7 +1443,8 @@ export const MusicProvider = ({ children }) => {
       isLoopAll, setIsLoopAll,
       isLoopOne, setIsLoopOne,
       skipToNext, skipToPrev,
-      availableSections
+      availableSections, 
+      applyTemplate
     }}>
     {/* ⭐ ระบบ UI Pop-up แจ้งเตือนก่อนเปิดทับ (ซ้อนทับทุกหน้าเว็บ) */}
       {pendingAction.isOpen && (
