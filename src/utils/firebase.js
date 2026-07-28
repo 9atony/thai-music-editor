@@ -6,6 +6,8 @@ import {
   addDoc, doc, updateDoc, serverTimestamp 
 } from 'firebase/firestore'; // ⭐ รวมการ import ไว้ที่เดียว
 
+import { getStorage } from "firebase/storage";
+
 // 1. Firebase Config
 const firebaseConfig = {
   apiKey: "AIzaSyBMW-AKd2p41qin2KmHi7skooNsKI2v_kI",
@@ -24,6 +26,7 @@ const analytics = getAnalytics(app);
 // 3. Export Auth และ DB (เอาไว้ใช้ที่อื่น)
 export const auth = getAuth(app);
 export const db = getFirestore(app);
+export const storage = getStorage(app);
 
 // 4. ฟังก์ชันต่างๆ (เขียนไว้หลังประกาศ db และ auth แล้ว จึงใช้งานได้ปกติ)
 // ใน src/utils/firebase.js

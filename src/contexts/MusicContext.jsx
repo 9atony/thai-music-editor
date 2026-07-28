@@ -87,6 +87,7 @@ export const MusicProvider = ({ children }) => {
   // ⭐ เพิ่ม State สำหรับชื่อโปรเจกต์แยกต่างหาก
   const [projectName, setProjectName] = useState("โปรเจกต์ไม่มีชื่อ");
   const handleSetSongName = (newName) => {
+    if (isReadOnlyRef.current) return; // ⭐ บล็อกในโหมดอ่านอย่างเดียว
     // ถ้าชื่อโปรเจกต์ยังเป็นค่าเริ่มต้น หรือชื่อโปรเจกต์เหมือนกับชื่อเพลงเดิม ให้เปลี่ยนชื่อโปรเจกต์ตามไปด้วย
     if (projectName === "โปรเจกต์ไม่มีชื่อ" || projectName === "เพลงใหม่" || projectName === songName) {
       setProjectName(newName);
@@ -118,8 +119,22 @@ export const MusicProvider = ({ children }) => {
   // ⭐ State สำหรับระบบแจ้งเตือนก่อนเปิดทับ
   const [pendingAction, setPendingAction] = useState({ isOpen: false, type: null, payload: null });
   
+  // ⭐ State สำหรับโหมดอ่านอย่างเดียว (ใช้กับหน้าตัวอย่างเพลง - Samples)
+  const [isReadOnly, setIsReadOnly] = useState(false);
+  const isReadOnlyRef = useRef(false);
+  const setReadOnlyMode = (readOnly) => {
+    isReadOnlyRef.current = readOnly;
+    setIsReadOnly(readOnly);
+    if (readOnly) setProjectId(null); // ⭐ ป้องกันการเซฟทับโปรเจกต์เดิม
+  };
+  
   // ⭐ เพิ่มพารามิเตอร์ skipWarning เข้ามา
   const checkUnsavedAndPrompt = (type, payload, skipWarning = false) => {
+    // ⭐ ถ้ากำลังอยู่ในโหมดอ่านอย่างเดียว ไม่ต้องเตือนบันทึก ให้รันคำสั่งเลย
+    if (isReadOnlyRef.current) {
+      executeAction(type, payload);
+      return;
+    }
     const isFreshProject = !projectId && historyIndex <= 0 && projectName === "โปรเจกต์ไม่มีชื่อ";
     
     // ถ้ามี "บัตรผ่าน" (กดจาก Home/MyProjects) หรือเป็นโปรเจกต์ใหม่เอี่ยม ให้รันทันทีไม่ต้องเตือน
@@ -606,6 +621,7 @@ export const MusicProvider = ({ children }) => {
   };
 
   const pasteSelection = () => {
+    if (isReadOnlyRef.current) return; // ⭐ บล็อกในโหมดอ่านอย่างเดียว
     if (!clipboardData || clipboardData.length === 0) return;
     let [r, m, c] = selectedCell;
     const newData = sheetData.map(row => row.map(meas => [...meas])); 
@@ -630,6 +646,7 @@ export const MusicProvider = ({ children }) => {
   };
 
   const cutSelection = () => {
+    if (isReadOnlyRef.current) return; // ⭐ บล็อกในโหมดอ่านอย่างเดียว
     if (!selectionRange) return;
     copySelection();
     const { start: [sr, sm, sc], end: [er, em, ec] } = selectionRange;
@@ -657,6 +674,7 @@ export const MusicProvider = ({ children }) => {
   };
 
   const inputNote = (note) => {
+    if (isReadOnlyRef.current) return; // ⭐ บล็อกในโหมดอ่านอย่างเดียว
     const newData = [...sheetData];
     let isBlockSelection = false;
     if (selectionRange && selectionRange.start && selectionRange.end) {
@@ -717,6 +735,7 @@ export const MusicProvider = ({ children }) => {
   };
 
   const addRow = (insertAtTop = null) => { 
+    if (isReadOnlyRef.current) return; // ⭐ บล็อกในโหมดอ่านอย่างเดียว
     if (isPlayingRef.current) stopPlayback(); 
     setSelectionRange(null); 
     
@@ -756,6 +775,7 @@ export const MusicProvider = ({ children }) => {
   };
 
   const addDoubleRow = (insertAtTop = null) => {
+    if (isReadOnlyRef.current) return; // ⭐ บล็อกในโหมดอ่านอย่างเดียว
     if (isPlayingRef.current) stopPlayback(); 
     setSelectionRange(null); 
     
@@ -794,6 +814,7 @@ export const MusicProvider = ({ children }) => {
   };
 
   const addPageBreak = (insertAtTop = null) => {
+    if (isReadOnlyRef.current) return; // ⭐ บล็อกในโหมดอ่านอย่างเดียว
     if (isPlayingRef.current) stopPlayback(); 
     setSelectionRange(null);
     
@@ -821,6 +842,7 @@ export const MusicProvider = ({ children }) => {
   };
 
   const addTextRow = (insertAtTop = null) => {
+    if (isReadOnlyRef.current) return; // ⭐ บล็อกในโหมดอ่านอย่างเดียว
     if (isPlayingRef.current) stopPlayback(); 
     setSelectionRange(null);
     
@@ -847,9 +869,10 @@ export const MusicProvider = ({ children }) => {
     setTimeout(() => { setSelectedCell([insertIdx, 0, 0]); }, 10);
   };
 
-  const updateTextRow = (rIndex, text) => { const newData = [...sheetData]; newData[rIndex] = [[text]]; setSheetData(newData); };
+  const updateTextRow = (rIndex, text) => { if (isReadOnlyRef.current) return; const newData = [...sheetData]; newData[rIndex] = [[text]]; setSheetData(newData); };
 
   const removeRow = () => {
+    if (isReadOnlyRef.current) return; // ⭐ บล็อกในโหมดอ่านอย่างเดียว
     if (isPlayingRef.current) stopPlayback(); // ⭐ สั่งหยุดเพลง
     setSelectionRange(null); 
     const rowIdx = selectedCell[0];
@@ -896,6 +919,7 @@ export const MusicProvider = ({ children }) => {
   };
 
   const addNoteColumn = () => {
+    if (isReadOnlyRef.current) return; // ⭐ บล็อกในโหมดอ่านอย่างเดียว
     setSelectionRange(null); 
     const [rowIdx, measIdx, cellIdx] = selectedCell;
     if (rowTypes[rowIdx] === 'page-break' || rowTypes[rowIdx] === 'text' || (rowTypes[rowIdx].startsWith('double') && measIdx === 0)) return; 
@@ -904,6 +928,7 @@ export const MusicProvider = ({ children }) => {
   };
 
   const removeNoteColumn = () => {
+    if (isReadOnlyRef.current) return; // ⭐ บล็อกในโหมดอ่านอย่างเดียว
     setSelectionRange(null); 
     const [rowIdx, measIdx, cellIdx] = selectedCell;
     if (rowTypes[rowIdx] === 'page-break' || rowTypes[rowIdx] === 'text' || (rowTypes[rowIdx].startsWith('double') && measIdx === 0)) return; 
@@ -915,6 +940,7 @@ export const MusicProvider = ({ children }) => {
   };
 
   const addMeasure = () => {
+    if (isReadOnlyRef.current) return; // ⭐ บล็อกในโหมดอ่านอย่างเดียว
     setSelectionRange(null); 
     const [rowIdx, measIdx] = selectedCell;
     if (rowTypes[rowIdx] === 'page-break' || rowTypes[rowIdx] === 'text') return;
@@ -926,6 +952,7 @@ export const MusicProvider = ({ children }) => {
   };
 
   const removeMeasure = () => {
+    if (isReadOnlyRef.current) return; // ⭐ บล็อกในโหมดอ่านอย่างเดียว
     setSelectionRange(null); 
     const [rowIdx, measIdx] = selectedCell;
     if (rowTypes[rowIdx] === 'page-break' || rowTypes[rowIdx] === 'text' || (rowTypes[rowIdx].startsWith('double') && measIdx === 0)) return; 
@@ -939,9 +966,10 @@ export const MusicProvider = ({ children }) => {
     }
   };
 
-  const addSectionLabel = (visualIndex) => commitChange(sheetData, rowTypes, { ...sectionLabels, [visualIndex]: [...(sectionLabels[visualIndex] || []), { id: Date.now(), text: "ท่อน ", position: 'top-left', fontSize: 18, isBold: true, offsetY: 6 }] });
-  const updateSectionLabel = (visualIndex, labelId, updates) => commitChange(sheetData, rowTypes, { ...sectionLabels, [visualIndex]: (sectionLabels[visualIndex] || []).map(l => l.id === labelId ? { ...l, ...updates } : l) });
+  const addSectionLabel = (visualIndex) => { if (isReadOnlyRef.current) return; commitChange(sheetData, rowTypes, { ...sectionLabels, [visualIndex]: [...(sectionLabels[visualIndex] || []), { id: Date.now(), text: "", position: 'top-left', fontSize: 18, isBold: true, offsetY: 6 }] }); };
+  const updateSectionLabel = (visualIndex, labelId, updates) => { if (isReadOnlyRef.current) return; commitChange(sheetData, rowTypes, { ...sectionLabels, [visualIndex]: (sectionLabels[visualIndex] || []).map(l => l.id === labelId ? { ...l, ...updates } : l) }); };
   const removeSectionLabel = (visualIndex, labelId) => {
+    if (isReadOnlyRef.current) return; // ⭐ บล็อกในโหมดอ่านอย่างเดียว
     const newState = { ...sectionLabels }, filtered = (sectionLabels[visualIndex] || []).filter(l => l.id !== labelId);
     if (filtered.length > 0) newState[visualIndex] = filtered; else delete newState[visualIndex];
     commitChange(sheetData, rowTypes, newState);
@@ -949,6 +977,7 @@ export const MusicProvider = ({ children }) => {
 
   // ⭐ อัปเดตให้บันทึกชื่อโปรเจกต์ (projectName) ในฟังก์ชันนี้
   const saveProject = () => {
+    if (isReadOnlyRef.current) return; // ⭐ บล็อกในโหมดอ่านอย่างเดียว
     const projectData = { name: projectName, songName, sheetData, rowTypes, sectionLabels, symbols, layoutConfig, headerDetails, currentInstrument: currentInstrument.id, rowMargins, playbackSequence };
     const url = URL.createObjectURL(new Blob([JSON.stringify(projectData, null, 2)], { type: 'application/json' }));
     const a = document.createElement('a'); a.href = url; a.download = `${projectName || 'my-song'}.tme`; a.click(); URL.revokeObjectURL(url);
@@ -1231,6 +1260,7 @@ export const MusicProvider = ({ children }) => {
   };
 
   const undo = () => {
+    if (isReadOnlyRef.current) return; // ⭐ บล็อกในโหมดอ่านอย่างเดียว
     if (historyIndex > 0) {
       const prev = history[historyIndex - 1];
       setSheetData(prev.sheetData);
@@ -1243,6 +1273,7 @@ export const MusicProvider = ({ children }) => {
   };
 
   const redo = () => {
+    if (isReadOnlyRef.current) return; // ⭐ บล็อกในโหมดอ่านอย่างเดียว
     if (historyIndex < history.length - 1) {
       const next = history[historyIndex + 1];
       setSheetData(next.sheetData);
@@ -1254,33 +1285,7 @@ export const MusicProvider = ({ children }) => {
     }
   };
 
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      const tag = e.target?.tagName;
-      const isEditable = e.target?.isContentEditable || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
-      
-      if (isEditable) return; 
-
-      if (e.code === 'Space') {
-        e.preventDefault(); 
-        togglePlay();       
-        return;             
-      }
-
-      if (e.ctrlKey || e.metaKey) {
-        if (e.code === 'KeyZ') { e.preventDefault(); undo(); } 
-        else if (e.code === 'KeyR' || e.code === 'KeyY') { e.preventDefault(); redo(); } 
-        else if (e.code === 'KeyC') { e.preventDefault(); copySelection(); }
-        else if (e.code === 'KeyV') { e.preventDefault(); pasteSelection(); }
-        else if (e.code === 'KeyX') { e.preventDefault(); cutSelection(); }
-      }
-    };
-    
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-    
-  }, [undo, redo, copySelection, pasteSelection, cutSelection, togglePlay]);
-
+  
   useEffect(() => {
     const saved = localStorage.getItem('thaiMusicEditorAutoSave');
     if (saved) {
@@ -1309,8 +1314,8 @@ export const MusicProvider = ({ children }) => {
   }, []);
 
  useEffect(() => {
-    // ⭐ 2. ถ้ามีป้ายแขวนว่ากำลังโหลดไฟล์อยู่ (isImportingRef) ให้หยุดทำงานเด็ดขาด!
-    if (!isLoaded || isImportingRef.current) return; 
+    // ⭐ 2. ถ้ามีป้ายแขวนว่ากำลังโหลดไฟล์อยู่ (isImportingRef) หรือโหมดอ่านอย่างเดียว ให้หยุดทำงานเด็ดขาด!
+    if (!isLoaded || isImportingRef.current || isReadOnly) return; 
     
     // ⭐ 1. สร้างเงื่อนไขเช็กว่าเป็น "โปรเจกต์ใหม่เอี่ยม" หรือไม่
     // ถ้ายังไม่มี ID ในฐานข้อมูล + ยังไม่มีการแก้กระดาษโน้ต (historyIndex <= 0) + ชื่อเป็นค่าเริ่มต้น
@@ -1331,9 +1336,10 @@ export const MusicProvider = ({ children }) => {
     }
 
   // ⭐ 3. อย่าลืมเพิ่ม projectId และ historyIndex เข้ามาต่อท้ายในวงเล็บ Dependency ด้วยนะครับ
-  }, [isLoaded, projectName, songName, sheetData, rowTypes, sectionLabels, symbols, layoutConfig, headerDetails, currentInstrument, rowMargins, playbackSequence, projectId, historyIndex]);
+  }, [isLoaded, projectName, songName, sheetData, rowTypes, sectionLabels, symbols, layoutConfig, headerDetails, currentInstrument, rowMargins, playbackSequence, projectId, historyIndex, isReadOnly]);
 
   const updateRowMarginsList = (arg1, arg2, arg3) => {
+    if (isReadOnlyRef.current) return; // ⭐ บล็อกในโหมดอ่านอย่างเดียว
     const newRowMargins = [...rowMargins];
     if (Array.isArray(arg1)) {
       arg1.forEach(update => { newRowMargins[update.index] = { ...(newRowMargins[update.index] || { top: 0, bottom: 0, left: 0 }), ...update.changes }; });
@@ -1344,20 +1350,22 @@ export const MusicProvider = ({ children }) => {
   };
 
   const addSymbol = (type, start, end, options = {}) => {
+    if (isReadOnlyRef.current) return; // ⭐ บล็อกในโหมดอ่านอย่างเดียว
     const newSymbols = [...symbols, { id: Date.now(), type, start, end, ...options }];
     commitChange(sheetData, rowTypes, sectionLabels, newSymbols);
   };
-  const updateSymbol = (id, updates) => commitChange(sheetData, rowTypes, sectionLabels, symbols.map(s => s.id === id ? { ...s, ...updates } : s));
-  const removeSymbol = (id) => commitChange(sheetData, rowTypes, sectionLabels, symbols.filter(s => s.id !== id));
+  const updateSymbol = (id, updates) => { if (isReadOnlyRef.current) return; commitChange(sheetData, rowTypes, sectionLabels, symbols.map(s => s.id === id ? { ...s, ...updates } : s)); };
+  const removeSymbol = (id) => { if (isReadOnlyRef.current) return; commitChange(sheetData, rowTypes, sectionLabels, symbols.filter(s => s.id !== id)); };
   const removeSymbolByCell = (cell) => {
+    if (isReadOnlyRef.current) return; // ⭐ บล็อกในโหมดอ่านอย่างเดียว
     if (!cell) return;
     const newSymbols = symbols.filter(s => !(s.start[0] === cell[0] && s.start[1] === cell[1] && s.start[2] === cell[2]) && !(s.end[0] === cell[0] && s.end[1] === cell[1] && s.end[2] === cell[2]));
     if (newSymbols.length !== symbols.length) commitChange(sheetData, rowTypes, sectionLabels, newSymbols);
   };
 
-  const addDetail = () => setHeaderDetails([...headerDetails, { id: headerDetails.length > 0 ? Math.max(...headerDetails.map(d => d.id)) + 1 : 1, label: "หัวข้อใหม่", value: "ระบุข้อมูล" }]);
-  const removeDetail = (id) => setHeaderDetails(headerDetails.filter(detail => detail.id !== id));
-  const updateDetail = (id, key, newValue) => setHeaderDetails(headerDetails.map(detail => detail.id === id ? { ...detail, [key]: newValue } : detail));
+  const addDetail = () => { if (isReadOnlyRef.current) return; setHeaderDetails([...headerDetails, { id: headerDetails.length > 0 ? Math.max(...headerDetails.map(d => d.id)) + 1 : 1, label: "หัวข้อใหม่", value: "ระบุข้อมูล" }]); };
+  const removeDetail = (id) => { if (isReadOnlyRef.current) return; setHeaderDetails(headerDetails.filter(detail => detail.id !== id)); };
+  const updateDetail = (id, key, newValue) => { if (isReadOnlyRef.current) return; setHeaderDetails(headerDetails.map(detail => detail.id === id ? { ...detail, [key]: newValue } : detail)); };
   const changeInstrument = (instrumentId) => setCurrentInstrument(INSTRUMENT_CONFIG[instrumentId]);
   
   const performLoadProjectFromFirebase = (projectData) => {
@@ -1392,9 +1400,23 @@ export const MusicProvider = ({ children }) => {
   };
 
   // ⭐ อัปเดตคำสั่งสาธารณะ ให้รับค่าบัตรผ่าน (skipWarning) แล้วส่งต่อให้ตัวดักจับ
-  const newProject = (skipWarning = false) => checkUnsavedAndPrompt('NEW', null, skipWarning);
-  const loadProject = (file, skipWarning = false) => checkUnsavedAndPrompt('LOAD_LOCAL', file, skipWarning);
-  const loadProjectFromFirebase = (data, skipWarning = false) => checkUnsavedAndPrompt('LOAD_FIREBASE', data, skipWarning);
+  // ⭐ ปรับให้รีเซ็ต readOnly เมื่อสร้างโปรเจกต์ใหม่หรือโหลดไฟล์ปกติ
+  const newProject = (skipWarning = false) => {
+    const wasReadOnly = isReadOnlyRef.current;
+    setReadOnlyMode(false);
+    checkUnsavedAndPrompt('NEW', null, skipWarning || wasReadOnly);
+  };
+  const loadProject = (file, skipWarning = false) => {
+    const wasReadOnly = isReadOnlyRef.current;
+    setReadOnlyMode(false);
+    checkUnsavedAndPrompt('LOAD_LOCAL', file, skipWarning || wasReadOnly);
+  };
+  // ⭐ loadProjectFromFirebase รับค่า readOnly เพิ่มเติม (สำหรับหน้า Samples)
+  const loadProjectFromFirebase = (data, skipWarning = false, readOnly = false) => {
+    const wasReadOnly = isReadOnlyRef.current;
+    setReadOnlyMode(readOnly);
+    checkUnsavedAndPrompt('LOAD_FIREBASE', data, skipWarning || (wasReadOnly && !readOnly));
+  };
 
   // ⭐ ฟังก์ชันสำหรับรับข้อมูลเทมเพลตและอัปเดตกระดาษ
   const applyTemplate = (templateData) => {
@@ -1414,6 +1436,140 @@ export const MusicProvider = ({ children }) => {
     }
   };
 
+ // ⭐ วางไว้ล่างสุดเหนือ return (<MusicContext.Provider ...>)
+  useEffect(() => {
+    let isCtrlCombination = false; // 👈 เพิ่มตัวแปรเช็คว่ากด Ctrl พร้อมปุ่มอื่นหรือไม่
+
+    const handleKeyDown = (e) => {
+      const tag = e.target?.tagName;
+      const isEditable = e.target?.isContentEditable || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+      
+      if (isEditable) return; 
+
+      // 👈 ถ้าระหว่างกด Ctrl ค้างไว้ มีการกดปุ่มอื่นด้วย (เช่น C, V, Z)
+      if (e.ctrlKey && e.key !== 'Control') {
+        isCtrlCombination = true;
+      }
+
+      if (e.code === 'Space') {
+        e.preventDefault(); 
+        togglePlay();       
+        return;             
+      }
+
+      if (e.key === 'Backspace' || e.key === 'Delete') {
+        if (isReadOnlyRef.current) { e.preventDefault(); return; } // ⭐ บล็อกในโหมดอ่านอย่างเดียว
+        e.preventDefault();
+        
+        if (selectedSymbolId) {
+          removeSymbol(selectedSymbolId);
+          setSelectedSymbolId(null);
+        } else if (selectedCell) {
+          removeSymbolByCell(selectedCell);
+          inputNote('BACKSPACE');
+        }
+        return;
+      }
+
+      if (e.key.startsWith('Arrow')) {
+        e.preventDefault(); 
+        if (!selectedCell) return;
+        
+        let [r, m, c] = selectedCell;
+        
+        if (e.key === 'ArrowRight') {
+          if (c < sheetData[r][m].length - 1) {
+             c++;
+          } else if (m < sheetData[r].length - 1) {
+             m++; c = 0;
+          } else {
+             let nextR = r + 1;
+             while (nextR < sheetData.length && (rowTypes[nextR] === 'page-break' || rowTypes[nextR] === 'text')) nextR++;
+             if (nextR < sheetData.length) {
+                r = nextR;
+                m = rowTypes[r].startsWith('double') ? 1 : 0;
+                c = 0;
+             }
+          }
+        } else if (e.key === 'ArrowLeft') {
+          if (c > 0) {
+             c--;
+          } else if (m > (rowTypes[r].startsWith('double') ? 1 : 0)) {
+             m--; c = sheetData[r][m].length - 1;
+          } else {
+             let prevR = r - 1;
+             while (prevR >= 0 && (rowTypes[prevR] === 'page-break' || rowTypes[prevR] === 'text')) prevR--;
+             if (prevR >= 0) {
+                r = prevR;
+                m = sheetData[r].length - 1;
+                c = sheetData[r][m].length - 1;
+             }
+          }
+        } else if (e.key === 'ArrowDown') {
+          let nextR = r + 1;
+          while (nextR < sheetData.length && (rowTypes[nextR] === 'page-break' || rowTypes[nextR] === 'text')) nextR++;
+          if (nextR < sheetData.length) {
+             r = nextR;
+             if (m >= sheetData[r].length) m = sheetData[r].length - 1;
+             if (rowTypes[r].startsWith('double') && m === 0) m = 1; 
+             if (c >= sheetData[r][m].length) c = sheetData[r][m].length - 1;
+          }
+        } else if (e.key === 'ArrowUp') {
+          let prevR = r - 1;
+          while (prevR >= 0 && (rowTypes[prevR] === 'page-break' || rowTypes[prevR] === 'text')) prevR--;
+          if (prevR >= 0) {
+             r = prevR;
+             if (m >= sheetData[r].length) m = sheetData[r].length - 1;
+             if (rowTypes[r].startsWith('double') && m === 0) m = 1;
+             if (c >= sheetData[r][m].length) c = sheetData[r][m].length - 1;
+          }
+        }
+        
+        setSelectedCell([r, m, c]);
+        setSelectionRange(null);
+        return;
+      }
+
+      if (e.ctrlKey || e.metaKey) {
+        if (e.code === 'KeyZ') { e.preventDefault(); if (!isReadOnlyRef.current) undo(); } 
+        else if (e.code === 'KeyR' || e.code === 'KeyY') { e.preventDefault(); if (!isReadOnlyRef.current) redo(); } 
+        else if (e.code === 'KeyC') { e.preventDefault(); copySelection(); }
+        else if (e.code === 'KeyV') { e.preventDefault(); if (!isReadOnlyRef.current) pasteSelection(); }
+        else if (e.code === 'KeyX') { e.preventDefault(); if (!isReadOnlyRef.current) cutSelection(); }
+      }
+    };
+
+    // ⭐ เพิ่มฟังก์ชันดักจับตอน "ปล่อยปุ่ม" (KeyUp)
+    const handleKeyUp = (e) => {
+      const tag = e.target?.tagName;
+      const isEditable = e.target?.isContentEditable || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+      if (isEditable) return; 
+
+      if (e.key === 'Control') {
+        // ถ้ากด Ctrl เดี่ยวๆ (ไม่ได้เอาไปกดผสม C, V, Z) ให้ใส่เครื่องหมายพักเสียง
+        if (!isReadOnlyRef.current && !isCtrlCombination && selectedCell) { // ⭐ บล็อกในโหมดอ่านอย่างเดียว
+          inputNote('-');
+        }
+        // รีเซ็ตค่ากลับเมื่อปล่อยปุ่ม
+        isCtrlCombination = false;
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp); // 👈 เพิ่มการดักจับ KeyUp
+    
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp); // 👈 ลบการดักจับ KeyUp
+    };
+    
+  }, [
+    undo, redo, copySelection, pasteSelection, cutSelection, 
+    togglePlay, selectedSymbolId, selectedCell, inputNote, 
+    removeSymbol, removeSymbolByCell, setSelectedSymbolId,
+    sheetData, rowTypes, setSelectionRange 
+  ]);
+  
   return (
     <MusicContext.Provider value={{ 
       currentInstrument, changeInstrument, sheetData, selectedCell, setSelectedCell, inputNote,
@@ -1444,7 +1600,9 @@ export const MusicProvider = ({ children }) => {
       isLoopOne, setIsLoopOne,
       skipToNext, skipToPrev,
       availableSections, 
-      applyTemplate
+      applyTemplate,
+      // ⭐ ส่ง isReadOnly ออกไปให้ Editor ใช้แสดงผล
+      isReadOnly
     }}>
     {/* ⭐ ระบบ UI Pop-up แจ้งเตือนก่อนเปิดทับ (ซ้อนทับทุกหน้าเว็บ) */}
       {pendingAction.isOpen && (

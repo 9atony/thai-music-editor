@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext } from 'react'; // ⭐ เพิ่ม useContext
+import React, { useState, useEffect, useContext } from 'react'; 
 import useDevice from './hooks/useDevice';
 import DesktopEditor from './views/DesktopEditor';
 import MobileEditor from './views/MobileEditor'; 
@@ -22,7 +22,7 @@ import Tools from './pages/Tools';
 
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from './utils/firebase'; 
-import { MusicContext } from './contexts/MusicContext'; // ⭐ นำเข้า MusicContext
+import { MusicContext } from './contexts/MusicContext'; 
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -33,13 +33,16 @@ function App() {
   
   const [currentView, setCurrentView] = useState('home'); 
   
-  // ⭐ เพิ่ม State สำหรับจดจำหน้าก่อนหน้าที่จะเข้า Editor
+  // State สำหรับจดจำหน้าก่อนหน้าที่จะเข้า Editor
   const [previousView, setPreviousView] = useState('home'); 
 
   const { isMobile } = useDevice();
 
-  // ⭐ ดึงฟังก์ชัน applyTemplate ออกมาใช้งาน
-  const { applyTemplate } = useContext(MusicContext);
+  // ⭐ ดึงฟังก์ชัน applyTemplate และฟังก์ชันโหลดข้อมูลโปรเจกต์จาก Context
+  const { applyTemplate, loadProjectFromFirebase } = useContext(MusicContext);
+
+  // โหมดการเปิด Editor: ปกติ / ดูตัวอย่างแบบอ่านอย่างเดียว
+  const [editorMode, setEditorMode] = useState('normal');
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -79,44 +82,69 @@ function App() {
 
   // ===== ส่วนด้านล่างนี้คือหน้าสำหรับผู้ใช้ที่ล็อกอินแล้ว =====
 
-  // ⭐ สร้างฟังก์ชันตัวช่วยสำหรับเปิด Editor และจดจำหน้าปัจจุบันไว้
-  const handleOpenEditor = () => {
-    setPreviousView(currentView); // จำไว้ว่ามาจากหน้าไหน (เช่น templates, my-projects)
+  // ⭐ ปรับให้ handleOpenEditor รับค่า id, ข้อมูลโปรเจกต์ และ option เพิ่มเติม
+  const handleOpenEditor = (projectId = null, projectData = null, options = {}) => {
+    const isSampleView = options?.readOnly === true;
+    setEditorMode(isSampleView ? 'sample-readonly' : 'normal');
+
+    // ถ้ามีการส่งข้อมูล projectData มาด้วย (เช่น จากหน้า Samples)
+    if (projectData && loadProjectFromFirebase) {
+      try {
+        // แปลงข้อมูล Text ให้เป็น JSON Object ก่อนส่งให้ Editor ทำงาน
+        const parsedData = typeof projectData === 'string' ? JSON.parse(projectData) : projectData;
+
+        // ถ้าเป็น sample แบบดูอย่างเดียว ไม่ต้องผูก projectId เดิมไว้ ป้องกันการเซฟทับต้นฉบับ
+        const payload = isSampleView
+          ? parsedData
+          : { ...(parsedData || {}), ...(projectId ? { id: projectId } : {}) };
+
+        loadProjectFromFirebase(payload, true, isSampleView); // ⭐ skipWarning + readOnly
+      } catch (e) {
+        console.error("รูปแบบข้อมูลไม่ถูกต้อง แปลง JSON ไม่สำเร็จ:", e);
+      }
+    }
+
+    setPreviousView(currentView); // จำไว้ว่ามาจากหน้าไหน 
     setCurrentView('editor');     // เปลี่ยนหน้าไปเป็น editor
   };
 
   if (currentView === 'editor') {
     if (isMobile) {
-      // ⭐ เปลี่ยนจาก 'home' เป็น previousView ที่เราบันทึกไว้
-      return <MobileEditor onBack={() => setCurrentView(previousView)} />;
+      return <MobileEditor onBack={() => setCurrentView(previousView)} readOnly={editorMode === 'sample-readonly'} />;
     }
-    // ⭐ เปลี่ยนจาก 'home' เป็น previousView ที่เราบันทึกไว้
-    return <DesktopEditor onBack={() => setCurrentView(previousView)} />;
+    return <DesktopEditor onBack={() => setCurrentView(previousView)} readOnly={editorMode === 'sample-readonly'} />;
   }
 
   const renderContent = () => (
     <>
       {currentView === 'home' && (
         <Home 
-          onNewProject={handleOpenEditor} // ⭐ เรียกใช้ฟังก์ชันที่สร้างไว้
+          onNewProject={(...args) => {
+            setEditorMode('normal');
+            handleOpenEditor(...args);
+          }} 
           onPageChange={(page) => setCurrentView(page)} 
         />
       )}
       
       {currentView === 'my-projects' && (
-        <MyProjects onNewProject={handleOpenEditor} /> // ⭐ เรียกใช้ฟังก์ชันที่สร้างไว้
+        <MyProjects onNewProject={(...args) => {
+          setEditorMode('normal');
+          handleOpenEditor(...args);
+        }} /> 
       )}
 
       {currentView === 'templates' && (
         <Templates onNewProject={(templateData) => {
-          // ⭐ เมื่อเลือกเทมเพลต ให้อัปเดตข้อมูลลงกระดาษก่อนสลับหน้า
+          setEditorMode('normal');
           applyTemplate(templateData);
-          handleOpenEditor(); // ⭐ เรียกใช้ฟังก์ชันที่สร้างไว้
+          handleOpenEditor(); 
         }} />
       )}
 
+      {/* ⭐ ส่ง handleOpenEditor ไปที่ Samples */}
       {currentView === 'samples' && (
-        <Samples onOpenProject={handleOpenEditor} /> // ⭐ เรียกใช้ฟังก์ชันที่สร้างไว้
+        <Samples onOpenProject={handleOpenEditor} /> 
       )}
 
       {currentView === 'tools' && (

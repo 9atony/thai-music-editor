@@ -170,11 +170,11 @@ const Keyboard = () => {
 
             {/* โซน 3: สร้าง/เพิ่มโครงสร้าง */}
             <ToolbarSection bodyClass="bg-slate-50 border border-slate-200">
-              <ToolButton onClick={addNoteColumn} bgClass="bg-[#f2f4ff] text-blue-700 border-blue-100 hover:bg-[#e8ecff]" icon={<span className="text-lg leading-none">+</span>} label="ช่อง" title="เพิ่มคอลัมน์โน้ต" />
+              <ToolButton onClick={addNoteColumn} bgClass="bg-[#f2f4ff] text-blue-700 border-blue-100 hover:bg-[#e8ecff]" icon={<span className="text-lg leading-none">+</span>} label="โน้ต" title="เพิ่มคอลัมน์โน้ต" />
               <ToolButton onClick={addMeasure} bgClass="bg-[#eefbf3] text-emerald-700 border-emerald-100 hover:bg-[#e1f7ea]" icon={<span className="text-lg leading-none">+</span>} label="ห้อง" title="เพิ่มห้องเพลง" />
               <ToolButton onClick={addRow} bgClass="bg-[#f7efff] text-violet-700 border-violet-100 hover:bg-[#efe2ff]" icon={<span className="text-lg leading-none">+</span>} label="บรรทัด" title="เพิ่มบรรทัดเดี่ยว" />
               <ToolButton onClick={addDoubleRow} bgClass="bg-[#f7efff] text-violet-700 border-violet-100 hover:bg-[#efe2ff]" icon={<span className="text-lg leading-none">+</span>} label="บรรทัดคู่" title="เพิ่มบรรทัดคู่" />
-              <ToolButton onClick={addPageBreak} bgClass="bg-white text-slate-600 border-slate-200 hover:bg-slate-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6zM14 3v5h5M16 13H8M16 17H8M10 9H8" /></svg>} label="ตัดหน้า" title="เพิ่มจุดตัดหน้ากระดาษ" />
+              <ToolButton onClick={addPageBreak} bgClass="bg-white text-slate-600 border-slate-200 hover:bg-slate-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6zM14 3v5h5M16 13H8M16 17H8M10 9H8" /></svg>} label="หน้าใหม่" title="เพิ่มจุดตัดหน้ากระดาษ" />
             </ToolbarSection>
 
             {/* Spacer เพื่อดันโซน 4 ไปขวาสุด */}
@@ -183,7 +183,7 @@ const Keyboard = () => {
             {/* โซน 4: ลบโครงสร้างและโน้ต (ขวาสุด สีแดงทั้งหมด) */}
             <ToolbarSection wrapperClass="ml-auto" bodyClass="bg-red-50 border border-red-100">
               <ToolButton onClick={() => handleSpecialKey('BACKSPACE')} bgClass="bg-white text-red-600 border-red-200 hover:bg-red-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2M3 12l6.414 6.414a2 2 0 001.414.586H19a2 2 0 002-2V7a2 2 0 00-2-2h-8.172a2 2 0 00-1.414.586L3 12z" /></svg>} label="ลบโน้ต" title="ลบโน้ต (Backspace)" />
-              <ToolButton onClick={removeNoteColumn} bgClass="bg-white text-red-600 border-red-200 hover:bg-red-100" icon={<span className="text-lg leading-none">−</span>} label="ลบช่อง" title="ลบคอลัมน์โน้ต" />
+              <ToolButton onClick={removeNoteColumn} bgClass="bg-white text-red-600 border-red-200 hover:bg-red-100" icon={<span className="text-lg leading-none">−</span>} label="ลบโน้ต" title="ลบคอลัมน์โน้ต" />
               <ToolButton onClick={removeMeasure} bgClass="bg-white text-red-600 border-red-200 hover:bg-red-100" icon={<span className="text-lg leading-none">−</span>} label="ลบห้อง" title="ลบห้องเพลง" />
               <ToolButton onClick={removeRow} bgClass="bg-white text-red-600 border-red-200 hover:bg-red-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 7h12M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-7 0l1 12h6l1-12" /></svg>} label="ลบบรรทัด" title="ลบบรรทัดปัจจุบัน" />
             </ToolbarSection>
@@ -219,7 +219,10 @@ const Keyboard = () => {
                     onPointerLeave={() => { setActiveIdx(null); setHoveredIdx(null); }}
                     onPointerCancel={() => { setActiveIdx(null); setHoveredIdx(null); }}
                     onPointerEnter={() => { if (!isBlocked) setHoveredIdx(i); }}
-                    onContextMenu={(e) => e.preventDefault()}
+                    onContextMenu={(e) => { 
+                      e.preventDefault(); 
+                        if (!isBlocked) handleSpecialKey('-'); // 👈 เพิ่มคำสั่งพิมพ์ตัวพักเสียงเข้าไป
+                    }}
                     onClick={() => { if (!isBlocked) handleKeyClick(i); }}
                     className={btnClass}
                   >

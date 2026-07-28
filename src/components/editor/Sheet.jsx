@@ -34,6 +34,8 @@ const Sheet = forwardRef((props, ref) => {
     layoutConfig, 
     headerDetails, 
     songName, 
+    setSongName,       // 👈 เพิ่มบรรทัดนี้
+    updateDetail,      // 👈 เพิ่มบรรทัดนี้
     sectionLabels,
     rowTypes,
     startSelection, updateSelection, endSelection, selectionRange,
@@ -53,6 +55,12 @@ const Sheet = forwardRef((props, ref) => {
   const [pageSvgPaths, setPageSvgPaths] = useState({});
   const [zoom, setZoom] = useState(100);
 
+  // 👇 เพิ่ม State เหล่านี้เข้าไป
+  const [editingSongName, setEditingSongName] = useState(false);
+  const [editingDetailId, setEditingDetailId] = useState(null);
+  const [editingDetailField, setEditingDetailField] = useState(null); // 'label' หรือ 'value'
+  // 👆
+
   const defaultFontFamily = layoutConfig.fontFamily || "'TH Sarabun New', sans-serif";
   const noteFontFamily = layoutConfig.noteFontFamily || defaultFontFamily;
   const textFontFamily = layoutConfig.textFontFamily || defaultFontFamily;
@@ -62,9 +70,26 @@ const Sheet = forwardRef((props, ref) => {
     const handleMouseUpGlobal = () => {
       if (endSelection) endSelection();
     };
+    
+    // 👇 เพิ่มการเซฟเมื่อคลิกที่อื่น
+    const handleClickGlobal = (e) => {
+       if (editingSongName || editingDetailId) {
+          // ถ้าไม่ได้คลิกใน input ให้ปิดโหมดแก้ไข
+          if (e.target.tagName !== 'INPUT') {
+             setEditingSongName(false);
+             setEditingDetailId(null);
+             setEditingDetailField(null);
+          }
+       }
+    };
+
     window.addEventListener('mouseup', handleMouseUpGlobal);
-    return () => window.removeEventListener('mouseup', handleMouseUpGlobal);
-  }, [endSelection]);
+    window.addEventListener('mousedown', handleClickGlobal); // 👈 เพิ่มบรรทัดนี้
+    return () => {
+      window.removeEventListener('mouseup', handleMouseUpGlobal);
+      window.removeEventListener('mousedown', handleClickGlobal); // 👈 เพิ่มบรรทัดนี้
+    };
+  }, [endSelection, editingSongName, editingDetailId]);
 
   useEffect(() => {
     const handleGlobalKeyDown = (e) => {
@@ -557,11 +582,76 @@ const Sheet = forwardRef((props, ref) => {
               </svg>
 
               {pIndex === 0 && (
-                <div className="text-center border-b-2 border-slate-900 pb-4 mb-6 shrink-0 relative z-10">
-                  <h1 className="font-bold mb-4 uppercase tracking-tight" style={{ fontSize: `${layoutConfig.songNameSize}px`, fontFamily: pageFontFamily }}>{songName}</h1>
+                <div className="text-center border-b-2 border-slate-900 pb-4 mb-6 shrink-0 relative z-10 print:border-b-2 print:border-slate-900">
+                  
+                  {/* ส่วนแก้ไขชื่อเพลง */}
+                  {editingSongName ? (
+                     <input
+                        autoFocus
+                        className="font-bold mb-4 uppercase tracking-tight text-center bg-transparent border-b-2 border-sky-400 outline-none w-full px-2"
+                        style={{ fontSize: `${layoutConfig.songNameSize}px`, fontFamily: pageFontFamily }}
+                        value={songName}
+                        onChange={(e) => setSongName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') setEditingSongName(false);
+                        }}
+                     />
+                  ) : (
+                    <h1 
+                      className="font-bold mb-4 uppercase tracking-tight cursor-text hover:bg-slate-100/50 rounded transition-colors print:hover:bg-transparent" 
+                      style={{ fontSize: `${layoutConfig.songNameSize}px`, fontFamily: pageFontFamily }}
+                      onDoubleClick={() => setEditingSongName(true)}
+                      title="ดับเบิลคลิกเพื่อแก้ไขชื่อเพลง"
+                    >
+                      {songName || 'ชื่อเพลง'}
+                    </h1>
+                  )}
+
+                  {/* ส่วนแก้ไขรายละเอียด */}
                   <div className={`grid gap-x-12 gap-y-1 px-4 ${layoutConfig.detailsAlign === 'between' ? 'grid-cols-2' : 'grid-cols-1'}`} style={{ fontSize: `${layoutConfig.authorSize}px`, textAlign: layoutConfig.detailsAlign === 'between' ? 'left' : layoutConfig.detailsAlign, fontFamily: textFontFamily }}>
                     {headerDetails.map((detail, index) => (
-                      <div key={detail.id} className={layoutConfig.detailsAlign === 'between' && index % 2 !== 0 ? "text-right" : ""}><span className="font-bold">{detail.label}:</span> {detail.value}</div>
+                      <div key={detail.id} className={layoutConfig.detailsAlign === 'between' && index % 2 !== 0 ? "text-right" : ""}>
+                        
+                        {/* แก้ไขหัวข้อ (Label) */}
+                        {editingDetailId === detail.id && editingDetailField === 'label' ? (
+                          <input
+                            autoFocus
+                            className="font-bold bg-transparent border-b border-sky-400 outline-none max-w-[150px] text-right"
+                            value={detail.label}
+                            onChange={(e) => updateDetail(detail.id, 'label', e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') { setEditingDetailId(null); setEditingDetailField(null); } }}
+                          />
+                        ) : (
+                          <span 
+                            className="font-bold cursor-text hover:bg-slate-100/50 rounded px-1 transition-colors print:hover:bg-transparent"
+                            onDoubleClick={() => { setEditingDetailId(detail.id); setEditingDetailField('label'); }}
+                            title="ดับเบิลคลิกเพื่อแก้ไขหัวข้อ"
+                          >
+                            {detail.label}:
+                          </span>
+                        )}
+                        
+                        {' '}
+
+                        {/* แก้ไขข้อมูล (Value) */}
+                        {editingDetailId === detail.id && editingDetailField === 'value' ? (
+                          <input
+                            autoFocus
+                            className="bg-transparent border-b border-sky-400 outline-none max-w-[200px]"
+                            value={detail.value}
+                            onChange={(e) => updateDetail(detail.id, 'value', e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') { setEditingDetailId(null); setEditingDetailField(null); } }}
+                          />
+                        ) : (
+                          <span 
+                            className="cursor-text hover:bg-slate-100/50 rounded px-1 transition-colors print:hover:bg-transparent"
+                            onDoubleClick={() => { setEditingDetailId(detail.id); setEditingDetailField('value'); }}
+                            title="ดับเบิลคลิกเพื่อแก้ไขข้อมูล"
+                          >
+                            {detail.value || '...'}
+                          </span>
+                        )}
+                      </div>
                     ))}
                   </div>
                 </div>
