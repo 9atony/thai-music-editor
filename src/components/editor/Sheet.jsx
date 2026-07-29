@@ -1,4 +1,4 @@
-import React, { useContext, forwardRef, useMemo, useEffect, useState, useCallback } from 'react';
+import React, { useContext, forwardRef, useMemo, useEffect, useState, useCallback, useRef } from 'react';
 import { MusicContext } from '../../contexts/MusicContext';
 
 const getFlattenedCol = (row, rType, targetM, targetC) => {
@@ -34,9 +34,10 @@ const Sheet = forwardRef((props, ref) => {
     layoutConfig, 
     headerDetails, 
     songName, 
-    setSongName,       // 👈 เพิ่มบรรทัดนี้
-    updateDetail,      // 👈 เพิ่มบรรทัดนี้
+    setSongName,       
+    updateDetail,      
     sectionLabels,
+    updateSectionLabel,
     rowTypes,
     startSelection, updateSelection, endSelection, selectionRange,
     playbackCursor,
@@ -55,11 +56,11 @@ const Sheet = forwardRef((props, ref) => {
   const [pageSvgPaths, setPageSvgPaths] = useState({});
   const [zoom, setZoom] = useState(100);
 
-  // 👇 เพิ่ม State เหล่านี้เข้าไป
   const [editingSongName, setEditingSongName] = useState(false);
   const [editingDetailId, setEditingDetailId] = useState(null);
-  const [editingDetailField, setEditingDetailField] = useState(null); // 'label' หรือ 'value'
-  // 👆
+  const [editingDetailField, setEditingDetailField] = useState(null);
+  const [editingLabelId, setEditingLabelId] = useState(null);
+  const editLabelRef = useRef("");
 
   const defaultFontFamily = layoutConfig.fontFamily || "'TH Sarabun New', sans-serif";
   const noteFontFamily = layoutConfig.noteFontFamily || defaultFontFamily;
@@ -409,12 +410,21 @@ const Sheet = forwardRef((props, ref) => {
     }
   };
   
-  const renderSheetNote = (note) => {
+  const renderSheetNote = (note, rIndex, mIndex, cIndex) => {
     if (note === '-') return <span>-</span>;
+    
+    // ดึงสไตล์เฉพาะช่อง (ถ้ามี)
+    const customStyle = layoutConfig.customStyles?.[`${rIndex}_${mIndex}_${cIndex}`] || {};
+    
+    // เทียบสไตล์ ถ้ามีเฉพาะช่องให้ใช้ก่อน ถ้าไม่มีใช้ของทั้งกระดาษ
+    const isBold = customStyle.isBold !== undefined ? customStyle.isBold : layoutConfig.isBold;
+    const isItalic = customStyle.isItalic !== undefined ? customStyle.isItalic : layoutConfig.isItalic;
+    const cellFontFamily = customStyle.noteFontFamily || noteFontFamily;
+
     return (
       <span 
-        className={`leading-none inline-block ${layoutConfig.isBold ? 'font-bold' : 'font-normal'} ${layoutConfig.isItalic ? 'italic' : ''}`} 
-        style={{ fontFamily: noteFontFamily, paddingTop: '0.1em', paddingBottom: '0.1em' }}
+        className={`leading-none inline-block ${isBold ? 'font-bold' : 'font-normal'} ${isItalic ? 'italic' : ''}`} 
+        style={{ fontFamily: cellFontFamily, paddingTop: '0.1em', paddingBottom: '0.1em' }}
       >
         {note}
       </span>
@@ -426,12 +436,20 @@ const Sheet = forwardRef((props, ref) => {
     if (!labels || labels.length === 0) return null;
     
     return labels.map((label) => {
-      if (!label.text) return null;
+      if (!label.text && editingLabelId !== label.id) return null;
 
       if (rowType === 'double-right' && label.position.includes('bottom')) return null;
       if (rowType === 'double-left' && label.position.includes('top')) return null;
 
-      let positionStyle = { position: 'absolute', fontWeight: label.isBold ? 'bold' : 'normal', fontSize: `${label.fontSize}px`, color: '#0f172a', whiteSpace: 'nowrap', zIndex: 20, lineHeight: 1, fontFamily: label.fontFamily || textFontFamily };
+      let positionStyle = { 
+        position: 'absolute', 
+        fontSize: `${label.fontSize}px`, 
+        color: '#0f172a', 
+        whiteSpace: 'nowrap', 
+        zIndex: 20, 
+        lineHeight: 1, 
+        fontFamily: noteFontFamily 
+      };
       
       const labelOffset = label.offsetY !== undefined ? label.offsetY : 6;
       
@@ -452,7 +470,71 @@ const Sheet = forwardRef((props, ref) => {
         positionStyle.right = '0'; 
       }
       
-      return <div key={label.id} style={positionStyle} className="tracking-wide">{label.text}</div>;
+      const isEditing = editingLabelId === label.id;
+
+      return (
+        <div key={label.id} style={positionStyle} className="tracking-wide">
+          {isEditing ? (
+            <div
+              contentEditable
+              suppressContentEditableWarning
+              autoFocus
+              onMouseDown={(e) => e.stopPropagation()} 
+              onFocus={(e) => {
+                // ⭐ 1. สั่งให้สลับไปใช้ "เครื่องมือข้อความ" ทันทีที่ดับเบิ้ลคลิก
+                if (setToolbarMode) setToolbarMode('text'); 
+                
+                editLabelRef.current = e.target.innerHTML;
+                const range = document.createRange();
+                const sel = window.getSelection();
+                range.selectNodeContents(e.target);
+                range.collapse(false);
+                sel.removeAllRanges();
+                sel.addRange(range);
+              }}
+              onInput={(e) => {
+                editLabelRef.current = e.target.innerHTML; 
+              }}
+              onBlur={(e) => {
+                // ⭐ 2. ป้องกันไม่ให้กล่องข้อความปิดตัวเอง เวลาเราลากเมาส์ไปกดเปลี่ยนฟอนต์ที่ Toolbar
+                const isToolbar = e.relatedTarget && e.relatedTarget.closest('.playback-controls-container');
+                if (isToolbar) return; 
+
+                setEditingLabelId(null);
+                updateSectionLabel(visualIndex, label.id, { text: e.target.innerHTML });
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  e.target.blur(); 
+                }
+                if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
+                  e.preventDefault();
+                  document.execCommand('bold', false, null);
+                }
+                if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'i') {
+                  e.preventDefault();
+                  document.execCommand('italic', false, null);
+                }
+              }}
+              dangerouslySetInnerHTML={{ __html: label.text }}
+              className="outline-none border-b border-sky-400 bg-white/80 px-1 min-w-[40px] rounded shadow-sm"
+              style={{ fontSize: 'inherit', fontFamily: 'inherit' }}
+            />
+          ) : (
+            <div
+              onDoubleClick={(e) => { 
+                e.stopPropagation(); 
+                setEditingLabelId(label.id); 
+              }}
+              onMouseDown={(e) => e.stopPropagation()}
+              dangerouslySetInnerHTML={{ __html: label.text || 'ป้ายกำกับ' }}
+              className="cursor-text hover:bg-slate-100/50 rounded px-1 transition-colors print:hover:bg-transparent min-w-[20px]"
+              title="ดับเบิลคลิกเพื่อแก้ไขป้ายกำกับ"
+            />
+          )}
+        </div>
+      );
     });
   };
 
@@ -965,27 +1047,32 @@ const Sheet = forwardRef((props, ref) => {
                                       cellBgClass = 'bg-sky-300 ring-2 ring-inset ring-blue-500 z-10 print:bg-transparent print:ring-0';
                                     }
 
+                                    // ⭐ ดึงขนาดฟอนต์เฉพาะช่อง (ถ้ามี)
+                                    const cellCustomStyle = layoutConfig.customStyles?.[`${rIndex}_${mIndex}_${cIndex}`] || {};
+                                    const cellFontSize = cellCustomStyle.fontSize || layoutConfig.fontSize || 30;
+
                                     return (
                                       <div 
                                         id={`note-${rIndex}-${mIndex}-${cIndex}`}
                                         key={cIndex} 
                                         onMouseDown={(e) => {
-                                          e.stopPropagation(); // ⭐ ป้องกันเหตุการณ์ทะลุ
+                                          e.stopPropagation(); 
                                           if (setSelectedSymbolId) setSelectedSymbolId(null);
                                           if (e.button !== 2) startSelection(rIndex, mIndex, cIndex);
                                           if (setToolbarMode) setToolbarMode('default');
                                         }}
-                                        onClick={(e) => e.stopPropagation()} // ⭐ เผื่อไว้ชั้นที่สอง
+                                        onClick={(e) => e.stopPropagation()}
                                         onMouseEnter={() => updateSelection(rIndex, mIndex, cIndex)}
                                         onContextMenu={(e) => handleRightClick(e, rIndex, mIndex, cIndex)}
                                         className={`flex items-center justify-center cursor-crosshair transition-all ${cellBgClass}`} 
                                         style={{ 
-                                          fontSize: `${layoutConfig.fontSize}px`,
-                                          fontFamily: noteFontFamily,
+                                          fontSize: `${cellFontSize}px`, // ⭐ ใช้ขนาดฟอนต์ของช่องนั้นๆ
+                                          fontFamily: cellCustomStyle.noteFontFamily || noteFontFamily, // ⭐ ใช้ฟอนต์เฉพาะช่อง
                                           borderRight: (cIndex < measure.length - 1 && layoutConfig.innerBorderWidth > 0) ? `${layoutConfig.innerBorderWidth}px solid ${layoutConfig.borderColor}66` : 'none' 
                                         }}
                                       >
-                                        {renderSheetNote(note)}
+                                        {/* ⭐ ส่งพิกัดแถว,ห้อง,ช่อง ไปให้ฟังก์ชันด้วย */}
+                                        {renderSheetNote(note, rIndex, mIndex, cIndex)}
                                       </div>
                                     );
                                   })

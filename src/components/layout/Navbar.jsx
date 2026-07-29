@@ -1,6 +1,6 @@
 import React, { useContext } from 'react';
 import { MusicContext } from '../../contexts/MusicContext';
-import PlaybackControls from '../controls/PlaybackControls';
+import PlaybackControls from "../editor/PlaybackControls";
 import logo from '../../assets/logo wep.png';
 import newIcon from '../../assets/icons/new.png';
 import openIcon from '../../assets/icons/open.png';
