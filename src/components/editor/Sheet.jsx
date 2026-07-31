@@ -1,6 +1,9 @@
 import React, { useContext, forwardRef, useMemo, useEffect, useState, useCallback, useRef } from 'react';
 import { MusicContext } from '../../contexts/MusicContext';
 
+// ==========================================
+// 1. Helper Functions (ฟังก์ชันช่วยเหลือ)
+// ==========================================
 const getFlattenedCol = (row, rType, targetM, targetC) => {
   if (!row || rType === 'text' || rType === 'page-break') return 0; 
   let col = 0;
@@ -26,82 +29,87 @@ const getMarginPx = (val, unit) => {
   return val;
 };
 
+// ==========================================
+// 2. Main Component
+// ==========================================
 const Sheet = forwardRef((props, ref) => {
+  // --- Contexts ---
   const { 
-    sheetData, 
-    selectedCell, 
-    setSelectedCell, 
-    layoutConfig, 
-    headerDetails, 
-    songName, 
-    setSongName,       
-    updateDetail,      
-    sectionLabels,
-    updateSectionLabel,
-    rowTypes,
+    sheetData, selectedCell, setSelectedCell, layoutConfig, 
+    headerDetails, songName, setSongName, updateDetail,      
+    sectionLabels, updateSectionLabel, rowTypes,
     startSelection, updateSelection, endSelection, selectionRange,
-    playbackCursor,
-    isPlaying, 
-    symbols = [], addSymbol, removeSymbol,
-    selectedSymbolId, setSelectedSymbolId,
-    updateTextRow,
-    removeRow,
-    addTextRow,
-    rowMargins, 
-    updateRowMarginsList,
-    setToolbarMode,
-    stopPlayback
+    playbackCursor, isPlaying, symbols = [], addSymbol, removeSymbol,
+    selectedSymbolId, setSelectedSymbolId, updateTextRow,
+    removeRow, addTextRow, rowMargins, updateRowMarginsList,
+    setToolbarMode, stopPlayback
   } = useContext(MusicContext);
 
+  // --- States & Refs ---
   const [pageSvgPaths, setPageSvgPaths] = useState({});
   const [zoom, setZoom] = useState(100);
-
   const [editingSongName, setEditingSongName] = useState(false);
   const [editingDetailId, setEditingDetailId] = useState(null);
   const [editingDetailField, setEditingDetailField] = useState(null);
   const [editingLabelId, setEditingLabelId] = useState(null);
-  const editLabelRef = useRef("");
 
+  const editLabelRef = useRef("");
+  const initialSongNameRef = useRef("");
+  const initialDetailLabelRef = useRef("");
+  const initialDetailValueRef = useRef("");
+
+  // --- Fonts Setup ---
   const defaultFontFamily = layoutConfig.fontFamily || "'TH Sarabun New', sans-serif";
   const noteFontFamily = layoutConfig.noteFontFamily || defaultFontFamily;
   const textFontFamily = layoutConfig.textFontFamily || defaultFontFamily;
   const pageFontFamily = layoutConfig.pageFontFamily || textFontFamily;
 
+  // ==========================================
+  // 3. Global Event Listeners (Watchdog)
+  // ==========================================
   useEffect(() => {
     const handleMouseUpGlobal = () => {
       if (endSelection) endSelection();
     };
     
-    // 👇 เพิ่มการเซฟเมื่อคลิกที่อื่น
-    const handleClickGlobal = (e) => {
-       if (editingSongName || editingDetailId) {
-          // ถ้าไม่ได้คลิกใน input ให้ปิดโหมดแก้ไข
-          if (e.target.tagName !== 'INPUT') {
-             setEditingSongName(false);
-             setEditingDetailId(null);
-             setEditingDetailField(null);
-          }
-       }
+    const handleMouseDownGlobal = (e) => {
+      const isToolbar = e.target.closest('.playback-controls-container');
+      if (isToolbar) return; 
+      
+      if (editingSongName) {
+         const songEditor = document.getElementById('song-name-editor');
+         if (songEditor && !songEditor.contains(e.target)) {
+            setSongName(songEditor.innerHTML); 
+            setEditingSongName(false);
+         }
+      }
+      
+      if (editingDetailId) {
+         const activeDetail = document.querySelector(`div[data-id="${editingDetailId}"]`);
+         if (activeDetail && !activeDetail.contains(e.target)) {
+            const field = activeDetail.getAttribute('data-field');
+            updateDetail(editingDetailId, field, activeDetail.innerHTML); 
+            setEditingDetailId(null);
+            setEditingDetailField(null);
+         }
+      }
     };
 
     window.addEventListener('mouseup', handleMouseUpGlobal);
-    window.addEventListener('mousedown', handleClickGlobal); // 👈 เพิ่มบรรทัดนี้
+    // ⭐ ใส่ true เพื่อให้ทำงานแบบ Capture Phase (ดักจับก่อนโดน StopPropagation)
+    window.addEventListener('mousedown', handleMouseDownGlobal, true); 
     return () => {
       window.removeEventListener('mouseup', handleMouseUpGlobal);
-      window.removeEventListener('mousedown', handleClickGlobal); // 👈 เพิ่มบรรทัดนี้
+      window.removeEventListener('mousedown', handleMouseDownGlobal, true);
     };
-  }, [endSelection, editingSongName, editingDetailId]);
+  }, [endSelection, editingSongName, editingDetailId, setSongName, updateDetail]);
 
   useEffect(() => {
     const handleGlobalKeyDown = (e) => {
       if (e.target.tagName === 'INPUT' || e.target.closest('[contenteditable="true"]')) return;
-      
       if (e.key === 'Enter') {
         const [r, m, c] = selectedCell;
-        if (m === 0 && c === 0) {
-          e.preventDefault();
-          addTextRow(true); 
-        }
+        if (m === 0 && c === 0) { e.preventDefault(); addTextRow(true); }
       }
     };
     window.addEventListener('keydown', handleGlobalKeyDown);
@@ -116,8 +124,6 @@ const Sheet = forwardRef((props, ref) => {
         const textEl = document.getElementById(`text-row-${r}`);
         if (textEl) {
           const sel = window.getSelection();
-          // ⭐ เช็กว่าถ้าเคอร์เซอร์ "ไม่ได้" อยู่ในกล่องข้อความนี้ (เช่น โดนเรียกจากปุ่มเพิ่มบรรทัด) ค่อยบังคับดึงเคอร์เซอร์
-          // แต่ถ้าคลิกเข้ามาแล้ว (contains) ให้ปล่อยเคอร์เซอร์ไว้ตรงที่ผู้ใช้คลิกเลย!
           if (!textEl.contains(sel.anchorNode)) {
             textEl.focus();
             if (document.createRange) {
@@ -133,14 +139,15 @@ const Sheet = forwardRef((props, ref) => {
     } else {
       setToolbarMode('default'); 
     }
-  }, [selectedCell[0], rowTypes]);
+  }, [selectedCell[0], rowTypes, setToolbarMode]);
 
   useEffect(() => {
-    if (selectedSymbolId) {
-      setToolbarMode('symbol');
-    }
-  }, [selectedSymbolId]);
+    if (selectedSymbolId) setToolbarMode('symbol');
+  }, [selectedSymbolId, setToolbarMode]);
 
+  // ==========================================
+  // 4. Render Calculations (จัดหน้ากระดาษ)
+  // ==========================================
   const displayRowNumbers = useMemo(() => {
     let currentNumber = 0;
     return rowTypes.map(type => {
@@ -154,12 +161,10 @@ const Sheet = forwardRef((props, ref) => {
 
   const pages = useMemo(() => {
     const A4_HEIGHT_PX = 1122; 
-    
     const mUnit = layoutConfig.marginUnit || 'px';
     const mTopPx = getMarginPx(layoutConfig.marginTop ?? 48, mUnit);
     const mBotPx = getMarginPx(layoutConfig.marginBottom ?? 48, mUnit);
     const PAGE_PADDING = mTopPx + mBotPx;
-    
     const FOOTER_SPACE = 20;   
     
     const headerLines = layoutConfig.detailsAlign === 'between' ? Math.ceil(headerDetails.length / 2) : headerDetails.length;
@@ -174,48 +179,34 @@ const Sheet = forwardRef((props, ref) => {
       const row = sheetData[i];
       const rType = rowTypes[i];
       const headerSpace = isFirstPage ? headerHeight : 0;
-      
       const rMarginTop = rowMargins[i]?.top || 0;
       const rMarginBot = rowMargins[i]?.bottom || 0;
       
       if (rType === 'page-break') {
         if (currentRows.length > 0) {
           calculatedPages.push({ rows: currentRows, startIndex: i - currentRows.length });
-          currentRows = [];
-          currentUsedHeight = 0;
-          isFirstPage = false;
+          currentRows = []; currentUsedHeight = 0; isFirstPage = false;
         }
         currentRows.push(row);
         continue;
       }
 
       if (rType === 'text') {
-        // 1. ดึงข้อความปัจจุบันออกมาเช็ก
-        let textValue = '';
-        if (row && row[0] && typeof row[0][0] === 'string') {
-            textValue = row[0][0];
-        }
-        
-        // 2. นับจำนวนบรรทัดจากการกด Enter (หาแท็ก <br>, <div>, <p>)
+        let textValue = (row && row[0] && typeof row[0][0] === 'string') ? row[0][0] : '';
         const breakCount = (textValue.match(/<br\s*\/?>/gi) || []).length;
         const divCount = (textValue.match(/<div/gi) || []).length;
         const pCount = (textValue.match(/<p/gi) || []).length;
         const totalLines = Math.max(1, 1 + breakCount + divCount + pCount);
 
-        // 3. คำนวณความสูงใหม่ โดยเอาความสูงบรรทัดปกติ คูณกับ จำนวนบรรทัดที่นับได้
         const textLineHeight = layoutConfig.textLineHeight || 1.5;
         const baseLineHeight = Math.max(20, (layoutConfig.textFontSize || 16) * textLineHeight);
         const textRowHeight = (baseLineHeight * totalLines) + rMarginTop + rMarginBot; 
         
-        // 4. เช็กเพื่อตัดหน้ากระดาษตามความสูงจริง
         if ((currentUsedHeight + textRowHeight + headerSpace + PAGE_PADDING + FOOTER_SPACE > A4_HEIGHT_PX) && currentRows.length > 0) {
           calculatedPages.push({ rows: currentRows, startIndex: i - currentRows.length });
-          currentRows = [row];
-          currentUsedHeight = textRowHeight; 
-          isFirstPage = false;
+          currentRows = [row]; currentUsedHeight = textRowHeight; isFirstPage = false;
         } else {
-          currentRows.push(row);
-          currentUsedHeight += textRowHeight;
+          currentRows.push(row); currentUsedHeight += textRowHeight;
         }
         continue;
       }
@@ -223,13 +214,11 @@ const Sheet = forwardRef((props, ref) => {
       const isDoubleRight = rType === 'double-right';
       const isDoubleLeft = rType === 'double-left';
       const isDouble = isDoubleRight || isDoubleLeft;
-      
       const colsPerLine = isDouble ? 9 : 8; 
       const visualLines = Math.ceil(row.length / colsPerLine); 
       
       const gridHeight = (layoutConfig.measureHeight * visualLines) + (layoutConfig.rowGap * (visualLines - 1));
       const pb = isDoubleRight ? 0 : layoutConfig.rowGap; 
-      
       const actualRowHeight = gridHeight + pb + rMarginTop + rMarginBot;
       let combinedHeight = actualRowHeight;
       
@@ -237,23 +226,16 @@ const Sheet = forwardRef((props, ref) => {
          const nextRow = sheetData[i + 1];
          const nextVisualLines = Math.ceil(nextRow.length / 9);
          const nextGridHeight = (layoutConfig.measureHeight * nextVisualLines) + (layoutConfig.rowGap * (nextVisualLines - 1));
-         const nextPb = layoutConfig.rowGap;
-         
          const nextRMarginTop = rowMargins[i+1]?.top || 0;
          const nextRMarginBot = rowMargins[i+1]?.bottom || 0;
-         
-         const nextActualRowHeight = nextGridHeight + nextPb + nextRMarginTop + nextRMarginBot;
-         combinedHeight += nextActualRowHeight;
+         combinedHeight += nextGridHeight + layoutConfig.rowGap + nextRMarginTop + nextRMarginBot;
       }
 
       if (rType !== 'double-left' && (currentUsedHeight + combinedHeight + headerSpace + PAGE_PADDING + FOOTER_SPACE > A4_HEIGHT_PX) && currentRows.length > 0) {
         calculatedPages.push({ rows: currentRows, startIndex: i - currentRows.length });
-        currentRows = [row];
-        currentUsedHeight = actualRowHeight; 
-        isFirstPage = false;
+        currentRows = [row]; currentUsedHeight = actualRowHeight; isFirstPage = false;
       } else {
-        currentRows.push(row);
-        currentUsedHeight += actualRowHeight;
+        currentRows.push(row); currentUsedHeight += actualRowHeight;
       }
     }
 
@@ -263,80 +245,83 @@ const Sheet = forwardRef((props, ref) => {
     return calculatedPages;
   }, [sheetData, layoutConfig, headerDetails, rowTypes, sectionLabels, rowMargins]);
 
+  // ==========================================
+  // 5. Symbol & SVG Calculations
+  // ==========================================
   const calculatePaths = useCallback(() => {
-  const newPagePaths = {};
-  const scale = zoom / 100;
+    const newPagePaths = {};
+    const scale = zoom / 100;
 
-  symbols.forEach(sym => {
-    const isKro = sym.type === 'kro';
+    symbols.forEach(sym => {
+      const isKro = sym.type === 'kro';
 
-    if (isKro && sym.start[0] !== sym.end[0]) {
-      const color = sym.color || '#3b82f6';
-      const strokeW = sym.strokeWidth || 2.5;
+      if (isKro && sym.start[0] !== sym.end[0]) {
+        const color = sym.color || '#3b82f6';
+        const strokeW = sym.strokeWidth || 2.5;
 
-      for (let r = sym.start[0]; r <= sym.end[0]; r++) {
-        const pageIndex = pages.findIndex(p => r >= p.startIndex && r < p.startIndex + p.rows.length);
-        if (pageIndex === -1) continue;
+        for (let r = sym.start[0]; r <= sym.end[0]; r++) {
+          const pageIndex = pages.findIndex(p => r >= p.startIndex && r < p.startIndex + p.rows.length);
+          if (pageIndex === -1) continue;
 
-        const rowStartCell = (r === sym.start[0]) ? sym.start : [r, 0, 0];
-        const rowEndCell = (r === sym.end[0]) ? sym.end : [r, sheetData[r].length - 1, sheetData[r][sheetData[r].length - 1].length - 1];
+          const rowStartCell = (r === sym.start[0]) ? sym.start : [r, 0, 0];
+          const rowEndCell = (r === sym.end[0]) ? sym.end : [r, sheetData[r].length - 1, sheetData[r][sheetData[r].length - 1].length - 1];
 
-        const startEl = document.getElementById(`note-${rowStartCell[0]}-${rowStartCell[1]}-${rowStartCell[2]}`);
-        const endEl = document.getElementById(`note-${rowEndCell[0]}-${rowEndCell[1]}-${rowEndCell[2]}`);
+          const startEl = document.getElementById(`note-${rowStartCell[0]}-${rowStartCell[1]}-${rowStartCell[2]}`);
+          const endEl = document.getElementById(`note-${rowEndCell[0]}-${rowEndCell[1]}-${rowEndCell[2]}`);
+
+          if (startEl && endEl) {
+            const pageEl = document.getElementById(`page-${pageIndex}`);
+            const pRect = pageEl.getBoundingClientRect();
+            const sRect = startEl.getBoundingClientRect();
+            const eRect = endEl.getBoundingClientRect();
+
+            const x1 = (sRect.left - pRect.left + (sRect.width / 2)) / scale;
+            const y1 = (sRect.top - pRect.top) / scale + 30; 
+            const x2 = (eRect.left - pRect.left + (eRect.width / 2)) / scale;
+            const y2 = (eRect.top - pRect.top) / scale + 30;
+
+            const d = `M ${x1} ${y1} L ${x2} ${y2}`;
+            if (!newPagePaths[pageIndex]) newPagePaths[pageIndex] = [];
+            newPagePaths[pageIndex].push({ id: `${sym.id}-${r}`, type: 'kro', d, color, strokeW });
+          }
+        }
+      } else {
+        const startEl = document.getElementById(`note-${sym.start[0]}-${sym.start[1]}-${sym.start[2]}`);
+        const endEl = document.getElementById(`note-${sym.end[0]}-${sym.end[1]}-${sym.end[2]}`);
 
         if (startEl && endEl) {
-          const pageEl = document.getElementById(`page-${pageIndex}`);
-          const pRect = pageEl.getBoundingClientRect();
-          const sRect = startEl.getBoundingClientRect();
-          const eRect = endEl.getBoundingClientRect();
+          const pageIndex = pages.findIndex(p => sym.start[0] >= p.startIndex && sym.start[0] < p.startIndex + p.rows.length);
+          if (pageIndex !== -1) {
+            const pageEl = document.getElementById(`page-${pageIndex}`);
+            const pRect = pageEl.getBoundingClientRect();
+            const sRect = startEl.getBoundingClientRect();
+            const eRect = endEl.getBoundingClientRect();
 
-          const x1 = (sRect.left - pRect.left + (sRect.width / 2)) / scale;
-          const y1 = (sRect.top - pRect.top) / scale + 30; 
-          const x2 = (eRect.left - pRect.left + (eRect.width / 2)) / scale;
-          const y2 = (eRect.top - pRect.top) / scale + 30;
+            const x1 = (sRect.left - pRect.left + (sRect.width / 2)) / scale;
+            const y1 = (sRect.top - pRect.top) / scale + 4;
+            const x2 = (eRect.left - pRect.left + (eRect.width / 2)) / scale;
+            const y2 = (eRect.top - pRect.top) / scale + 4;
+            
+            let d = "";
+            const color = sym.color || layoutConfig.symbolColor || '#1e293b';
+            const strokeW = sym.strokeWidth || layoutConfig.symbolStrokeWidth || 2.5;
 
-          const d = `M ${x1} ${y1} L ${x2} ${y2}`;
-          if (!newPagePaths[pageIndex]) newPagePaths[pageIndex] = [];
-          newPagePaths[pageIndex].push({ id: `${sym.id}-${r}`, type: 'kro', d, color, strokeW });
-        }
-      }
-    } else {
-      const startEl = document.getElementById(`note-${sym.start[0]}-${sym.start[1]}-${sym.start[2]}`);
-      const endEl = document.getElementById(`note-${sym.end[0]}-${sym.end[1]}-${sym.end[2]}`);
+            if (isKro) {
+                d = `M ${x1} ${y1 + 30} L ${x2} ${y2 + 30}`;
+            } else {
+                const baseHeight = sym.height ?? 20;
+                const height = baseHeight + Math.abs(x2 - x1) * 0.15;
+                d = `M ${x1} ${y1} C ${x1 + (x2 - x1) * 0.25} ${y1 - height}, ${x2 - (x2 - x1) * 0.25} ${y2 - height}, ${x2} ${y2}`;
+            }
 
-      if (startEl && endEl) {
-        const pageIndex = pages.findIndex(p => sym.start[0] >= p.startIndex && sym.start[0] < p.startIndex + p.rows.length);
-        if (pageIndex !== -1) {
-          const pageEl = document.getElementById(`page-${pageIndex}`);
-          const pRect = pageEl.getBoundingClientRect();
-          const sRect = startEl.getBoundingClientRect();
-          const eRect = endEl.getBoundingClientRect();
-
-          const x1 = (sRect.left - pRect.left + (sRect.width / 2)) / scale;
-          const y1 = (sRect.top - pRect.top) / scale + 4;
-          const x2 = (eRect.left - pRect.left + (eRect.width / 2)) / scale;
-          const y2 = (eRect.top - pRect.top) / scale + 4;
-          
-          let d = "";
-          const color = sym.color || layoutConfig.symbolColor || '#1e293b';
-          const strokeW = sym.strokeWidth || layoutConfig.symbolStrokeWidth || 2.5;
-
-          if (isKro) {
-              d = `M ${x1} ${y1 + 30} L ${x2} ${y2 + 30}`;
-          } else {
-              const baseHeight = sym.height ?? 20;
-              const height = baseHeight + Math.abs(x2 - x1) * 0.15;
-              d = `M ${x1} ${y1} C ${x1 + (x2 - x1) * 0.25} ${y1 - height}, ${x2 - (x2 - x1) * 0.25} ${y2 - height}, ${x2} ${y2}`;
+            if (!newPagePaths[pageIndex]) newPagePaths[pageIndex] = [];
+            newPagePaths[pageIndex].push({ id: sym.id, type: sym.type, d, color, strokeW });
           }
-
-          if (!newPagePaths[pageIndex]) newPagePaths[pageIndex] = [];
-          newPagePaths[pageIndex].push({ id: sym.id, type: sym.type, d, color, strokeW });
         }
       }
-    }
-  });
-  setPageSvgPaths(newPagePaths);
-}, [symbols, layoutConfig, pages, zoom, sheetData]); 
+    });
+    setPageSvgPaths(newPagePaths);
+  }, [symbols, layoutConfig, pages, zoom, sheetData]); 
 
   useEffect(() => {
     if (playbackCursor !== null) return; 
@@ -360,19 +345,11 @@ const Sheet = forwardRef((props, ref) => {
   useEffect(() => {
     const handleBeforePrint = () => {
       const container = document.getElementById('sheet-scroll-container');
-      if (container) {
-        container.style.display = 'block'; 
-        container.style.width = '100%';
-        calculatePaths(); 
-      }
+      if (container) { container.style.display = 'block'; container.style.width = '100%'; calculatePaths(); }
     };
     const handleAfterPrint = () => {
       const container = document.getElementById('sheet-scroll-container');
-      if (container) {
-        container.style.display = ''; 
-        container.style.width = '';
-        calculatePaths();
-      }
+      if (container) { container.style.display = ''; container.style.width = ''; calculatePaths(); }
     };
 
     window.addEventListener('beforeprint', handleBeforePrint);
@@ -383,6 +360,9 @@ const Sheet = forwardRef((props, ref) => {
     };
   }, [calculatePaths]);
 
+  // ==========================================
+  // 6. UI Interaction Handlers
+  // ==========================================
   const handleRightClick = (e, rIndex, mIndex, cIndex) => {
     e.preventDefault(); 
     const existingSymbol = symbols.find(s => 
@@ -396,27 +376,18 @@ const Sheet = forwardRef((props, ref) => {
     else if (selectedCell && (selectedCell[0] !== rIndex || selectedCell[1] !== mIndex || selectedCell[2] !== cIndex)) {
       if (addSymbol) {
          const symType = layoutConfig.activeSymbol || 'sabat'; 
-         addSymbol(
-           symType, 
-           selectedCell, 
-           [rIndex, mIndex, cIndex],
-           {
+         addSymbol(symType, selectedCell, [rIndex, mIndex, cIndex], {
              color: symType === 'kro' ? '#3b82f6' : (layoutConfig.symbolColor || '#1e293b'),
              strokeWidth: layoutConfig.symbolStrokeWidth || 2.5,
              height: layoutConfig.symbolHeight !== undefined ? layoutConfig.symbolHeight : 20
-           }
-         );
+         });
       }
     }
   };
   
   const renderSheetNote = (note, rIndex, mIndex, cIndex) => {
     if (note === '-') return <span>-</span>;
-    
-    // ดึงสไตล์เฉพาะช่อง (ถ้ามี)
     const customStyle = layoutConfig.customStyles?.[`${rIndex}_${mIndex}_${cIndex}`] || {};
-    
-    // เทียบสไตล์ ถ้ามีเฉพาะช่องให้ใช้ก่อน ถ้าไม่มีใช้ของทั้งกระดาษ
     const isBold = customStyle.isBold !== undefined ? customStyle.isBold : layoutConfig.isBold;
     const isItalic = customStyle.isItalic !== undefined ? customStyle.isItalic : layoutConfig.isItalic;
     const cellFontFamily = customStyle.noteFontFamily || noteFontFamily;
@@ -437,38 +408,24 @@ const Sheet = forwardRef((props, ref) => {
     
     return labels.map((label) => {
       if (!label.text && editingLabelId !== label.id) return null;
-
       if (rowType === 'double-right' && label.position.includes('bottom')) return null;
       if (rowType === 'double-left' && label.position.includes('top')) return null;
 
       let positionStyle = { 
-        position: 'absolute', 
-        fontSize: `${label.fontSize}px`, 
-        color: '#0f172a', 
-        whiteSpace: 'nowrap', 
-        zIndex: 20, 
-        lineHeight: 1, 
-        fontFamily: noteFontFamily 
+        position: 'absolute', fontSize: `${label.fontSize}px`, color: '#0f172a', 
+        whiteSpace: 'nowrap', zIndex: 20, lineHeight: 1, fontFamily: noteFontFamily 
       };
-      
       const labelOffset = label.offsetY !== undefined ? label.offsetY : 6;
       
       if (label.position.includes('top')) { 
-        positionStyle.bottom = '100%'; 
-        positionStyle.marginBottom = `${labelOffset}px`; 
+        positionStyle.bottom = '100%'; positionStyle.marginBottom = `${labelOffset}px`; 
       } else { 
-        positionStyle.top = '100%'; 
-        positionStyle.marginTop = `${labelOffset}px`; 
+        positionStyle.top = '100%'; positionStyle.marginTop = `${labelOffset}px`; 
       }
       
-      if (label.position.includes('left')) { 
-        positionStyle.left = '0'; 
-      } else if (label.position.includes('center')) { 
-        positionStyle.left = '50%'; 
-        positionStyle.transform = 'translateX(-50%)'; 
-      } else if (label.position.includes('right')) { 
-        positionStyle.right = '0'; 
-      }
+      if (label.position.includes('left')) positionStyle.left = '0'; 
+      else if (label.position.includes('center')) { positionStyle.left = '50%'; positionStyle.transform = 'translateX(-50%)'; } 
+      else if (label.position.includes('right')) positionStyle.right = '0'; 
       
       const isEditing = editingLabelId === label.id;
 
@@ -481,9 +438,6 @@ const Sheet = forwardRef((props, ref) => {
               autoFocus
               onMouseDown={(e) => e.stopPropagation()} 
               onFocus={(e) => {
-                // ⭐ 1. สั่งให้สลับไปใช้ "เครื่องมือข้อความ" ทันทีที่ดับเบิ้ลคลิก
-                if (setToolbarMode) setToolbarMode('text'); 
-                
                 editLabelRef.current = e.target.innerHTML;
                 const range = document.createRange();
                 const sel = window.getSelection();
@@ -492,30 +446,11 @@ const Sheet = forwardRef((props, ref) => {
                 sel.removeAllRanges();
                 sel.addRange(range);
               }}
-              onInput={(e) => {
-                editLabelRef.current = e.target.innerHTML; 
-              }}
-              onBlur={(e) => {
-                // ⭐ 2. ป้องกันไม่ให้กล่องข้อความปิดตัวเอง เวลาเราลากเมาส์ไปกดเปลี่ยนฟอนต์ที่ Toolbar
-                const isToolbar = e.relatedTarget && e.relatedTarget.closest('.playback-controls-container');
-                if (isToolbar) return; 
-
-                setEditingLabelId(null);
-                updateSectionLabel(visualIndex, label.id, { text: e.target.innerHTML });
-              }}
+              onInput={(e) => { editLabelRef.current = e.target.innerHTML; }}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  e.target.blur(); 
-                }
-                if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
-                  e.preventDefault();
-                  document.execCommand('bold', false, null);
-                }
-                if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'i') {
-                  e.preventDefault();
-                  document.execCommand('italic', false, null);
-                }
+                if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); }
+                if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') { e.preventDefault(); document.execCommand('bold', false, null); editLabelRef.current = e.target.innerHTML; }
+                if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'i') { e.preventDefault(); document.execCommand('italic', false, null); editLabelRef.current = e.target.innerHTML; }
               }}
               dangerouslySetInnerHTML={{ __html: label.text }}
               className="outline-none border-b border-sky-400 bg-white/80 px-1 min-w-[40px] rounded shadow-sm"
@@ -525,6 +460,7 @@ const Sheet = forwardRef((props, ref) => {
             <div
               onDoubleClick={(e) => { 
                 e.stopPropagation(); 
+                if (setToolbarMode) setToolbarMode('text');
                 setEditingLabelId(label.id); 
               }}
               onMouseDown={(e) => e.stopPropagation()}
@@ -546,16 +482,17 @@ const Sheet = forwardRef((props, ref) => {
     };
   }, [selectionRange]);
 
+  // ==========================================
+  // 7. Main Rendering
+  // ==========================================
   return (
     <div 
       className="relative w-full h-full flex flex-col flex-1 min-h-0 bg-slate-50/50"
       onMouseDown={() => {
-        // ⭐ เปลี่ยนมาใช้ onMouseDown แทน onClick ป้องกันเหตุการณ์สะท้อนกลับ (Bubbling)
         if (setToolbarMode) setToolbarMode('default');
         if (setSelectedSymbolId) setSelectedSymbolId(null);
       }}
     >
-      
       <style>
         {`
           @media print {
@@ -586,6 +523,7 @@ const Sheet = forwardRef((props, ref) => {
         `}
       </style>
 
+      {/* Zoom Controls */}
       <div className={`absolute bottom-8 right-8 z-[60] flex flex-col items-center backdrop-blur-md border border-slate-200 shadow-xl rounded-xl overflow-hidden print:hidden transition-all duration-300 group ${isPlaying ? 'bg-slate-50/90' : 'bg-white/90 hover:shadow-2xl'}`}>
         <button
           onClick={() => !isPlaying && setZoom(z => Math.min(200, z + 10))}
@@ -610,6 +548,7 @@ const Sheet = forwardRef((props, ref) => {
         </button>
       </div>
 
+      {/* Main Sheet Container */}
       <div 
         ref={ref}
         id="sheet-scroll-container"
@@ -632,6 +571,7 @@ const Sheet = forwardRef((props, ref) => {
               }}
             >
               
+              {/* SVG Layer for Symbols */}
               <svg className="absolute top-0 left-0 w-full h-full pointer-events-none z-30 print:z-30 print:w-full print:max-w-full">
                 {(pageSvgPaths[pIndex] || []).map(p => {
                   const isSelected = p.id === selectedSymbolId;
@@ -641,21 +581,12 @@ const Sheet = forwardRef((props, ref) => {
                       <path 
                         d={p.d} fill="none" stroke="transparent" strokeWidth="20" 
                         className={`pointer-events-auto cursor-pointer ${isKro ? 'print:hidden' : 'print:pointer-events-none'}`}
-                        onMouseDown={(e) => { 
-                          e.stopPropagation(); 
-                          if (setSelectedSymbolId) setSelectedSymbolId(p.id); 
-                        }}
+                        onMouseDown={(e) => { e.stopPropagation(); if (setSelectedSymbolId) setSelectedSymbolId(p.id); }}
                       />
-                      {isSelected && (
-                        <path d={p.d} fill="none" stroke="#f59e0b" strokeWidth={p.strokeW + 4} strokeLinecap="round" opacity="0.4" className="pointer-events-none print:hidden" />
-                      )}
+                      {isSelected && <path d={p.d} fill="none" stroke="#f59e0b" strokeWidth={p.strokeW + 4} strokeLinecap="round" opacity="0.4" className="pointer-events-none print:hidden" />}
                       <path 
-                        d={p.d} 
-                        fill="none" 
-                        stroke={isSelected ? '#d97706' : (isKro ? '#3b82f6' : p.color)} 
-                        strokeWidth={p.strokeW} 
-                        strokeLinecap="round" 
-                        strokeDasharray={isKro ? "6, 4" : "none"} 
+                        d={p.d} fill="none" stroke={isSelected ? '#d97706' : (isKro ? '#3b82f6' : p.color)} 
+                        strokeWidth={p.strokeW} strokeLinecap="round" strokeDasharray={isKro ? "6, 4" : "none"} 
                         className={`pointer-events-none drop-shadow-sm transition-all duration-200 ${isKro ? 'print:hidden' : ''}`} 
                       />
                     </g>
@@ -663,75 +594,149 @@ const Sheet = forwardRef((props, ref) => {
                 })}
               </svg>
 
+              {/* Page Header (Only on first page) */}
               {pIndex === 0 && (
                 <div className="text-center border-b-2 border-slate-900 pb-4 mb-6 shrink-0 relative z-10 print:border-b-2 print:border-slate-900">
                   
-                  {/* ส่วนแก้ไขชื่อเพลง */}
+                  {/* Song Name Editor */}
                   {editingSongName ? (
-                     <input
+                     <div
+                        id="song-name-editor"
+                        contentEditable
+                        suppressContentEditableWarning
                         autoFocus
-                        className="font-bold mb-4 uppercase tracking-tight text-center bg-transparent border-b-2 border-sky-400 outline-none w-full px-2"
-                        style={{ fontSize: `${layoutConfig.songNameSize}px`, fontFamily: pageFontFamily }}
-                        value={songName}
-                        onChange={(e) => setSongName(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') setEditingSongName(false);
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onFocus={(e) => {
+                          const range = document.createRange();
+                          const sel = window.getSelection();
+                          range.selectNodeContents(e.target);
+                          range.collapse(false);
+                          sel.removeAllRanges();
+                          sel.addRange(range);
                         }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') { e.preventDefault(); setSongName(e.target.innerHTML); setEditingSongName(false); }
+                          if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') { e.preventDefault(); document.execCommand('bold', false, null); }
+                          if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'i') { e.preventDefault(); document.execCommand('italic', false, null); }
+                        }}
+                        onInput={(e) => {
+                          // ⭐ แก้ไขจุดที่บั๊ก! ให้บันทึกค่าลงตัวแปรชื่อเพลง แทนชื่อหัวข้อ
+                          initialSongNameRef.current = e.target.innerHTML;
+                        }}
+                        dangerouslySetInnerHTML={{ __html: initialSongNameRef.current }}
+                        className="font-bold mb-4 uppercase tracking-tight text-center bg-white/90 border-b-2 border-sky-400 outline-none w-full px-2 min-h-[1.5em] shadow-sm rounded"
+                        style={{ fontSize: `${layoutConfig.songNameSize}px`, fontFamily: pageFontFamily }}
                      />
                   ) : (
                     <h1 
-                      className="font-bold mb-4 uppercase tracking-tight cursor-text hover:bg-slate-100/50 rounded transition-colors print:hover:bg-transparent" 
+                      className="font-bold mb-4 uppercase tracking-tight cursor-text hover:bg-slate-100/50 rounded transition-colors print:hover:bg-transparent min-h-[1.5em]" 
                       style={{ fontSize: `${layoutConfig.songNameSize}px`, fontFamily: pageFontFamily }}
-                      onDoubleClick={() => setEditingSongName(true)}
-                      title="ดับเบิลคลิกเพื่อแก้ไขชื่อเพลง"
-                    >
-                      {songName || 'ชื่อเพลง'}
-                    </h1>
+                      onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        if (setToolbarMode) setToolbarMode('text');
+                        initialSongNameRef.current = songName || ''; 
+                        setEditingSongName(true);
+                      }}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      dangerouslySetInnerHTML={{ __html: songName || 'ชื่อเพลง' }}
+                      title="ดับเบิลคลิกเพื่อแก้ไขชื่อเพลง (คลุมดำแล้วเปลี่ยนฟอนต์/ขนาดเฉพาะคำได้)"
+                    />
                   )}
 
-                  {/* ส่วนแก้ไขรายละเอียด */}
+                  {/* Header Details */}
                   <div className={`grid gap-x-12 gap-y-1 px-4 ${layoutConfig.detailsAlign === 'between' ? 'grid-cols-2' : 'grid-cols-1'}`} style={{ fontSize: `${layoutConfig.authorSize}px`, textAlign: layoutConfig.detailsAlign === 'between' ? 'left' : layoutConfig.detailsAlign, fontFamily: textFontFamily }}>
                     {headerDetails.map((detail, index) => (
                       <div key={detail.id} className={layoutConfig.detailsAlign === 'between' && index % 2 !== 0 ? "text-right" : ""}>
                         
-                        {/* แก้ไขหัวข้อ (Label) */}
+                        {/* Detail Label */}
                         {editingDetailId === detail.id && editingDetailField === 'label' ? (
-                          <input
+                          <div
+                            id="detail-editor"
+                            data-id={detail.id}
+                            data-field="label"
+                            contentEditable
+                            suppressContentEditableWarning
                             autoFocus
-                            className="font-bold bg-transparent border-b border-sky-400 outline-none max-w-[150px] text-right"
-                            value={detail.label}
-                            onChange={(e) => updateDetail(detail.id, 'label', e.target.value)}
-                            onKeyDown={(e) => { if (e.key === 'Enter') { setEditingDetailId(null); setEditingDetailField(null); } }}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onFocus={(e) => {
+                              const range = document.createRange();
+                              const sel = window.getSelection();
+                              range.selectNodeContents(e.target);
+                              range.collapse(false);
+                              sel.removeAllRanges();
+                              sel.addRange(range);
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') { e.preventDefault(); updateDetail(detail.id, 'label', e.target.innerHTML); setEditingDetailId(null); setEditingDetailField(null); }
+                              if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') { e.preventDefault(); document.execCommand('bold', false, null); }
+                              if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'i') { e.preventDefault(); document.execCommand('italic', false, null); }
+                            }}
+                            onInput={(e) => { initialDetailLabelRef.current = e.target.innerHTML; }}
+                            dangerouslySetInnerHTML={{ __html: initialDetailLabelRef.current }}
+                            className="inline-block font-bold bg-white/90 border-b border-sky-400 outline-none min-w-[50px] px-1 rounded shadow-sm"
                           />
                         ) : (
-                          <span 
-                            className="font-bold cursor-text hover:bg-slate-100/50 rounded px-1 transition-colors print:hover:bg-transparent"
-                            onDoubleClick={() => { setEditingDetailId(detail.id); setEditingDetailField('label'); }}
-                            title="ดับเบิลคลิกเพื่อแก้ไขหัวข้อ"
-                          >
-                            {detail.label}:
-                          </span>
+                          <>
+                            <span 
+                              className="font-bold cursor-text hover:bg-slate-100/50 rounded px-1 transition-colors print:hover:bg-transparent"
+                              onDoubleClick={(e) => { 
+                                e.stopPropagation(); 
+                                if (setToolbarMode) setToolbarMode('text'); 
+                                initialDetailLabelRef.current = detail.label || ''; 
+                                setEditingDetailId(detail.id); 
+                                setEditingDetailField('label'); 
+                              }}
+                              onMouseDown={(e) => e.stopPropagation()}
+                              dangerouslySetInnerHTML={{ __html: detail.label }}
+                              title="ดับเบิลคลิกเพื่อแก้ไขหัวข้อ"
+                            />
+                            <span className="font-bold">:</span>
+                          </>
                         )}
                         
                         {' '}
 
-                        {/* แก้ไขข้อมูล (Value) */}
+                        {/* Detail Value */}
                         {editingDetailId === detail.id && editingDetailField === 'value' ? (
-                          <input
+                          <div
+                            id="detail-editor"
+                            data-id={detail.id}
+                            data-field="value"
+                            contentEditable
+                            suppressContentEditableWarning
                             autoFocus
-                            className="bg-transparent border-b border-sky-400 outline-none max-w-[200px]"
-                            value={detail.value}
-                            onChange={(e) => updateDetail(detail.id, 'value', e.target.value)}
-                            onKeyDown={(e) => { if (e.key === 'Enter') { setEditingDetailId(null); setEditingDetailField(null); } }}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onFocus={(e) => {
+                              const range = document.createRange();
+                              const sel = window.getSelection();
+                              range.selectNodeContents(e.target);
+                              range.collapse(false);
+                              sel.removeAllRanges();
+                              sel.addRange(range);
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') { e.preventDefault(); updateDetail(detail.id, 'value', e.target.innerHTML); setEditingDetailId(null); setEditingDetailField(null); }
+                              if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') { e.preventDefault(); document.execCommand('bold', false, null); }
+                              if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'i') { e.preventDefault(); document.execCommand('italic', false, null); }
+                            }}
+                            onInput={(e) => { initialDetailValueRef.current = e.target.innerHTML; }}
+                            dangerouslySetInnerHTML={{ __html: initialDetailValueRef.current }}
+                            className="inline-block bg-white/90 border-b border-sky-400 outline-none min-w-[100px] px-1 rounded shadow-sm"
                           />
                         ) : (
                           <span 
                             className="cursor-text hover:bg-slate-100/50 rounded px-1 transition-colors print:hover:bg-transparent"
-                            onDoubleClick={() => { setEditingDetailId(detail.id); setEditingDetailField('value'); }}
+                            onDoubleClick={(e) => { 
+                              e.stopPropagation(); 
+                              if (setToolbarMode) setToolbarMode('text'); 
+                              initialDetailValueRef.current = detail.value || ''; 
+                              setEditingDetailId(detail.id); 
+                              setEditingDetailField('value'); 
+                            }}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            dangerouslySetInnerHTML={{ __html: detail.value || '...' }}
                             title="ดับเบิลคลิกเพื่อแก้ไขข้อมูล"
-                          >
-                            {detail.value || '...'}
-                          </span>
+                          />
                         )}
                       </div>
                     ))}
@@ -739,6 +744,7 @@ const Sheet = forwardRef((props, ref) => {
                 </div>
               )}
 
+              {/* Rows Rendering */}
               <div className="flex flex-col w-full pb-12 print:pb-[15mm] h-full relative">
                 {page.rows.map((row, localIndex) => {
                   const rIndex = page.startIndex + localIndex;
@@ -754,7 +760,7 @@ const Sheet = forwardRef((props, ref) => {
                        <div key={rIndex} className="w-full flex flex-col items-center justify-center my-1">
                          <div
                            onMouseDown={(e) => {
-                              e.stopPropagation(); // ⭐ ป้องกันการสะท้อนกลับ
+                              e.stopPropagation(); 
                               if(setSelectedSymbolId) setSelectedSymbolId(null);
                               setSelectedCell([rIndex, 0, 0]);
                               if (setToolbarMode) setToolbarMode('default');
@@ -768,83 +774,84 @@ const Sheet = forwardRef((props, ref) => {
                   }
 
                   if (rType === 'text') {
-                    let textValue = '';
-                    if (row && row[0] && typeof row[0][0] === 'string') {
-                        textValue = row[0][0];
-                    }
+                    let textValue = (row && row[0] && typeof row[0][0] === 'string') ? row[0][0] : '';
                     return (
                       <div 
                         key={rIndex} 
                         className="w-full flex items-center my-1 relative group print:my-1"
                         style={{ 
-                          marginTop: `${rMarginTop}px`, 
-                          marginBottom: `${rMarginBot}px`, 
-                          paddingLeft: `calc(1rem + ${rIndent}px)`,
-                          paddingRight: '1rem',
+                          marginTop: `${rMarginTop}px`, marginBottom: `${rMarginBot}px`, 
+                          paddingLeft: `calc(1rem + ${rIndent}px)`, paddingRight: '1rem',
                           zIndex: (rMarginTop < 0 || rMarginBot < 0) ? 20 : 10 
                         }}
                       >
                         <div
-                          id={`text-row-${rIndex}`} 
-                          contentEditable
-                          suppressContentEditableWarning
-                          onMouseDown={(e) => {
-    // ปล่อยให้เบราว์เซอร์วางเคอร์เซอร์ให้เสร็จก่อน เราแค่หยุดการคลิกไม่ให้ทะลุก็พอ
-    e.stopPropagation(); 
-  }}
+  id={`text-row-${rIndex}`} 
+  contentEditable
+  suppressContentEditableWarning
+  onMouseDown={(e) => e.stopPropagation()}
   onMouseUp={(e) => {
     e.stopPropagation();
-    // เมื่อเคอร์เซอร์วางถูกที่แล้ว ค่อยให้ React อัปเดตเครื่องมือและสถานะ
-    if (selectedCell[0] !== rIndex) {
-      setSelectedCell([rIndex, 0, 0]); 
-    }
+    if (selectedCell[0] !== rIndex) setSelectedCell([rIndex, 0, 0]); 
     if (setSelectedSymbolId) setSelectedSymbolId(null);
     if (setToolbarMode) setToolbarMode('text');
   }}
   onClick={(e) => e.stopPropagation()}
+  // 1. เซฟค่าชั่วคราวตอนพิมพ์ (ป้องกันเคอร์เซอร์เด้ง)
+                          // เซฟแบบเงียบๆ ป้องกันเคอร์เซอร์เด้ง
                           onInput={(e) => {
                             if (sheetData[rIndex] && sheetData[rIndex][0]) {
                               sheetData[rIndex][0][0] = e.target.innerHTML;
                             }
                           }}
-                          // ⭐ เพิ่ม onKeyUp เพื่อให้เวลาลบข้อความแล้วหน้ากระดาษอัปเดตความสูงแบบ Real-time ทันที
-                          onKeyUp={(e) => {
-                            if (e.key === 'Backspace' || e.key === 'Delete') {
-                              if (updateTextRow) updateTextRow(rIndex, e.target.innerHTML);
-                            }
-                          }}
+                          // ❌ ลบ onKeyUp ทิ้งไปแล้ว ❌
+
+                          // เซฟจริงจังเข้าหน้าจอเมื่อคลิกออก
                           onBlur={(e) => {
                             const isToolbar = e.relatedTarget && e.relatedTarget.closest('.playback-controls-container');
                             if (isToolbar) return; 
-                            
                             if (updateTextRow) updateTextRow(rIndex, e.target.innerHTML);
                           }}
                           onKeyDown={(e) => {
                             if (isPlaying) stopPlayback();
 
+                            // ⭐ ระบบ Enter อัจฉริยะ (ทับของเดิมเลยครับ)
                             if (e.key === 'Enter') {
+                              const pageEl = e.target.closest('.print-page');
+                              if (pageEl) {
+                                 const pageRect = pageEl.getBoundingClientRect();
+                                 const divRect = e.target.getBoundingClientRect();
+                                 // เรดาร์กะระยะขอบล่าง (เว้นที่ไว้ 120px)
+                                 const threshold = 120 * (zoom / 100); 
+                                 
+                                 // 🚨 ถ้ากล่องข้อความยาวจนชิดขอบล่างกระดาษแล้ว
+                                 if (divRect.bottom > pageRect.bottom - threshold) {
+                                    e.preventDefault();
+                                    e.target.blur(); // เซฟเนื้อหาแผ่นนี้
+                                    if (addTextRow) addTextRow(false); // ขึ้นกล่องใหม่/หน้าใหม่ให้ทันที!
+                                    return;
+                                 }
+                              }
+                              
+                              // ✅ ถ้ากระดาษยังเหลือ: สับบรรทัด ณ "จุดที่เคอร์เซอร์อยู่" พอดีเป๊ะ
                               e.preventDefault();
-                              e.stopPropagation();
                               document.execCommand('insertLineBreak');
                               
-                              // ⭐ บังคับอัปเดตข้อมูลทันที เพื่อให้ระบบตัดหน้ากระดาษใหม่แบบ Real-time ตอนกด Enter
-                              setTimeout(() => {
-                                if (updateTextRow) updateTextRow(rIndex, e.target.innerHTML);
-                              }, 10);
+                              // บันทึกเงียบๆ ไม่ให้ React รีเฟรชจนเคอร์เซอร์เด้งหนี
+                              if (sheetData[rIndex] && sheetData[rIndex][0]) {
+                                sheetData[rIndex][0][0] = e.target.innerHTML;
+                              }
                               return;
                             }
 
                             if (e.key === 'Tab') {
-                              e.preventDefault(); 
-                              document.execCommand('insertHTML', false, '&nbsp;&nbsp;&nbsp;&nbsp;');
+                              e.preventDefault(); document.execCommand('insertHTML', false, '&nbsp;&nbsp;&nbsp;&nbsp;');
                               return;
                             }
                             
-                            // ⭐ ระบบลบข้อความอัจฉริยะ (ดึงข้อความขึ้นบรรทัดบน)
                             if (e.key === 'Backspace') {
                               let isAtStart = false;
                               const sel = window.getSelection();
-                              
                               if (sel.rangeCount > 0) {
                                  const range = sel.getRangeAt(0);
                                  const preCaretRange = range.cloneRange();
@@ -853,14 +860,11 @@ const Sheet = forwardRef((props, ref) => {
                                  
                                  const tempDiv = document.createElement('div');
                                  tempDiv.appendChild(preCaretRange.cloneContents());
-                                 if (tempDiv.textContent.length === 0 && !tempDiv.innerHTML.includes('<br>')) {
-                                     isAtStart = true;
-                                 }
+                                 if (tempDiv.textContent.length === 0 && !tempDiv.innerHTML.includes('<br>')) isAtStart = true;
                               }
 
                               if (isAtStart) {
                                   e.preventDefault(); 
-                                  
                                   const htmlContent = e.target.innerHTML;
                                   const isEmpty = e.target.textContent.trim() === '' && !htmlContent.includes('<img');
                                   
@@ -869,7 +873,6 @@ const Sheet = forwardRef((props, ref) => {
                                   } else if (rIndex > 0 && rowTypes[rIndex - 1] === 'text') {
                                       const prevText = sheetData[rIndex - 1][0][0];
                                       sheetData[rIndex - 1][0][0] = prevText + htmlContent; 
-                                      
                                       if (removeRow) removeRow(); 
                                       
                                       setTimeout(() => {
@@ -890,18 +893,13 @@ const Sheet = forwardRef((props, ref) => {
                               }
                             } else if (e.key === 'Delete') {
                               if (e.target.textContent.trim() === '' || e.target.innerHTML === '<br>') {
-                                 e.preventDefault();
-                                 if (removeRow) removeRow();
+                                 e.preventDefault(); if (removeRow) removeRow();
                               }
                             }
                           }}
                           dangerouslySetInnerHTML={{ __html: textValue }}
                           className="w-full outline-none text-slate-800 cursor-text bg-transparent min-h-[24px]"
-                          style={{ 
-                            fontSize: `${layoutConfig.textFontSize || 16}px`, 
-                            fontFamily: textFontFamily,
-                            lineHeight: layoutConfig.textLineHeight || 1.5
-                          }}
+                          style={{ fontSize: `${layoutConfig.textFontSize || 16}px`, fontFamily: textFontFamily, lineHeight: layoutConfig.textLineHeight || 1.5 }}
                         />
                       </div>
                     );
@@ -913,40 +911,30 @@ const Sheet = forwardRef((props, ref) => {
                   const pb = isDoubleRight ? 0 : layoutConfig.rowGap;
 
                   let visualRowNumber = displayRowNumbers[rIndex];
-                  if (isDoubleLeft && rIndex > 0) {
-                    visualRowNumber = displayRowNumbers[rIndex - 1]; 
-                  }
+                  if (isDoubleLeft && rIndex > 0) visualRowNumber = displayRowNumbers[rIndex - 1]; 
                   const visualIndex = visualRowNumber !== '' && visualRowNumber != null ? visualRowNumber - 1 : null;                  
                   
                   return (
                     <div 
-                    key={rIndex} 
-                    className="flex flex-col w-full relative transition-colors" 
-                     style={{ 
-                        paddingBottom: `${pb}px`,
-                        marginTop: `${rMarginTop}px`,
-                        marginBottom: `${rMarginBot}px`,
-                        paddingLeft: `calc(1rem + ${rIndent}px)`,
-                        paddingRight: '1rem',
+                      key={rIndex} 
+                      className="flex flex-col w-full relative transition-colors" 
+                      style={{ 
+                        paddingBottom: `${pb}px`, marginTop: `${rMarginTop}px`, marginBottom: `${rMarginBot}px`,
+                        paddingLeft: `calc(1rem + ${rIndent}px)`, paddingRight: '1rem',
                         zIndex: (rMarginTop < 0 || rMarginBot < 0) ? 20 : 1 
-                        }}
-                  >     
+                      }}
+                    >     
                       <div className="relative w-full">
                         
-                        {/* อัปเดต: ตัวเลขบรรทัด */}
                         {(displayRowNumbers[rIndex] !== '' && layoutConfig?.showRowNumber !== false) && (
                           <div 
                             className={`absolute -left-8 -translate-y-1/2 text-[12px] font-bold print-hidden select-none ${isDoubleRight ? 'top-full' : 'top-1/2'}`} 
-                            style={{ 
-                              fontFamily: textFontFamily,
-                              color: layoutConfig?.rowNumberColor || '#cbd5e1'
-                            }}
+                            style={{ fontFamily: textFontFamily, color: layoutConfig?.rowNumberColor || '#cbd5e1' }}
                           >
                             {displayRowNumbers[rIndex]}
                           </div>
                         )}
 
-                        {/* อัปเดต: เส้นปีกกาบรรทัดคู่ */}
                         {(isDoubleRight && layoutConfig?.showRowNumber !== false) && (
                           <div 
                             className="absolute top-0 border-l border-t border-b print:border-slate-400"
@@ -981,13 +969,10 @@ const Sheet = forwardRef((props, ref) => {
                                 style={{ 
                                   gridTemplateColumns: isLabelMeasure ? '1fr' : `repeat(${measure.length}, minmax(0, 1fr))`,
                                   height: `${layoutConfig.measureHeight}px`,
-                                  
-                                  // ✨ อัปเดต: เปลี่ยนมาใช้ outerBorderWidth แทน borderWidth
                                   borderTop: `${layoutConfig.outerBorderWidth ?? 1}px solid ${layoutConfig.borderColor || '#0f172a'}`,
                                   borderBottom: isDoubleRight ? 'none' : `${layoutConfig.outerBorderWidth ?? 1}px solid ${layoutConfig.borderColor || '#0f172a'}`,
                                   borderRight: `${layoutConfig.outerBorderWidth ?? 1}px solid ${layoutConfig.borderColor || '#0f172a'}`,
                                   borderLeft: isFirstInLine ? `${layoutConfig.outerBorderWidth ?? 1}px solid ${layoutConfig.borderColor || '#0f172a'}` : 'none',
-                                  
                                   borderTopLeftRadius: (isFirstInLine && !isDoubleLeft) ? `${layoutConfig.borderRadius}px` : 0,
                                   borderBottomLeftRadius: (isFirstInLine && !isDoubleRight) ? `${layoutConfig.borderRadius}px` : 0,
                                   borderTopRightRadius: (isLastInLine && !isDoubleLeft) ? `${layoutConfig.borderRadius}px` : 0,
@@ -996,7 +981,7 @@ const Sheet = forwardRef((props, ref) => {
                                 }}
                               >
                                 {isLabelMeasure ? (
-                                  <div className="flex items-center justify-center w-full h-full text-[13px] font-bold text-slate-700 tracking-wide select-none" style={{ fontFamily: textFontFamily }}>
+                                  <div className="flex items-center justify-center w-full h-full text-[13px] font-bold text-slate-700 tracking-wide select-none" style={{ fontFamily: noteFontFamily }}>
                                     {measure[0]}
                                   </div>
                                 ) : (
@@ -1004,50 +989,30 @@ const Sheet = forwardRef((props, ref) => {
                                     let isInRange = false;
                                     let minR = -1, maxR = -1, minCol = -1, maxCol = -1;
                                     if (selectionRange && selectionRange.start && selectionRange.end) {
-                                      minR = Math.min(selectionRange.start[0], selectionRange.end[0]);
-                                      maxR = Math.max(selectionRange.start[0], selectionRange.end[0]);
-                                      const startRowData = sheetData[selectionRange.start[0]] || [];
-                                      const endRowData = sheetData[selectionRange.end[0]] || [];
-                                      const startColVal = getFlattenedCol(startRowData, rowTypes[selectionRange.start[0]], selectionRange.start[1], selectionRange.start[2]);
-                                      const endColVal = getFlattenedCol(endRowData, rowTypes[selectionRange.end[0]], selectionRange.end[1], selectionRange.end[2]);
-                                      minCol = Math.min(startColVal, endColVal);
-                                      maxCol = Math.max(startColVal, endColVal);
+                                      minR = Math.min(selectionRange.start[0], selectionRange.end[0]); maxR = Math.max(selectionRange.start[0], selectionRange.end[0]);
+                                      const startColVal = getFlattenedCol(sheetData[selectionRange.start[0]] || [], rowTypes[selectionRange.start[0]], selectionRange.start[1], selectionRange.start[2]);
+                                      const endColVal = getFlattenedCol(sheetData[selectionRange.end[0]] || [], rowTypes[selectionRange.end[0]], selectionRange.end[1], selectionRange.end[2]);
+                                      minCol = Math.min(startColVal, endColVal); maxCol = Math.max(startColVal, endColVal);
                                     }
 
                                     if (selectionRange && rIndex >= minR && rIndex <= maxR) {
                                         const currentCol = getFlattenedCol(row, rType, mIndex, cIndex);
-                                        if (currentCol >= minCol && currentCol <= maxCol) {
-                                            isInRange = true;
-                                        }
+                                        if (currentCol >= minCol && currentCol <= maxCol) isInRange = true;
                                     }
 
                                     const isCursorExact = selectedCell[0] === rIndex && selectedCell[1] === mIndex && selectedCell[2] === cIndex;
-                                    
                                     let isPlayingNow = false;
                                     if (playbackCursor) {
-                                      if (playbackCursor[0] === rIndex && playbackCursor[1] === mIndex && playbackCursor[2] === cIndex) {
-                                        isPlayingNow = true;
-                                      }
-                                      if (rowTypes[playbackCursor[0]] === 'double-right' && rIndex === playbackCursor[0] + 1 && playbackCursor[1] === mIndex && playbackCursor[2] === cIndex) {
-                                        isPlayingNow = true;
-                                      }
+                                      if (playbackCursor[0] === rIndex && playbackCursor[1] === mIndex && playbackCursor[2] === cIndex) isPlayingNow = true;
+                                      if (rowTypes[playbackCursor[0]] === 'double-right' && rIndex === playbackCursor[0] + 1 && playbackCursor[1] === mIndex && playbackCursor[2] === cIndex) isPlayingNow = true;
                                     }
                                     
                                     let cellBgClass = 'hover:bg-sky-50 print:bg-transparent';
-                                    
-                                    if (isPlayingNow) {
-                                      cellBgClass = 'bg-emerald-200 ring-2 ring-inset ring-emerald-500 z-20 print:bg-transparent print:ring-0 transform scale-[1.02] transition-transform';
-                                    } else if (isInRange) {
-                                      cellBgClass = 'bg-sky-200 print:bg-transparent';
-                                    } else if (isCursorExact) {
-                                      cellBgClass = 'bg-yellow-100 ring-2 ring-inset ring-blue-400 z-10 print:bg-transparent print:ring-0';
-                                    }
+                                    if (isPlayingNow) cellBgClass = 'bg-emerald-200 ring-2 ring-inset ring-emerald-500 z-20 print:bg-transparent print:ring-0 transform scale-[1.02] transition-transform';
+                                    else if (isInRange) cellBgClass = 'bg-sky-200 print:bg-transparent';
+                                    else if (isCursorExact) cellBgClass = 'bg-yellow-100 ring-2 ring-inset ring-blue-400 z-10 print:bg-transparent print:ring-0';
+                                    if (isCursorExact && isInRange && !isPlayingNow) cellBgClass = 'bg-sky-300 ring-2 ring-inset ring-blue-500 z-10 print:bg-transparent print:ring-0';
 
-                                    if (isCursorExact && isInRange && !isPlayingNow) {
-                                      cellBgClass = 'bg-sky-300 ring-2 ring-inset ring-blue-500 z-10 print:bg-transparent print:ring-0';
-                                    }
-
-                                    // ⭐ ดึงขนาดฟอนต์เฉพาะช่อง (ถ้ามี)
                                     const cellCustomStyle = layoutConfig.customStyles?.[`${rIndex}_${mIndex}_${cIndex}`] || {};
                                     const cellFontSize = cellCustomStyle.fontSize || layoutConfig.fontSize || 30;
 
@@ -1066,12 +1031,10 @@ const Sheet = forwardRef((props, ref) => {
                                         onContextMenu={(e) => handleRightClick(e, rIndex, mIndex, cIndex)}
                                         className={`flex items-center justify-center cursor-crosshair transition-all ${cellBgClass}`} 
                                         style={{ 
-                                          fontSize: `${cellFontSize}px`, // ⭐ ใช้ขนาดฟอนต์ของช่องนั้นๆ
-                                          fontFamily: cellCustomStyle.noteFontFamily || noteFontFamily, // ⭐ ใช้ฟอนต์เฉพาะช่อง
+                                          fontSize: `${cellFontSize}px`, fontFamily: cellCustomStyle.noteFontFamily || noteFontFamily,
                                           borderRight: (cIndex < measure.length - 1 && layoutConfig.innerBorderWidth > 0) ? `${layoutConfig.innerBorderWidth}px solid ${layoutConfig.borderColor}66` : 'none' 
                                         }}
                                       >
-                                        {/* ⭐ ส่งพิกัดแถว,ห้อง,ช่อง ไปให้ฟังก์ชันด้วย */}
                                         {renderSheetNote(note, rIndex, mIndex, cIndex)}
                                       </div>
                                     );
@@ -1087,7 +1050,6 @@ const Sheet = forwardRef((props, ref) => {
                 })}
               </div>
 
-              {/* ข้อความบอกเลขหน้ากระดาษ */}
               <div className="absolute bottom-[20px] left-0 right-0 border-t border-slate-200 text-center text-slate-400 text-[12px] print:text-slate-500 z-20 bg-transparent pt-2 mx-12" style={{ fontFamily: textFontFamily }}>
                 <p>Thai Music Editor - หน้า {pIndex + 1} / {pages.length}</p>
               </div>
@@ -1095,7 +1057,6 @@ const Sheet = forwardRef((props, ref) => {
           ))}
         </div>
       </div>
-
     </div>
   );
 });

@@ -45,14 +45,7 @@ const LabelsTab = () => {
             <button onClick={() => removeSectionLabel(visualIndex, label.id)} className="absolute -top-2 -right-2 bg-rose-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-[10px] opacity-0 group-hover:opacity-100 transition-opacity z-10">✕</button>
             <input type="text" placeholder="เช่น ท่อน ๑..." value={label.text} onChange={(e) => updateSectionLabel(visualIndex, label.id, { text: e.target.value })} className="w-full p-2 mb-3 text-sm text-indigo-900 bg-slate-50 border border-slate-200 rounded-md focus:outline-none focus:border-indigo-400 font-bold" />
             
-            {/* ซ่อนปุ่ม Bold ไปแล้ว เหลือแค่ปรับขนาด */}
-            <div className="mb-3">
-              <div className="flex justify-between items-center mb-1">
-                <span className="text-[10px] text-slate-500">ขนาด</span>
-                <span className="text-[10px] font-bold text-indigo-600">{label.fontSize}px</span>
-              </div>
-              <input type="range" min="10" max="40" value={label.fontSize} onChange={(e) => updateSectionLabel(visualIndex, label.id, { fontSize: parseInt(e.target.value) })} className="w-full h-1 bg-slate-200 rounded-lg accent-indigo-500 cursor-pointer" />
-            </div>
+            {/* ❌ เอาส่วน Slider ปรับขนาดออกไปเรียบร้อยแล้ว */}
 
             <div>
               <div className="flex justify-between items-center mb-1">

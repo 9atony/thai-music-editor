@@ -88,10 +88,18 @@ export const MusicProvider = ({ children }) => {
   const [projectName, setProjectName] = useState("โปรเจกต์ไม่มีชื่อ");
   const handleSetSongName = (newName) => {
     if (isReadOnlyRef.current) return; // ⭐ บล็อกในโหมดอ่านอย่างเดียว
-    // ถ้าชื่อโปรเจกต์ยังเป็นค่าเริ่มต้น หรือชื่อโปรเจกต์เหมือนกับชื่อเพลงเดิม ให้เปลี่ยนชื่อโปรเจกต์ตามไปด้วย
+    
+    // ⭐ ซักฟอกโค้ด HTML ออก เอาแต่ข้อความล้วนๆ ไปเป็นชื่อโปรเจกต์
+    const tempDiv = document.createElement("div");
+    tempDiv.innerHTML = newName;
+    const plainText = tempDiv.textContent || tempDiv.innerText || "";
+
+    // ถ้าชื่อโปรเจกต์ยังเป็นค่าเริ่มต้น ให้เปลี่ยนชื่อโปรเจกต์ตาม (ใช้ข้อความล้วน)
     if (projectName === "โปรเจกต์ไม่มีชื่อ" || projectName === "เพลงใหม่" || projectName === songName) {
-      setProjectName(newName);
+      setProjectName(plainText);
     }
+    
+    // ส่วนบนกระดาษยังคงเก็บโค้ด HTML ไว้เหมือนเดิมเพื่อให้แสดงฟอนต์ได้
     setSongName(newName);
   };
   

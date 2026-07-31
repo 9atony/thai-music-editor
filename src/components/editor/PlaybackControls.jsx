@@ -30,7 +30,8 @@ const PlaybackControls = () => {
     toolbarMode, setToolbarMode,
     isLoopAll, setIsLoopAll,
     isLoopOne, setIsLoopOne,
-    skipToPrev, skipToNext
+    skipToPrev, skipToNext,
+    setSongName, updateDetail // 👈 ต้องมี 2 ตัวนี้เพิ่มเข้ามาตรงนี้ครับ
   } = useContext(MusicContext);
 
   const [textFontSize, setTextFontSize] = useState(16);
@@ -159,6 +160,10 @@ const PlaybackControls = () => {
 
   const syncFormatToState = () => {
     setTimeout(() => {
+      const editor = getActiveEditor();
+      if (!editor) return;
+
+      // 1. บันทึกเนื้อเพลง (เก็บไว้เหมือนเดิม)
       if (isTextRow) {
         const rIndex = selectedCell[0];
         const el = document.getElementById(`text-row-${rIndex}`);
@@ -166,6 +171,10 @@ const PlaybackControls = () => {
           sheetData[rIndex][0][0] = el.innerHTML;
         }
       }
+      
+      // ⭐ 2. ลบคำสั่ง setSongName และ updateDetail ตรงนี้ออกไปเลย!
+      // เพื่อไม่ให้ React รีเฟรชหน้าจอจนกระตุก ปล่อยให้เบราว์เซอร์โชว์ฟอนต์ไปก่อน
+      // แล้วเดี๋ยวระบบ Watchdog จะเป็นคนบันทึกให้เองตอนที่คุณ "คลิกพื้นที่ว่าง"
     }, 10);
   };
 
@@ -175,9 +184,10 @@ const PlaybackControls = () => {
     return node.nodeType === 3 ? node.parentElement.closest('[contenteditable="true"]') : node.closest('[contenteditable="true"]');
   };
 
-  // ⭐ อัปเดต: ใช้ฟังก์ชันเดียวทั้งการเปลี่ยนโน้ต และ ข้อความ
   const handleUniversalFontSizeChange = (val, step = 0) => {
-    const isTextSelecting = window.getSelection().toString().length > 0 && getActiveEditor();
+    // ⭐ ใช้ความจำจาก savedSelection แทนการเช็กสดๆ ป้องกันการหลุดโฟกัส
+    const hasTextSelection = savedSelection.current && savedSelection.current.toString().length > 0;
+    const isTextSelecting = hasTextSelection && getActiveEditor();
     
     if (toolbarMode === 'text' || isTextSelecting) {
         let finalVal = val;
@@ -186,8 +196,13 @@ const PlaybackControls = () => {
             setTextFontSize(finalVal);
             const editor = getActiveEditor();
             if (editor && savedSelection.current) {
+                
+                // ⭐ เพิ่มตรงนี้! ดึงโฟกัสกลับมาที่กล่องข้อความก่อนทำงานเสมอ
+                editor.focus(); 
+
                 const selection = window.getSelection();
-                if (selection.rangeCount === 0) selection.addRange(savedSelection.current);
+                selection.removeAllRanges();
+                selection.addRange(savedSelection.current);
                 
                 document.execCommand("styleWithCSS", false, true);
                 document.execCommand("fontSize", false, "7");
@@ -198,8 +213,10 @@ const PlaybackControls = () => {
                     font.style.fontSize = `${finalVal}px`;
                     font.style.lineHeight = 'normal';
                 });
-                editor.focus();
+                
                 if (selection.rangeCount > 0) savedSelection.current = selection.getRangeAt(0).cloneRange();
+                
+                editor.dispatchEvent(new Event('input', { bubbles: true }));
                 syncFormatToState();
             }
         }
@@ -212,14 +229,19 @@ const PlaybackControls = () => {
     const editor = getActiveEditor();
     if (!editor || !savedSelection.current) return;
 
+    // ⭐ เพิ่มตรงนี้! ดึงโฟกัสกลับมาก่อนทำงาน
+    editor.focus(); 
+
     const selection = window.getSelection();
-    if (selection.rangeCount === 0) selection.addRange(savedSelection.current);
+    selection.removeAllRanges();
+    selection.addRange(savedSelection.current);
 
     document.execCommand("styleWithCSS", false, true);
     
     if (command === 'fontName') {
-       document.execCommand("fontName", false, "dummyFontX");
-       const elements = editor.querySelectorAll('font[face="dummyFontX"], span[style*="dummyFontX"]');
+       // ⭐ ใช้ตัวพิมพ์เล็ก dummyfont กันเบราว์เซอร์สับสน
+       document.execCommand("fontName", false, "dummyfont");
+       const elements = editor.querySelectorAll('font[face="dummyfont"], span[style*="dummyfont"]');
        elements.forEach(el => {
          if (el.tagName === 'FONT') el.removeAttribute("face");
          el.style.fontFamily = value;
@@ -228,8 +250,9 @@ const PlaybackControls = () => {
        document.execCommand(command, false, value);
     }
 
-    editor.focus();
     if (selection.rangeCount > 0) savedSelection.current = selection.getRangeAt(0).cloneRange();
+    
+    editor.dispatchEvent(new Event('input', { bubbles: true }));
     syncFormatToState();
   };
 
@@ -290,7 +313,6 @@ const PlaybackControls = () => {
               <input type="range" min="0" max="100" value={layoutConfig.volume !== undefined ? layoutConfig.volume : 100} onChange={handleVolumeChange} className="w-16 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-sky-500" />
             </div>
 
-            {/* ⭐ ยุบรวมเครื่องมือจัดรูปแบบไว้ในแถบเดียว */}
             <div className="flex items-center gap-3 shrink-0">
               <span className="text-xs font-bold text-sky-600 bg-sky-50 px-2 py-1.5 rounded-md border border-sky-100 whitespace-nowrap">เครื่องมือจัดหน้า</span>
               
@@ -298,8 +320,8 @@ const PlaybackControls = () => {
                 <select 
                   value={layoutConfig.noteFontFamily || defaultFontFamily} 
                   onChange={(e) => {
-                    const isTextSelecting = window.getSelection().toString().length > 0 && getActiveEditor();
-                    if (toolbarMode === 'text' || isTextSelecting) {
+                    const hasTextSelection = savedSelection.current && savedSelection.current.toString().length > 0;
+                    if (toolbarMode === 'text' || (hasTextSelection && getActiveEditor())) {
                       formatText('fontName', e.target.value);
                     } else {
                       handleNoteStyle('noteFontFamily', e.target.value);
@@ -315,7 +337,7 @@ const PlaybackControls = () => {
                 <button onMouseDown={(e) => { e.preventDefault(); handleUniversalFontSizeChange(null, -2); }} className="w-8 h-full text-slate-500 hover:bg-slate-100 font-black transition-colors">−</button>
                 <input 
                   type="number" min="10" max="150" 
-                  value={toolbarMode === 'text' || (window.getSelection().toString().length > 0 && getActiveEditor()) ? textFontSize : (layoutConfig.fontSize || 30)} 
+                  value={toolbarMode === 'text' || (savedSelection.current && savedSelection.current.toString().length > 0 && getActiveEditor()) ? textFontSize : (layoutConfig.fontSize || 30)} 
                   onChange={(e) => handleUniversalFontSizeChange(parseInt(e.target.value) || 16)} 
                   className="w-10 text-center text-sm font-bold text-slate-700 bg-slate-50 border-none focus:ring-0 p-0 h-full" 
                 />
@@ -326,8 +348,9 @@ const PlaybackControls = () => {
                 <button 
                   onMouseDown={(e) => { 
                     e.preventDefault(); 
-                    if (window.getSelection().toString().length > 0 && getActiveEditor()) {
-                      document.execCommand('bold', false, null);
+                    const hasTextSelection = savedSelection.current && savedSelection.current.toString().length > 0;
+                    if (toolbarMode === 'text' || (hasTextSelection && getActiveEditor())) {
+                      formatText('bold');
                     } else {
                       handleNoteStyle('isBold', null, true);
                     }
@@ -338,8 +361,9 @@ const PlaybackControls = () => {
                 <button 
                   onMouseDown={(e) => { 
                     e.preventDefault(); 
-                    if (window.getSelection().toString().length > 0 && getActiveEditor()) {
-                      document.execCommand('italic', false, null);
+                    const hasTextSelection = savedSelection.current && savedSelection.current.toString().length > 0;
+                    if (toolbarMode === 'text' || (hasTextSelection && getActiveEditor())) {
+                      formatText('italic');
                     } else {
                       handleNoteStyle('isItalic', null, true);
                     }
@@ -350,8 +374,9 @@ const PlaybackControls = () => {
                 <button 
                   onMouseDown={(e) => { 
                     e.preventDefault(); 
-                    if (window.getSelection().toString().length > 0 && getActiveEditor()) {
-                      document.execCommand('underline', false, null);
+                    const hasTextSelection = savedSelection.current && savedSelection.current.toString().length > 0;
+                    if (toolbarMode === 'text' || (hasTextSelection && getActiveEditor())) {
+                      formatText('underline');
                     } 
                   }} 
                   className="w-7 h-7 flex items-center justify-center text-sm rounded-md underline transition-all text-slate-600 hover:bg-slate-100 font-medium"
