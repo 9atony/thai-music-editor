@@ -64,7 +64,7 @@ const Sheet = forwardRef((props, ref) => {
 
   // --- States & Refs ---
   const [pageSvgPaths, setPageSvgPaths] = useState({});
-  const [zoom, setZoom] = useState(100);
+  const [zoom, setZoom] = useState(props.defaultZoom || 100);
   const [editingSongName, setEditingSongName] = useState(false);
   const [editingDetailId, setEditingDetailId] = useState(null);
   const [editingDetailField, setEditingDetailField] = useState(null);
@@ -612,7 +612,7 @@ const Sheet = forwardRef((props, ref) => {
       </style>
 
       {/* Zoom Controls */}
-      <div className={`absolute bottom-8 right-8 z-[60] flex flex-col items-center backdrop-blur-md border border-slate-200 shadow-xl rounded-xl overflow-hidden print:hidden transition-all duration-300 group ${isPlaying ? 'bg-slate-50/90' : 'bg-white/90 hover:shadow-2xl'}`}>
+      <div className={`absolute bottom-8 right-8 z-[60] ${props.hideZoomControls ? 'hidden' : 'flex'} flex-col items-center backdrop-blur-md border border-slate-200 shadow-xl rounded-xl overflow-hidden print:hidden transition-all duration-300 group ${isPlaying ? 'bg-slate-50/90' : 'bg-white/90 hover:shadow-2xl'}`}>
         <button
           onClick={() => !isPlaying && setZoom(z => Math.min(200, z + 10))}
           className={`p-2.5 w-full flex justify-center transition-colors ${isPlaying ? 'text-slate-300 cursor-not-allowed' : 'text-slate-500 hover:text-sky-600 hover:bg-sky-50 active:bg-sky-100'}`}
