@@ -1348,17 +1348,30 @@ export const MusicProvider = ({ children }) => {
     commitChange(sheetData, rowTypes, newState);
   };
 
-  // ⭐ อัปเดตให้บันทึกชื่อโปรเจกต์ (projectName) ในฟังก์ชันนี้
+  // ⭐ อัปเดตให้บันทึกชื่อโปรเจกต์ (projectName) และตั้งค่าทั้งหมดในฟังก์ชันนี้
   const saveProject = () => {
-    if (isReadOnlyRef.current) return; // ⭐ บล็อกในโหมดอ่านอย่างเดียว
-    const projectData = { name: projectName, songName, sheetData, rowTypes, sectionLabels, symbols, layoutConfig, headerDetails, currentInstrument: currentInstrument.id, rowMargins, playbackSequence };
+    if (isReadOnlyRef.current) return;
+    const projectData = { 
+      name: projectName, 
+      songName, 
+      sheetData, 
+      rowTypes, 
+      sectionLabels, 
+      symbols, 
+      layoutConfig, 
+      headerDetails, 
+      currentInstrument: currentInstrument.id, 
+      rowMargins, 
+      playbackSequence,
+      isLoopAll,       // 👈 เก็บโหมดวนลูปทั้งหมด
+      isLoopOne,       // 👈 เก็บโหมดวนลูปเพลงเดียว
+      isOctaveMode     // 👈 เก็บสถานะโหมดเล่นคู่ 8
+    };
     const url = URL.createObjectURL(new Blob([JSON.stringify(projectData, null, 2)], { type: 'application/json' }));
     const a = document.createElement('a'); a.href = url; a.download = `${projectName || 'my-song'}.tme`; a.click(); URL.revokeObjectURL(url);
   };
 
-  // ⭐ อัปเดตให้โหลดชื่อโปรเจกต์ (projectName) จากไฟล์
- // ⭐ เปลี่ยนฟังก์ชันให้อ่านแบบ async เพื่อรอการบันทึกลงฐานข้อมูล
-  const performLoadProject = (file) => {
+ const performLoadProject = (file) => {
     if (!file) return;
     const reader = new FileReader();
     
@@ -1367,31 +1380,42 @@ export const MusicProvider = ({ children }) => {
       try {
         const data = JSON.parse(e.target.result);
         
-        // 1. ดึงชื่อไฟล์มาเป็นชื่อโปรเจกต์
+        // 1. ดึงชื่อไฟล์มา (เผื่อไว้กรณีโปรเจกต์ไม่มีชื่อเลย)
         const fileNameWithoutExt = file.name ? file.name.replace(/\.[^/.]+$/, "") : "";
-        const targetName = fileNameWithoutExt || data.name || data.songName || "โปรเจกต์ไม่มีชื่อ";
         
-        setProjectName(targetName);
-        setSongName(targetName);
+        // ⭐ 2. ดึงชื่อโปรเจกต์จากไฟล์ .tme มาใช้เป็นหลักก่อน (ถ้าไม่มีค่อยใช้ชื่อไฟล์)
+        const targetProjectName = data.name || fileNameWithoutExt || "โปรเจกต์ไม่มีชื่อ";
         
-        // ⭐ 2. บังคับล้าง ID เก่าทิ้ง! ป้องกันไม่ให้ไฟล์ที่เปิดจากเครื่อง ไปทับโปรเจกต์ที่เปิดค้างอยู่บนจอ
-        setProjectId(null);
+        // ⭐ 3. ดึงชื่อเพลงบนกระดาษจากไฟล์ .tme (ถ้าไม่มีค่อยใช้ชื่อโปรเจกต์)
+        const targetSongName = data.songName || targetProjectName;
+        
+        setProjectName(targetProjectName);
+        setSongName(targetSongName); // จะไม่โดนชื่อไฟล์เขียนทับแล้ว
+        
+        setProjectId(null); // บังคับล้าง ID เก่าทิ้ง
       
         let parsedSheetData = data.sheetData;
         if (data.sheetData) {
-          parsedSheetData = typeof data.sheetData === 'string' 
-            ? JSON.parse(data.sheetData) 
-            : data.sheetData;
+          parsedSheetData = typeof data.sheetData === 'string' ? JSON.parse(data.sheetData) : data.sheetData;
           setSheetData(parsedSheetData);
         }
         if (data.rowTypes) setRowTypes(data.rowTypes);
         if (data.sectionLabels) setSectionLabels(data.sectionLabels);
         if (data.symbols) setSymbols(data.symbols);
-        if (data.layoutConfig) setLayoutConfig(data.layoutConfig);
+        // ใช้แบบ Merge เพื่อรักษาค่า Layout ไม่ให้ฟอนต์เพี้ยน
+        if (data.layoutConfig) setLayoutConfig(prev => ({ ...prev, ...data.layoutConfig }));
         if (data.headerDetails) setHeaderDetails(data.headerDetails);
+        
+        // โหลดเครื่องดนตรี
         if (data.currentInstrument && INSTRUMENT_CONFIG[data.currentInstrument]) {
           setCurrentInstrument(INSTRUMENT_CONFIG[data.currentInstrument]);
         }
+
+        // โหลดการตั้งค่าการเล่น
+        if (data.playbackSequence) setPlaybackSequence(data.playbackSequence);
+        if (data.isLoopAll !== undefined) setIsLoopAll(data.isLoopAll);
+        if (data.isLoopOne !== undefined) setIsLoopOne(data.isLoopOne);
+        if (data.isOctaveMode !== undefined) setIsOctaveMode(data.isOctaveMode);
         
         const loadedMargins = data.rowMargins || Array(data.sheetData?.length || 4).fill({ top: 0, bottom: 0, left: 0 });
         setRowMargins(loadedMargins);
@@ -1399,33 +1423,34 @@ export const MusicProvider = ({ children }) => {
         setSelectionRange(null);
         commitChange(parsedSheetData, data.rowTypes, data.sectionLabels, data.symbols, loadedMargins);
 
-        // ⭐ 3. สร้างก้อนข้อมูลและสั่งบันทึกลงฐานข้อมูลทันที
+        // 4. บันทึกลง Firebase ด้วยชื่อที่ถูกต้อง
         const uid = auth.currentUser?.uid;
         if (uid) {
            const projectDataToSave = { 
-             name: targetName, 
-             songName: targetName, 
+             name: targetProjectName, 
+             songName: targetSongName, 
              sheetData: parsedSheetData || sheetData, 
              rowTypes: data.rowTypes || rowTypes, 
              sectionLabels: data.sectionLabels || sectionLabels, 
              symbols: data.symbols || symbols, 
-             layoutConfig: data.layoutConfig || layoutConfig, 
+             layoutConfig: { ...layoutConfig, ...(data.layoutConfig || {}) }, 
              headerDetails: data.headerDetails || headerDetails, 
              currentInstrument: data.currentInstrument || currentInstrument?.id || 'ranat-ek', 
              rowMargins: loadedMargins, 
-             playbackSequence: data.playbackSequence || playbackSequence 
+             playbackSequence: data.playbackSequence || playbackSequence,
+             isLoopAll: data.isLoopAll || false, 
+             isLoopOne: data.isLoopOne || false, 
+             isOctaveMode: data.isOctaveMode || false
            };
            
-           // ส่ง null เป็นพารามิเตอร์ที่ 2 เพื่อบังคับให้ Firebase สร้างไฟล์ ID ใหม่
            const newId = await saveProjectToDB(uid, null, projectDataToSave);
-           if (newId) setProjectId(newId); // เซ็ต ID ใหม่ให้ระบบรู้จัก เพื่อให้ออโต้เซฟครั้งต่อไปทับไฟล์เดิม
+           if (newId) setProjectId(newId); 
         }
 
-      } catch (error) { 
+      } catch (error) {
         console.error("Load project error:", error);
         alert("ไฟล์ไม่ถูกต้อง หรือไฟล์เสียหายครับ!"); 
       } finally {
-        // ⭐ ปลดป้าย: ปลดล็อกออโต้เซฟหลังโหลดเสร็จสิ้น (หน่วงเวลา 1 วินาทีให้ UI นิ่ง)
         setTimeout(() => { isImportingRef.current = false; }, 1000);
       }
     };
@@ -1670,7 +1695,7 @@ export const MusicProvider = ({ children }) => {
         if (data.rowTypes) setRowTypes(data.rowTypes);
         if (data.sectionLabels) setSectionLabels(data.sectionLabels);
         if (data.symbols) setSymbols(data.symbols); 
-        if (data.layoutConfig) setLayoutConfig(data.layoutConfig);
+        if (data.layoutConfig) setLayoutConfig(prev => ({ ...prev, ...data.layoutConfig }));
         if (data.headerDetails) setHeaderDetails(data.headerDetails);
         if (data.currentInstrument && INSTRUMENT_CONFIG[data.currentInstrument]) setCurrentInstrument(INSTRUMENT_CONFIG[data.currentInstrument]);
         if (data.playbackSequence) setPlaybackSequence(data.playbackSequence);
@@ -1691,13 +1716,13 @@ export const MusicProvider = ({ children }) => {
     if (!isLoaded || isImportingRef.current || isReadOnly) return; 
     
     // ⭐ 1. สร้างเงื่อนไขเช็กว่าเป็น "โปรเจกต์ใหม่เอี่ยม" หรือไม่
-    // ถ้ายังไม่มี ID ในฐานข้อมูล + ยังไม่มีการแก้กระดาษโน้ต (historyIndex <= 0) + ชื่อเป็นค่าเริ่มต้น
     const isFreshProject = !projectId && historyIndex <= 0 && projectName === "โปรเจกต์ไม่มีชื่อ" && songName === "เพลงใหม่";
 
     const projectData = { 
       name: projectName, songName, sheetData, rowTypes, sectionLabels, 
       symbols, layoutConfig, headerDetails, currentInstrument: currentInstrument.id, 
-      rowMargins, playbackSequence 
+      rowMargins, playbackSequence,
+      isLoopAll, isLoopOne, isOctaveMode // 👈 เพิ่ม 3 ตัวนี้เข้าไปในการออโต้เซฟ
     };
     
     // สำรองข้อมูลลงเครื่อง (localStorage) ไว้เผื่อเน็ตหลุดเสมอ
@@ -1708,8 +1733,8 @@ export const MusicProvider = ({ children }) => {
       autoSaveToFirebase(projectData);
     }
 
-  // ⭐ 3. อย่าลืมเพิ่ม projectId และ historyIndex เข้ามาต่อท้ายในวงเล็บ Dependency ด้วยนะครับ
-  }, [isLoaded, projectName, songName, sheetData, rowTypes, sectionLabels, symbols, layoutConfig, headerDetails, currentInstrument, rowMargins, playbackSequence, projectId, historyIndex, isReadOnly]);
+  // ⭐ อย่าลืมเพิ่ม 3 ตัวแปรนี้เข้าไปใน Dependency Array ด้านล่างด้วยครับ 👇
+  }, [isLoaded, projectName, songName, sheetData, rowTypes, sectionLabels, symbols, layoutConfig, headerDetails, currentInstrument, rowMargins, playbackSequence, isLoopAll, isLoopOne, isOctaveMode, projectId, historyIndex, isReadOnly]);
 
   const updateRowMarginsList = (arg1, arg2, arg3) => {
     if (isReadOnlyRef.current) return; // ⭐ บล็อกในโหมดอ่านอย่างเดียว
@@ -1744,13 +1769,9 @@ export const MusicProvider = ({ children }) => {
   const performLoadProjectFromFirebase = (projectData) => {
     isImportingRef.current = true; // ⭐ แขวนป้าย: ล็อกออโต้เซฟ
     try {
-      const parsedSheetData = typeof projectData.sheetData === 'string' 
-        ? JSON.parse(projectData.sheetData) 
-        : projectData.sheetData;
+      const parsedSheetData = typeof projectData.sheetData === 'string' ? JSON.parse(projectData.sheetData) : projectData.sheetData;
 
-      // ⭐ เพิ่มบรรทัดนี้: ให้ระบบจำ ID ของไฟล์ที่เพิ่งเปิด จะได้เซฟถูกไฟล์
       if (projectData.id) setProjectId(projectData.id);
-
       if (projectData.name !== undefined) setProjectName(projectData.name);
       if (projectData.songName !== undefined) setSongName(projectData.songName);
       
@@ -1758,8 +1779,21 @@ export const MusicProvider = ({ children }) => {
       if (projectData.rowTypes) setRowTypes(projectData.rowTypes);
       if (projectData.sectionLabels) setSectionLabels(projectData.sectionLabels);
       if (projectData.symbols) setSymbols(projectData.symbols);
-      if (projectData.layoutConfig) setLayoutConfig(projectData.layoutConfig);
+      if (projectData.layoutConfig) setLayoutConfig(prev => ({ ...prev, ...projectData.layoutConfig }));
       if (projectData.headerDetails) setHeaderDetails(projectData.headerDetails);
+      
+      // ⭐ โหลดเครื่องดนตรีและการตั้งค่าต่างๆ
+      if (projectData.currentInstrument && INSTRUMENT_CONFIG[projectData.currentInstrument]) {
+        setCurrentInstrument(INSTRUMENT_CONFIG[projectData.currentInstrument]);
+      }
+      if (projectData.playbackSequence) setPlaybackSequence(projectData.playbackSequence);
+      if (projectData.isLoopAll !== undefined) setIsLoopAll(projectData.isLoopAll);
+      if (projectData.isLoopOne !== undefined) setIsLoopOne(projectData.isLoopOne);
+      if (projectData.isOctaveMode !== undefined) setIsOctaveMode(projectData.isOctaveMode);
+
+      // โหลดระยะขอบ
+      const loadedMargins = projectData.rowMargins || Array(parsedSheetData?.length || 4).fill({ top: 0, bottom: 0, left: 0 });
+      setRowMargins(loadedMargins);
       
       setSelectedCell([0, 0, 0]);
       setSelectionRange(null);
@@ -1767,7 +1801,6 @@ export const MusicProvider = ({ children }) => {
       console.error("โหลดโปรเจกต์ไม่สำเร็จ:", error);
       alert("ไม่สามารถโหลดข้อมูลจาก Firebase ได้!");
     } finally {
-      // ⭐ ปลดป้าย: ปลดล็อกออโต้เซฟ
       setTimeout(() => { isImportingRef.current = false; }, 1000);
     }
   };

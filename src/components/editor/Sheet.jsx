@@ -695,12 +695,15 @@ const Sheet = forwardRef((props, ref) => {
                         autoFocus
                         onMouseDown={(e) => e.stopPropagation()}
                         onFocus={(e) => {
-                          const range = document.createRange();
-                          const sel = window.getSelection();
-                          range.selectNodeContents(e.target);
-                          range.collapse(false);
-                          sel.removeAllRanges();
-                          sel.addRange(range);
+                          const el = e.target;
+                          setTimeout(() => {
+                            const range = document.createRange();
+                            const sel = window.getSelection();
+                            range.selectNodeContents(el);
+                            range.collapse(false);
+                            sel.removeAllRanges();
+                            sel.addRange(range);
+                          }, 10); 
                         }}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter') { e.preventDefault(); setSongName(e.target.innerHTML); setEditingSongName(false); }
@@ -708,11 +711,11 @@ const Sheet = forwardRef((props, ref) => {
                           if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'i') { e.preventDefault(); document.execCommand('italic', false, null); }
                         }}
                         onInput={(e) => {
-                          // ⭐ แก้ไขจุดที่บั๊ก! ให้บันทึกค่าลงตัวแปรชื่อเพลง แทนชื่อหัวข้อ
                           initialSongNameRef.current = e.target.innerHTML;
                         }}
                         dangerouslySetInnerHTML={{ __html: initialSongNameRef.current }}
-                        className="font-bold mb-4 uppercase tracking-tight text-center bg-white/90 border-b-2 border-sky-400 outline-none w-full px-2 min-h-[1.5em] shadow-sm rounded"
+                        // 👇 เอา px-2 และ w-full ออก เพื่อไม่ให้มันบีบคำจนตกบรรทัด
+                        className="font-bold mb-4 uppercase tracking-tight text-center bg-white/90 border-b-2 border-sky-400 outline-none min-h-[1.5em] shadow-sm rounded"
                         style={{ fontSize: `${layoutConfig.songNameSize}px`, fontFamily: pageFontFamily }}
                      />
                   ) : (
