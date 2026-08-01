@@ -30,22 +30,17 @@ const Keyboard = () => {
   };
 
   // 👇 เติมตัวแปร e เข้าไปในวงเล็บ
-  const handleKeyClick = (idx, e) => { 
+  // 👇 เติมตัวแปร e เข้าไปในวงเล็บ
+  const handleKeyClick = (idx, e) => {
     if (!inputNote || !appendNoteToCurrentCell) return;
 
     if (isOctaveMode && currentInstrument.id === 'ranat-ek' && idx > 14) return;
 
     const k = currentInstrument.keys[idx];
-    const clickedNoteStr = getFormattedStr(k.eng, k.thai);
-
-    let noteToInsert = clickedNoteStr;
-    if (isOctaveMode && currentInstrument.id === 'ranat-ek') {
-      const pairIdx = idx + 7;
-      if (pairIdx < currentInstrument.keys.length) {
-        const pairK = currentInstrument.keys[pairIdx];
-        noteToInsert = getFormattedStr(pairK.eng, pairK.thai);
-      }
-    }
+    // ⭐ FIX: ใส่ pitch ที่คลิกจริงลง cell เสมอ (ห้าม override ไปเป็น pair)
+    // เสียงคู่ 8 จะถูกเล่นอัตโนมัติโดย playResolvedInstrumentNote ใน MusicContext
+    // (octave layer ทำงานตอน preview/play ไม่ใช่ตอนใส่ cell)
+    const noteToInsert = getFormattedStr(k.eng, k.thai);
 
     // ⭐ เช็กว่ามีการกดปุ่ม Shift ค้างไว้ด้วยหรือไม่ (e.shiftKey)
     if (e && e.shiftKey) {
@@ -56,6 +51,7 @@ const Keyboard = () => {
       inputNote(noteToInsert);
     }
   };
+
 
   const handleSpecialKey = (note) => {
     if (note === 'TRIM_LAST') {
