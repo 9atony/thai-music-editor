@@ -30,6 +30,47 @@ const getFlattenedCol = (row, rType, targetM, targetC) => {
   return col;
 };
 
+const THAI_NOTE_COMBINER_PATTERN = /[ั-๎​]/;
+
+const normalizeCellToken = (value) => {
+  if (typeof value !== 'string') return value && value !== '-' ? String(value) : '-';
+  const compact = value.replace(/\s+/g, '').trim();
+  return compact === '' ? '-' : compact;
+};
+
+const splitThaiNoteToken = (token) => {
+  const normalized = normalizeCellToken(token);
+  if (!normalized || normalized === '-') return [];
+
+  return Array.from(normalized).reduce((parts, char) => {
+    if (char === '-' || char.trim() === '') return parts;
+    if (THAI_NOTE_COMBINER_PATTERN.test(char) && parts.length > 0) {
+      parts[parts.length - 1] += char;
+    } else {
+      parts.push(char);
+    }
+    return parts;
+  }, []);
+};
+
+const parseCellToken = (token) => {
+  const notes = splitThaiNoteToken(token);
+  if (notes.length === 0) return [];
+  if (notes.length === 1) return [{ note: notes[0], ratio: 0, emphasis: 1 }];
+
+  return notes.map((note, index) => ({
+    note,
+    ratio: index / notes.length,
+    emphasis: index === notes.length - 1 ? 1 : Math.max(0.55, 0.88 - (index * 0.08)),
+  }));
+};
+
+const getTokenPreviewAnchor = (token) => {
+  const events = parseCellToken(token);
+  if (events.length === 0) return null;
+  return events[events.length - 1].note;
+};
+
 const formatInstrumentNote = (key) => {
   const octave = parseInt(key.eng.replace(/\D/g, ''), 10);
   if (octave >= 5) return key.thai + '\u0E4D';
@@ -220,6 +261,139 @@ export const MusicProvider = ({ children }) => {
   useEffect(() => { isLoopAllRef.current = isLoopAll; }, [isLoopAll]);
   useEffect(() => { isLoopOneRef.current = isLoopOne; }, [isLoopOne]);
 
+  const playResolvedInstrumentNote = (noteStr, vol, options = {}) => {
+    if (!noteStr || noteStr === '-') return;
+
+    const { bypassOctaveLayer = false } = options;
+    playNote(currentInstrument.id, noteStr, vol);
+
+    if (!bypassOctaveLayer && isOctaveModeRef.current && currentInstrument.id === 'ranat-ek') {
+      const preferredDirection = getPreferredOctaveDirection(currentInstrument, noteStr);
+      const octavePairNote = getOctavePairNote(currentInstrument, noteStr, preferredDirection);
+      if (octavePairNote && octavePairNote !== noteStr) {
+        playNote(currentInstrument.id, octavePairNote, vol);
+      }
+    }
+  };
+
+  const previewCellToken = (token, baseVolume = layoutConfigRef.current.volume ?? 100, previewGapMs = 90) => {
+    const events = parseCellToken(token);
+    if (events.length === 0) return;
+
+    events.forEach((event, index) => {
+      const delay = events.length === 1 ? 0 : Math.max(0, Math.floor(index * previewGapMs));
+      const volume = Math.max(0, Math.round(baseVolume * (event.emphasis ?? 1)));
+      const playEvent = () => playResolvedInstrumentNote(event.note, volume);
+
+      if (delay <= 0) playEvent();
+      else effectTimersRef.current.push(setTimeout(playEvent, delay));
+    });
+  };
+
+  const updateCellToken = (row, meas, cell, token, options = {}) => {
+    if (isReadOnlyRef.current) return;
+    if (rowTypes[row] === 'page-break' || rowTypes[row] === 'text' || (rowTypes[row].startsWith('double') && meas === 0)) return;
+
+    const normalizedToken = normalizeCellToken(token);
+    const newData = sheetData.map((rowData) => rowData.map((measure) => [...measure]));
+    newData[row][meas][cell] = normalizedToken;
+
+    commitChange(newData);
+    setSelectionRange(null);
+    if (options.keepSelection !== false) setSelectedCell([row, meas, cell]);
+    if (options.preview !== false && normalizedToken !== '-') {
+      previewCellToken(normalizedToken, options.volume ?? (layoutConfigRef.current.volume ?? 100));
+    }
+  };
+
+
+  const moveSelectionToAdjacentCell = (direction = 'next') => {
+    if (!selectedCell) return;
+
+    let [row, meas, cell] = selectedCell;
+    const isNext = direction !== 'prev';
+
+    if (isNext) {
+      if (cell < sheetData[row][meas].length - 1) {
+        cell += 1;
+      } else if (meas < sheetData[row].length - 1) {
+        meas += 1;
+        if (rowTypes[row].startsWith('double') && meas === 0) meas = 1;
+        cell = 0;
+      } else {
+        let nextR = row + 1;
+        while (nextR < sheetData.length && (rowTypes[nextR] === 'page-break' || rowTypes[nextR] === 'text')) nextR++;
+        if (nextR >= sheetData.length) return;
+        row = nextR;
+        meas = rowTypes[row].startsWith('double') ? 1 : 0;
+        cell = 0;
+      }
+    } else {
+      if (cell > 0) {
+        cell -= 1;
+      } else if (meas > (rowTypes[row].startsWith('double') ? 1 : 0)) {
+        meas -= 1;
+        cell = sheetData[row][meas].length - 1;
+      } else {
+        let prevR = row - 1;
+        while (prevR >= 0 && (rowTypes[prevR] === 'page-break' || rowTypes[prevR] === 'text')) prevR--;
+        if (prevR < 0) return;
+        row = prevR;
+        meas = sheetData[row].length - 1;
+        if (rowTypes[row].startsWith('double') && meas === 0) meas = 1;
+        cell = sheetData[row][meas].length - 1;
+      }
+    }
+
+    setSelectionRange(null);
+    setSelectedCell([row, meas, cell]);
+  };
+
+  const moveSelectionNext = () => moveSelectionToAdjacentCell('next');
+  const moveSelectionPrev = () => moveSelectionToAdjacentCell('prev');
+
+  const appendNoteToCurrentCell = (note, options = {}) => {
+    if (isReadOnlyRef.current || !selectedCell) return;
+
+    const [row, meas, cell] = selectedCell;
+    if (rowTypes[row] === 'page-break' || rowTypes[row] === 'text' || (rowTypes[row].startsWith('double') && meas === 0)) return;
+
+    const incomingParts = splitThaiNoteToken(note);
+    if (incomingParts.length === 0) return;
+
+    const currentToken = normalizeCellToken(sheetData[row][meas][cell]);
+    const currentParts = currentToken === '-' ? [] : splitThaiNoteToken(currentToken);
+    const mergedToken = normalizeCellToken([...currentParts, ...incomingParts].join(''));
+
+    updateCellToken(row, meas, cell, mergedToken, {
+      preview: options.preview !== false,
+      keepSelection: true,
+      volume: options.volume ?? (layoutConfigRef.current.volume ?? 100),
+    });
+
+    if (options.moveNext) {
+      setTimeout(() => moveSelectionToAdjacentCell('next'), 0);
+    }
+  };
+
+  const trimCurrentCellToken = () => {
+    if (isReadOnlyRef.current || !selectedCell) return;
+
+    const [row, meas, cell] = selectedCell;
+    if (rowTypes[row] === 'page-break' || rowTypes[row] === 'text' || (rowTypes[row].startsWith('double') && meas === 0)) return;
+
+    const currentToken = normalizeCellToken(sheetData[row][meas][cell]);
+    if (currentToken === '-') return;
+
+    const currentParts = splitThaiNoteToken(currentToken);
+    const nextToken = currentParts.length <= 1 ? '-' : currentParts.slice(0, -1).join('');
+
+    updateCellToken(row, meas, cell, nextToken, {
+      preview: false,
+      keepSelection: true,
+    });
+  };
+
   const [headerDetails, setHeaderDetails] = useState([
     { id: 1, label: "อัตราจังหวะ", value: "๒ ชั้น" },
     { id: 2, label: "หน้าทับ", value: "สองไม้" },
@@ -361,17 +535,6 @@ export const MusicProvider = ({ children }) => {
 
     const playNextStep = (r, m, c) => {
       if (!isPlayingRef.current) return; 
-      const triggerPlaybackNote = (noteStr, vol, options = {}) => {
-          if (!noteStr || noteStr === '-') return;
-          const { bypassOctaveLayer = false } = options;
-          playNote(currentInstrument.id, noteStr, vol);
-          if (!bypassOctaveLayer && isOctaveModeRef.current && currentInstrument.id === 'ranat-ek') {
-              const preferredDirection = getPreferredOctaveDirection(currentInstrument, noteStr);
-              const octavePairNote = getOctavePairNote(currentInstrument, noteStr, preferredDirection);
-              if (octavePairNote && octavePairNote !== noteStr) playNote(currentInstrument.id, octavePairNote, vol);
-          }
-      };
-
       if (currentRowTypes[r] === 'page-break' || currentRowTypes[r] === 'text') {
           let nextR = r + 1;
           if (nextR >= currentSheetData.length) { playbackTimerRef.current = setTimeout(() => stopPlayback(), 500); return; }
@@ -384,6 +547,20 @@ export const MusicProvider = ({ children }) => {
       const cellCountInMeasure = currentSheetData[r][m].length;
       const standardMsPerCell = 15000 / currentBpm;
       const msPerCell = Math.floor(standardMsPerCell * (4 / cellCountInMeasure));
+
+      const scheduleTokenPlayback = (tokenStr, vol, cellDurationMs = msPerCell, baseDelayMs = 0, options = {}) => {
+        const tokenEvents = parseCellToken(tokenStr);
+        if (tokenEvents.length === 0) return;
+
+        tokenEvents.forEach((event) => {
+          const eventDelay = Math.max(0, Math.floor(baseDelayMs + (cellDurationMs * (event.ratio ?? 0))));
+          const eventVolume = Math.max(0, Math.round(vol * (event.emphasis ?? 1)));
+          const playEvent = () => playResolvedInstrumentNote(event.note, eventVolume, options);
+
+          if (eventDelay <= 0) playEvent();
+          else effectTimersRef.current.push(setTimeout(playEvent, eventDelay));
+        });
+      };
 
       setPlaybackCursor([r, m, c]);
       let cellsToCheck = [[r, m, c]];
@@ -471,16 +648,50 @@ export const MusicProvider = ({ children }) => {
                       effectTimersRef.current.push(setTimeout(() => { clearInterval(window.kroInterval); window.kroInterval = null; }, timeUntilEnd));
                   }
               } else {
-                  const intervalMs = Math.floor(msPerCell * 0.40); 
-                  events.reverse().forEach((colNotes, revIdx) => {
-                      const playTime = timeUntilEnd - (revIdx * intervalMs);
-                      let vol = layoutConfigRef.current.volume ?? 100;
-                      if (revIdx > 0) vol = Math.max(0, vol * (1 - (revIdx * 0.15)));
-                      colNotes.forEach(n => {
-                          if (playTime >= 0) effectTimersRef.current.push(setTimeout(() => { triggerPlaybackNote(n, vol); }, playTime));
-                          else triggerPlaybackNote(n, vol);
-                      });
+                  // === ระบบสะบัดอัจฉริยะ (หารเฉลี่ยจังหวะเท่ากันจากจุดเริ่มถึงจุดจบ) ===
+                  let sequenceOfChords = [];
+                  
+                  // 1. ดึงโน้ตทุกตัวในสัญลักษณ์มากางเรียงเป็นแถว
+                  events.forEach(colNotes => {
+                      let parsedCols = colNotes.map(token => parseCellToken(token)); 
+                      let maxNotes = Math.max(...parsedCols.map(p => p.length));
+                      for(let i = 0; i < maxNotes; i++) {
+                          let chord = [];
+                          parsedCols.forEach(p => {
+                              if (i < p.length) chord.push(p[i].note);
+                          });
+                          if (chord.length > 0) sequenceOfChords.push(chord);
+                      }
                   });
+
+                  // 2. คำนวณระยะเวลาทั้งหมด (ถ้าวาดคลุมช่องเดียวให้ใช้เวลาของ 1 ช่อง)
+                  const totalDurationMs = dist > 0 ? (dist * msPerCell) : (msPerCell * 0.8);
+                  const stepCount = sequenceOfChords.length;
+
+                  if (stepCount === 1) {
+                      // กรณีมีโน้ตตัวเดียวในสัญลักษณ์ ให้ตกจังหวะจบ
+                      let vol = layoutConfigRef.current.volume ?? 100;
+                      sequenceOfChords[0].forEach(n => {
+                          scheduleTokenPlayback(n, vol, msPerCell, totalDurationMs);
+                      });
+                  } else if (stepCount > 1) {
+                      // 3. หารเฉลี่ยระยะเวลาให้โน้ตทุกตัวห่างเท่ากันเป๊ะ
+                      const intervalMs = totalDurationMs / (stepCount - 1);
+                      
+                      sequenceOfChords.forEach((chord, stepIdx) => {
+                          // คำนวณเวลาเริ่มเล่นของแต่ละตัว
+                          const playTime = stepIdx * intervalMs;
+                          
+                          // ลอจิกน้ำหนักเสียง (เน้นหนักที่โน้ตตัวสุดท้าย)
+                          const revIdx = (stepCount - 1) - stepIdx; 
+                          let vol = layoutConfigRef.current.volume ?? 100;
+                          if (revIdx > 0) vol = Math.max(0, vol * (1 - (revIdx * 0.15)));
+                          
+                          chord.forEach(n => {
+                              scheduleTokenPlayback(n, vol, Math.max(80, intervalMs), playTime);
+                          });
+                      });
+                  }
               }
           });
       });
@@ -488,10 +699,10 @@ export const MusicProvider = ({ children }) => {
       if (currentRowTypes[r] === 'double-right') {
         const rightCellId = getCellId(r, m, c);
         const leftCellId = getCellId(r + 1, m, c);
-        if (!mutedCellsRef.current.has(rightCellId)) triggerPlaybackNote(currentSheetData[r][m][c], layoutConfigRef.current.volume ?? 100);
-        if (!mutedCellsRef.current.has(leftCellId)) triggerPlaybackNote(currentSheetData[r + 1] ? currentSheetData[r + 1][m][c] : '-', layoutConfigRef.current.volume ?? 100);
+        if (!mutedCellsRef.current.has(rightCellId)) scheduleTokenPlayback(currentSheetData[r][m][c], layoutConfigRef.current.volume ?? 100);
+        if (!mutedCellsRef.current.has(leftCellId)) scheduleTokenPlayback(currentSheetData[r + 1] ? currentSheetData[r + 1][m][c] : '-', layoutConfigRef.current.volume ?? 100);
       } else {
-        if (!mutedCellsRef.current.has(getCellId(r, m, c))) triggerPlaybackNote(currentSheetData[r][m][c], layoutConfigRef.current.volume ?? 100);
+        if (!mutedCellsRef.current.has(getCellId(r, m, c))) scheduleTokenPlayback(currentSheetData[r][m][c], layoutConfigRef.current.volume ?? 100);
       }
 
       let nextC = c + 1;
@@ -609,7 +820,8 @@ export const MusicProvider = ({ children }) => {
     if (!selectionRange) return;
     const { start: [sr, sm, sc], end: [er, em, ec] } = selectionRange;
     const minR = Math.min(sr, er), maxR = Math.max(sr, er);
-    const startCol = getFlattenedCol(sheetData[sr], rowTypes[sr], sm, sc), endCol = getFlattenedCol(sheetData[er], rowTypes[er], em, ec);
+    const startCol = getFlattenedCol(sheetData[sr], rowTypes[sr], sm, sc);
+    const endCol = getFlattenedCol(sheetData[er], rowTypes[er], em, ec);
     const minCol = Math.min(startCol, endCol), maxCol = Math.max(startCol, endCol);
 
     const copiedBlock = [];
@@ -619,44 +831,143 @@ export const MusicProvider = ({ children }) => {
       for (let m = 0; m < sheetData[r].length; m++) {
         if (rowTypes[r].startsWith('double') && m === 0) continue;
         for (let c = 0; c < sheetData[r][m].length; c++) {
-          if (currentCol >= minCol && currentCol <= maxCol) rowData.push(sheetData[r][m][c]);
+          if (currentCol >= minCol && currentCol <= maxCol) {
+            rowData.push(sheetData[r][m][c]);
+          }
           currentCol++;
         }
       }
-      if (rowData.length > 0) copiedBlock.push(rowData);
+      // เก็บข้อมูลแถวและเซลล์โน้ต
+      if (rowData.length > 0) copiedBlock.push({ rowOffset: r - minR, cells: rowData });
     }
-    setClipboardData(copiedBlock); setSelectionRange(null); 
+
+    // ⭐ ระบบใหม่: ค้นหาและก๊อปปี้ "สัญลักษณ์" ที่อยู่ในระยะที่เราคลุมดำ
+    const copiedSymbols = [];
+    symbols.forEach(sym => {
+        const symStartCol = getFlattenedCol(sheetData[sym.start[0]], rowTypes[sym.start[0]], sym.start[1], sym.start[2]);
+        const symEndCol = getFlattenedCol(sheetData[sym.end[0]], rowTypes[sym.end[0]], sym.end[1], sym.end[2]);
+        const sR = sym.start[0], eR = sym.end[0];
+
+        // ถ้าสัญลักษณ์นี้อยู่ภายในการคลุมดำทั้งหมด
+        if (sR >= minR && sR <= maxR && eR >= minR && eR <= maxR &&
+            symStartCol >= minCol && symStartCol <= maxCol &&
+            symEndCol >= minCol && symEndCol <= maxCol) {
+            
+            copiedSymbols.push({
+                ...sym,
+                // แปลงพิกัดให้เป็นพิกัดอ้างอิงเพื่อนำไปวางที่ใหม่
+                startRelR: sR - minR,
+                startRelCol: symStartCol - minCol,
+                endRelR: eR - minR,
+                endRelCol: symEndCol - minCol
+            });
+        }
+    });
+
+    // บันทึกใส่ Clipboard ทั้งโน้ตและสัญลักษณ์
+    setClipboardData({ block: copiedBlock, symbols: copiedSymbols });
+    setSelectionRange(null); 
   };
 
   const pasteSelection = () => {
-    if (isReadOnlyRef.current) return; // ⭐ บล็อกในโหมดอ่านอย่างเดียว
-    if (!clipboardData || clipboardData.length === 0) return;
+    if (isReadOnlyRef.current) return; 
+    if (!clipboardData) return;
+    
+    let blockToPaste = [];
+    let symbolsToPaste = [];
+
+    // ดักจับเผื่อกรณีเคลียร์ข้อมูลจากเวอร์ชันเก่า
+    if (Array.isArray(clipboardData)) {
+       if (clipboardData.length === 0) return;
+       blockToPaste = clipboardData.map((row, idx) => ({ rowOffset: idx, cells: row }));
+    } else {
+       if (!clipboardData.block || clipboardData.block.length === 0) return;
+       blockToPaste = clipboardData.block;
+       symbolsToPaste = clipboardData.symbols || [];
+    }
+
     let [r, m, c] = selectedCell;
     const newData = sheetData.map(row => row.map(meas => [...meas])); 
+    let newSymbols = [...symbols];
+    
     let lastValidCursor = [r, m, c];
     const startCol = getFlattenedCol(newData[r], rowTypes[r], m, c);
-    let currentDataRow = 0;
-    for (let i = r; i < newData.length && currentDataRow < clipboardData.length; i++) {
-       if (rowTypes[i] === 'page-break' || rowTypes[i] === 'text') continue;
-       const rowToPaste = clipboardData[currentDataRow];
-       if (typeof rowToPaste === 'string' || !Array.isArray(rowToPaste)) { setClipboardData([]); return; }
-       let colIndex = 0, pasteIndex = 0;
-       for (let meas = 0; meas < newData[i].length; meas++) {
-          if (rowTypes[i].startsWith('double') && meas === 0) continue;
-          for (let cell = 0; cell < newData[i][meas].length; cell++) {
-             if (colIndex >= startCol && pasteIndex < rowToPaste.length) { newData[i][meas][cell] = rowToPaste[pasteIndex]; lastValidCursor = [i, meas, cell]; pasteIndex++; }
-             colIndex++;
-          }
-       }
-       currentDataRow++;
+
+    // ฟังก์ชันช่วยคำนวณพิกัดให้แม่นยำตอนวางสัญลักษณ์
+    const getCoordsFromFlatCol = (rowIdx, targetFlatCol) => {
+        let currentCol = 0;
+        for (let ms = 0; ms < newData[rowIdx].length; ms++) {
+           if (rowTypes[rowIdx].startsWith('double') && ms === 0) continue;
+           for (let cl = 0; cl < newData[rowIdx][ms].length; cl++) {
+               if (currentCol === targetFlatCol) return [rowIdx, ms, cl];
+               currentCol++;
+           }
+        }
+        return null;
+    };
+
+    // ⭐ 1. วางตัวโน้ตทับ (รักษารูปแบบและจำนวนตัวโน้ตเป๊ะๆ)
+    blockToPaste.forEach(pastedRow => {
+        const targetR = r + pastedRow.rowOffset;
+        if (targetR >= newData.length || rowTypes[targetR] === 'page-break' || rowTypes[targetR] === 'text') return;
+
+        let colIndex = 0;
+        let pasteIndex = 0;
+        for (let ms = 0; ms < newData[targetR].length; ms++) {
+            if (rowTypes[targetR].startsWith('double') && ms === 0) continue;
+            for (let cl = 0; cl < newData[targetR][ms].length; cl++) {
+                if (colIndex >= startCol && pasteIndex < pastedRow.cells.length) {
+                    newData[targetR][ms][cl] = pastedRow.cells[pasteIndex];
+                    lastValidCursor = [targetR, ms, cl];
+                    pasteIndex++;
+                }
+                colIndex++;
+            }
+        }
+    });
+
+    // ⭐ 2. เสกสัญลักษณ์ (Symbols) ที่ก๊อปปี้มาลงบนตำแหน่งใหม่
+    const newPastedSymbols = [];
+    symbolsToPaste.forEach(sym => {
+        const targetStartR = r + sym.startRelR;
+        const targetEndR = r + sym.endRelR;
+
+        if (targetStartR >= newData.length || targetEndR >= newData.length) return;
+
+        const targetStartCol = startCol + sym.startRelCol;
+        const targetEndCol = startCol + sym.endRelCol;
+
+        const newStartCoords = getCoordsFromFlatCol(targetStartR, targetStartCol);
+        const newEndCoords = getCoordsFromFlatCol(targetEndR, targetEndCol);
+
+        if (newStartCoords && newEndCoords) {
+            newPastedSymbols.push({
+                id: Date.now() + Math.random(), // สร้าง ID ใหม่กันชน
+                type: sym.type,
+                start: newStartCoords,
+                end: newEndCoords,
+                color: sym.color,
+                strokeWidth: sym.strokeWidth,
+                height: sym.height
+            });
+        }
+    });
+
+    if (newPastedSymbols.length > 0) {
+        newSymbols = [...newSymbols, ...newPastedSymbols];
     }
-    commitChange(newData); setSelectedCell(lastValidCursor);
+
+    commitChange(newData, rowTypes, sectionLabels, newSymbols, rowMargins); 
+    setSelectedCell(lastValidCursor);
   };
 
   const cutSelection = () => {
-    if (isReadOnlyRef.current) return; // ⭐ บล็อกในโหมดอ่านอย่างเดียว
+    if (isReadOnlyRef.current) return; 
     if (!selectionRange) return;
+    
+    // สั่งก๊อปปี้ทั้งโน้ตและสัญลักษณ์ลง Clipboard ก่อน
     copySelection();
+    
     const { start: [sr, sm, sc], end: [er, em, ec] } = selectionRange;
     const minR = Math.min(sr, er), maxR = Math.max(sr, er);
     const startCol = getFlattenedCol(sheetData[sr], rowTypes[sr], sm, sc);
@@ -677,7 +988,20 @@ export const MusicProvider = ({ children }) => {
         }
       }
     }
-    commitChange(newData);
+
+    // ⭐ ลบสัญลักษณ์ที่โดน Cut ออกจากกระดาษด้วย
+    const remainingSymbols = symbols.filter(sym => {
+        const symStartCol = getFlattenedCol(sheetData[sym.start[0]], rowTypes[sym.start[0]], sym.start[1], sym.start[2]);
+        const symEndCol = getFlattenedCol(sheetData[sym.end[0]], rowTypes[sym.end[0]], sym.end[1], sym.end[2]);
+        const sR = sym.start[0], eR = sym.end[0];
+
+        const isInside = sR >= minR && sR <= maxR && eR >= minR && eR <= maxR &&
+                         symStartCol >= minCol && symStartCol <= maxCol &&
+                         symEndCol >= minCol && symEndCol <= maxCol;
+        return !isInside; // ถ้าไม่ได้อยู่ในการ Cut ให้เก็บไว้
+    });
+
+    commitChange(newData, rowTypes, sectionLabels, remainingSymbols, rowMargins);
     setSelectionRange(null); 
   };
 
@@ -696,18 +1020,19 @@ export const MusicProvider = ({ children }) => {
         const minCol = Math.min(getFlattenedCol(sheetData[sr], rowTypes[sr], sm, sc), getFlattenedCol(sheetData[er], rowTypes[er], em, ec));
         const maxCol = Math.max(getFlattenedCol(sheetData[sr], rowTypes[sr], sm, sc), getFlattenedCol(sheetData[er], rowTypes[er], em, ec));
 
+        const normalizedToken = note === 'BACKSPACE' ? '-' : normalizeCellToken(note);
         for (let r = minR; r <= maxR; r++) {
           if (rowTypes[r] === 'page-break' || rowTypes[r] === 'text') continue; 
           let currentCol = 0;
           for (let m = 0; m < sheetData[r].length; m++) {
             if (rowTypes[r].startsWith('double') && m === 0) continue;
             for (let c = 0; c < sheetData[r][m].length; c++) {
-              if (currentCol >= minCol && currentCol <= maxCol) newData[r][m][c] = note === 'BACKSPACE' ? '-' : note;
+              if (currentCol >= minCol && currentCol <= maxCol) newData[r][m][c] = normalizedToken;
               currentCol++;
             }
           }
         }
-        if (note !== 'BACKSPACE' && note !== '-') playNote(currentInstrument.id, note, layoutConfig.volume ?? 100);
+        if (normalizedToken !== '-') previewCellToken(normalizedToken, layoutConfig.volume ?? 100);
         commitChange(newData); setSelectionRange(null);
         return;
     }
@@ -730,8 +1055,9 @@ export const MusicProvider = ({ children }) => {
           if (prevR >= 0) setSelectedCell([prevR, sheetData[prevR].length - 1, sheetData[prevR][sheetData[prevR].length - 1].length - 1]);
       }
     } else {
-      newData[row][meas][cell] = note;
-      playNote(currentInstrument.id, note, layoutConfig.volume ?? 100);
+      const normalizedToken = normalizeCellToken(note);
+      newData[row][meas][cell] = normalizedToken;
+      if (normalizedToken !== '-') previewCellToken(normalizedToken, layoutConfig.volume ?? 100);
       commitChange(newData);
       if (cell < sheetData[row][meas].length - 1) setSelectedCell([row, meas, cell + 1]);
       else if (meas < sheetData[row].length - 1) setSelectedCell([row, meas + 1, 0]);
@@ -748,9 +1074,8 @@ export const MusicProvider = ({ children }) => {
     setSelectionRange(null); 
     
     const [rIdx, mIdx] = selectedCell;
-    const isDouble = rowTypes[rIdx]?.startsWith('double');
-    // ⭐ ตรรกะใหม่: 4 ห้องแรก (ขึ้นบน) | 4 ห้องหลัง (ลงล่าง) (รองรับบรรทัดคู่ที่ index 0 เป็นข้อความ)
-    const isFirstHalf = typeof insertAtTop === 'boolean' ? insertAtTop : (isDouble ? mIdx < 5 : mIdx < 4);
+    const currentMeasureCount = sheetData[rIdx]?.length || 8;
+    const isFirstHalf = typeof insertAtTop === 'boolean' ? insertAtTop : (mIdx < Math.ceil(currentMeasureCount / 2));
     
     let insertIdx = isFirstHalf ? rIdx : rIdx + 1;
 
@@ -925,6 +1250,20 @@ export const MusicProvider = ({ children }) => {
     let nextRow = startIndex >= newData.length ? newData.length - 1 : startIndex;
     setSelectedCell([nextRow, newRowTypes[nextRow].startsWith('double') ? 1 : 0, 0]);
   };
+  const removeMeasure = () => {
+    if (isReadOnlyRef.current) return; // ⭐ บล็อกในโหมดอ่านอย่างเดียว
+    setSelectionRange(null); 
+    const [rowIdx, measIdx] = selectedCell;
+    if (rowTypes[rowIdx] === 'page-break' || rowTypes[rowIdx] === 'text' || (rowTypes[rowIdx].startsWith('double') && measIdx === 0)) return; 
+    if (sheetData[rowIdx].length > (rowTypes[rowIdx].startsWith('double') ? 2 : 1)) {
+      const newData = [...sheetData];
+      if (rowTypes[rowIdx] === 'single') newData[rowIdx].splice(measIdx, 1);
+      else if (rowTypes[rowIdx] === 'double-right') { newData[rowIdx].splice(measIdx, 1); newData[rowIdx + 1].splice(measIdx, 1); }
+      else if (rowTypes[rowIdx] === 'double-left') { newData[rowIdx].splice(measIdx, 1); newData[rowIdx - 1].splice(measIdx, 1); }
+      commitChange(newData);
+      if (measIdx >= newData[rowIdx].length) setSelectedCell([rowIdx, newData[rowIdx].length - 1, 0]);
+    }
+  };
 
   const addNoteColumn = () => {
     if (isReadOnlyRef.current) return; // ⭐ บล็อกในโหมดอ่านอย่างเดียว
@@ -959,18 +1298,44 @@ export const MusicProvider = ({ children }) => {
     commitChange(newData);
   };
 
-  const removeMeasure = () => {
-    if (isReadOnlyRef.current) return; // ⭐ บล็อกในโหมดอ่านอย่างเดียว
-    setSelectionRange(null); 
-    const [rowIdx, measIdx] = selectedCell;
-    if (rowTypes[rowIdx] === 'page-break' || rowTypes[rowIdx] === 'text' || (rowTypes[rowIdx].startsWith('double') && measIdx === 0)) return; 
-    if (sheetData[rowIdx].length > (rowTypes[rowIdx].startsWith('double') ? 2 : 1)) {
-      const newData = [...sheetData];
-      if (rowTypes[rowIdx] === 'single') newData[rowIdx].splice(measIdx, 1);
-      else if (rowTypes[rowIdx] === 'double-right') { newData[rowIdx].splice(measIdx, 1); newData[rowIdx + 1].splice(measIdx, 1); }
-      else if (rowTypes[rowIdx] === 'double-left') { newData[rowIdx].splice(measIdx, 1); newData[rowIdx - 1].splice(measIdx, 1); }
-      commitChange(newData);
-      if (measIdx >= newData[rowIdx].length) setSelectedCell([rowIdx, newData[rowIdx].length - 1, 0]);
+ const convertMeasureToText = () => {
+    if (isReadOnlyRef.current) return;
+    const newData = sheetData.map(row => row.map(meas => [...meas]));
+    
+    let targetR, minM, maxM;
+    
+    if (selectionRange && selectionRange.start[0] === selectionRange.end[0]) {
+        targetR = selectionRange.start[0];
+        minM = Math.min(selectionRange.start[1], selectionRange.end[1]);
+        maxM = Math.max(selectionRange.start[1], selectionRange.end[1]);
+    } else if (selectedCell) {
+        targetR = selectedCell[0];
+        minM = selectedCell[1];
+        maxM = selectedCell[1];
+    } else {
+        return;
+    }
+
+    if (rowTypes[targetR] === 'page-break' || rowTypes[targetR] === 'text') return;
+    if (rowTypes[targetR].startsWith('double') && minM === 0) return;
+
+    const span = maxM - minM + 1;
+    newData[targetR][minM] = [`@TEXT_SPAN_${span}`, ''];
+    
+    for (let m = minM + 1; m <= maxM; m++) {
+        newData[targetR][m] = ['@HIDDEN'];
+    }
+    
+    commitChange(newData);
+    setSelectionRange(null);
+  };
+
+  const updateMeasureText = (r, m, text) => {
+    if (isReadOnlyRef.current) return;
+    const newData = [...sheetData];
+    if (newData[r][m][0].startsWith('@TEXT_SPAN_')) {
+       newData[r][m][1] = text;
+       commitChange(newData);
     }
   };
 
@@ -1465,8 +1830,9 @@ export const MusicProvider = ({ children }) => {
         return;             
       }
 
-      if (e.key === 'Backspace' || e.key === 'Delete') {
-        if (isReadOnlyRef.current) { e.preventDefault(); return; } // ⭐ บล็อกในโหมดอ่านอย่างเดียว
+      // === 1. ปุ่ม Backspace: ลบโน้ตทีละตัว ===
+      if (e.key === 'Backspace') {
+        if (isReadOnlyRef.current) { e.preventDefault(); return; } 
         e.preventDefault();
         
         if (selectedSymbolId) {
@@ -1475,6 +1841,38 @@ export const MusicProvider = ({ children }) => {
         } else if (selectedCell) {
           removeSymbolByCell(selectedCell);
           inputNote('BACKSPACE');
+        }
+        return;
+      }
+
+      // === 2. ปุ่ม Delete: ลบบรรทัดทิ้ง ===
+      if (e.key === 'Delete') {
+        if (isReadOnlyRef.current) { e.preventDefault(); return; } 
+        e.preventDefault();
+        
+        if (selectedSymbolId) {
+          removeSymbol(selectedSymbolId);
+          setSelectedSymbolId(null);
+        } else if (selectedCell) {
+          removeRow(); // เรียกใช้ฟังก์ชันลบบรรทัด
+        }
+        return;
+      }
+
+      // === 3. ปุ่ม Insert: แทรกบรรทัดอัจฉริยะ (เดี่ยว/คู่) ===
+      if (e.key === 'Insert') {
+        if (isReadOnlyRef.current) { e.preventDefault(); return; }
+        e.preventDefault();
+        
+        if (selectedCell) {
+          const [rIdx] = selectedCell;
+          const currentType = rowTypes[rIdx]; // เช็กว่าบรรทัดปัจจุบันที่เคอร์เซอร์อยู่เป็นแบบไหน
+          
+          if (currentType && currentType.startsWith('double')) {
+            addDoubleRow(); // ถ้าเป็นบรรทัดคู่ ให้เพิ่มบรรทัดคู่
+          } else {
+            addRow(); // ถ้าเป็นบรรทัดเดี่ยว ให้เพิ่มบรรทัดเดี่ยว
+          }
         }
         return;
       }
@@ -1547,18 +1945,22 @@ export const MusicProvider = ({ children }) => {
       }
     };
 
-    // ⭐ เพิ่มฟังก์ชันดักจับตอน "ปล่อยปุ่ม" (KeyUp)
+   // ⭐ เพิ่มฟังก์ชันดักจับตอน "ปล่อยปุ่ม" (KeyUp)
     const handleKeyUp = (e) => {
       const tag = e.target?.tagName;
       const isEditable = e.target?.isContentEditable || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
       if (isEditable) return; 
 
-      if (e.key === 'Control') {
-        // ถ้ากด Ctrl เดี่ยวๆ (ไม่ได้เอาไปกดผสม C, V, Z) ให้ใส่เครื่องหมายพักเสียง
-        if (!isReadOnlyRef.current && !isCtrlCombination && selectedCell) { // ⭐ บล็อกในโหมดอ่านอย่างเดียว
+      // 👇 เปลี่ยนมาเช็ก e.code ว่าเป็น "ControlRight" (ปุ่ม Ctrl ฝั่งขวา) เท่านั้น
+      if (e.code === 'ControlRight') {
+        // ถ้ากด Ctrl ขวาเดี่ยวๆ ให้ใส่เครื่องหมายพักเสียง
+        if (!isReadOnlyRef.current && !isCtrlCombination && selectedCell) {
           inputNote('-');
         }
-        // รีเซ็ตค่ากลับเมื่อปล่อยปุ่ม
+      }
+
+      // รีเซ็ตค่าการกดคีย์ลัดผสม เมื่อปล่อยปุ่ม Control (ไม่ว่าจะซ้ายหรือขวา)
+      if (e.key === 'Control') {
         isCtrlCombination = false;
       }
     };
@@ -1575,12 +1977,14 @@ export const MusicProvider = ({ children }) => {
     undo, redo, copySelection, pasteSelection, cutSelection, 
     togglePlay, selectedSymbolId, selectedCell, inputNote, 
     removeSymbol, removeSymbolByCell, setSelectedSymbolId,
-    sheetData, rowTypes, setSelectionRange 
+    sheetData, rowTypes, setSelectionRange,
+    addRow, addDoubleRow, removeRow
   ]);
   
   return (
     <MusicContext.Provider value={{ 
-      currentInstrument, changeInstrument, sheetData, selectedCell, setSelectedCell, inputNote,
+      currentInstrument, changeInstrument, sheetData, selectedCell, setSelectedCell, inputNote, updateCellToken,
+      appendNoteToCurrentCell, trimCurrentCellToken, moveSelectionNext, moveSelectionPrev,
       layoutConfig, setLayoutConfig, headerDetails, addDetail, removeDetail, updateDetail,
       songName, setSongName: handleSetSongName, 
       // ⭐ อย่าลืมส่ง projectName ออกไปให้ไฟล์อื่นๆ ใช้
@@ -1609,8 +2013,10 @@ export const MusicProvider = ({ children }) => {
       skipToNext, skipToPrev,
       availableSections, 
       applyTemplate,
-      // ⭐ ส่ง isReadOnly ออกไปให้ Editor ใช้แสดงผล
-      isReadOnly
+      isReadOnly,
+      convertMeasureToText,  
+      updateMeasureText      
+
     }}>
     {/* ⭐ ระบบ UI Pop-up แจ้งเตือนก่อนเปิดทับ (ซ้อนทับทุกหน้าเว็บ) */}
       {pendingAction.isOpen && (

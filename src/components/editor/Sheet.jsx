@@ -29,6 +29,22 @@ const getMarginPx = (val, unit) => {
   return val;
 };
 
+const THAI_NOTE_COMBINER_PATTERN = /[ั-๎​]/;
+
+const splitThaiNoteToken = (token) => {
+  if (!token || token === '-') return [];
+
+  return Array.from(String(token).replace(/\s+/g, '').trim()).reduce((parts, char) => {
+    if (!char || char === '-') return parts;
+    if (THAI_NOTE_COMBINER_PATTERN.test(char) && parts.length > 0) {
+      parts[parts.length - 1] += char;
+    } else {
+      parts.push(char);
+    }
+    return parts;
+  }, []);
+};
+
 // ==========================================
 // 2. Main Component
 // ==========================================
@@ -42,7 +58,8 @@ const Sheet = forwardRef((props, ref) => {
     playbackCursor, isPlaying, symbols = [], addSymbol, removeSymbol,
     selectedSymbolId, setSelectedSymbolId, updateTextRow,
     removeRow, addTextRow, rowMargins, updateRowMarginsList,
-    setToolbarMode, stopPlayback
+    setToolbarMode, stopPlayback, updateCellToken, isReadOnly,
+    moveSelectionNext, updateMeasureText
   } = useContext(MusicContext);
 
   // --- States & Refs ---
@@ -52,6 +69,8 @@ const Sheet = forwardRef((props, ref) => {
   const [editingDetailId, setEditingDetailId] = useState(null);
   const [editingDetailField, setEditingDetailField] = useState(null);
   const [editingLabelId, setEditingLabelId] = useState(null);
+  const [editingTokenCell, setEditingTokenCell] = useState(null);
+  const [editingTokenValue, setEditingTokenValue] = useState('');
 
   const editLabelRef = useRef("");
   const initialSongNameRef = useRef("");
@@ -63,6 +82,32 @@ const Sheet = forwardRef((props, ref) => {
   const noteFontFamily = layoutConfig.noteFontFamily || defaultFontFamily;
   const textFontFamily = layoutConfig.textFontFamily || defaultFontFamily;
   const pageFontFamily = layoutConfig.pageFontFamily || textFontFamily;
+
+  const commitTokenEdit = useCallback(() => {
+    if (!editingTokenCell || !updateCellToken) return;
+    const { r, m, c } = editingTokenCell;
+    updateCellToken(r, m, c, editingTokenValue, {
+      preview: editingTokenValue.trim() !== '',
+      keepSelection: true,
+    });
+    setEditingTokenCell(null);
+    setEditingTokenValue('');
+  }, [editingTokenCell, editingTokenValue, updateCellToken]);
+
+  const cancelTokenEdit = useCallback(() => {
+    setEditingTokenCell(null);
+    setEditingTokenValue('');
+  }, []);
+
+  const startTokenEdit = useCallback((r, m, c, note) => {
+    if (isReadOnly) return;
+    if (isPlaying && stopPlayback) stopPlayback();
+    setSelectedCell([r, m, c]);
+    if (setSelectedSymbolId) setSelectedSymbolId(null);
+    setEditingTokenCell({ r, m, c });
+    setEditingTokenValue(note === '-' ? '' : (note || ''));
+    if (setToolbarMode) setToolbarMode('text');
+  }, [isReadOnly, isPlaying, stopPlayback, setSelectedCell, setSelectedSymbolId, setToolbarMode]);
 
   // ==========================================
   // 3. Global Event Listeners (Watchdog)
@@ -93,6 +138,13 @@ const Sheet = forwardRef((props, ref) => {
             setEditingDetailField(null);
          }
       }
+
+      if (editingTokenCell) {
+        const tokenEditor = document.getElementById(`token-editor-${editingTokenCell.r}-${editingTokenCell.m}-${editingTokenCell.c}`);
+        if (tokenEditor && !tokenEditor.contains(e.target)) {
+          commitTokenEdit();
+        }
+      }
     };
 
     window.addEventListener('mouseup', handleMouseUpGlobal);
@@ -102,19 +154,42 @@ const Sheet = forwardRef((props, ref) => {
       window.removeEventListener('mouseup', handleMouseUpGlobal);
       window.removeEventListener('mousedown', handleMouseDownGlobal, true);
     };
-  }, [endSelection, editingSongName, editingDetailId, setSongName, updateDetail]);
+  }, [endSelection, editingSongName, editingDetailId, editingTokenCell, commitTokenEdit, setSongName, updateDetail]);
 
   useEffect(() => {
     const handleGlobalKeyDown = (e) => {
+      // ป้องกันไม่ให้ทำงานซ้อนทับตอนกำลังพิมพ์ในกล่องข้อความที่มีอยู่แล้ว
       if (e.target.tagName === 'INPUT' || e.target.closest('[contenteditable="true"]')) return;
+      
       if (e.key === 'Enter') {
-        const [r, m, c] = selectedCell;
-        if (m === 0 && c === 0) { e.preventDefault(); addTextRow(true); }
+        e.preventDefault();
+        const [rIndex, mIndex] = selectedCell;
+        const rType = rowTypes[rIndex];
+
+        // 1. ถ้าไม่ได้อยู่บรรทัดโน้ต ให้ทำงานปกติ
+        if (rType === 'text' || rType === 'page-break') {
+          if (addTextRow) addTextRow(true);
+          return;
+        }
+
+        // 2. ⭐ ระบบคำนวณหารครึ่งอัจฉริยะ สำหรับแทรกบรรทัดข้อความ
+        if (sheetData[rIndex]) {
+          const currentMeasureCount = sheetData[rIndex].length;
+          // คำนวณกึ่งกลางของห้องในบรรทัดนั้น (เช่น 8 ห้อง -> ครึ่งคือ 4, 4 ห้อง -> ครึ่งคือ 2)
+          const halfLimit = Math.ceil(currentMeasureCount / 2);
+          
+          // ถ้าอยู่ครึ่งแรก (ซ้าย) ให้แทรกขึ้นข้างบน (true) | ถ้าอยู่ครึ่งหลัง (ขวา) ให้แทรกกกราบลงข้างล่าง (false)
+          const isFirstHalf = mIndex < halfLimit;
+          
+          if (addTextRow) {
+            addTextRow(isFirstHalf);
+          }
+        }
       }
     };
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [selectedCell, addTextRow]);
+  }, [selectedCell, rowTypes, sheetData, addTextRow]);
 
   useEffect(() => {
     const [r] = selectedCell;
@@ -391,13 +466,26 @@ const Sheet = forwardRef((props, ref) => {
     const isBold = customStyle.isBold !== undefined ? customStyle.isBold : layoutConfig.isBold;
     const isItalic = customStyle.isItalic !== undefined ? customStyle.isItalic : layoutConfig.isItalic;
     const cellFontFamily = customStyle.noteFontFamily || noteFontFamily;
+    const tokenParts = splitThaiNoteToken(note);
+    const isGroupedToken = tokenParts.length > 1;
 
     return (
       <span 
-        className={`leading-none inline-block ${isBold ? 'font-bold' : 'font-normal'} ${isItalic ? 'italic' : ''}`} 
+        className={`leading-none inline-flex items-center justify-center ${isBold ? 'font-bold' : 'font-normal'} ${isItalic ? 'italic' : ''}`} 
         style={{ fontFamily: cellFontFamily, paddingTop: '0.1em', paddingBottom: '0.1em' }}
       >
-        {note}
+        {isGroupedToken ? (
+          <span
+            className="inline-flex items-center justify-center"
+            style={{ gap: tokenParts.length >= 3 ? '0.08em' : '0.14em', fontSize: tokenParts.length >= 3 ? '0.82em' : '0.9em' }}
+          >
+            {tokenParts.map((part, index) => (
+              <span key={`${rIndex}-${mIndex}-${cIndex}-${index}`} className="inline-block leading-none">
+                {part}
+              </span>
+            ))}
+          </span>
+        ) : note}
       </span>
     );
   };
@@ -957,17 +1045,25 @@ const Sheet = forwardRef((props, ref) => {
                           }}
                         >
                           {row.map((measure, mIndex) => {
+                            // 🛑 ถ้าเป็นห้องที่โดนคลุมซ่อนไว้ (Merge) ให้ข้ามไปเลย ไม่วาดเส้นกั้น!
+                            if (measure[0] === '@HIDDEN') return null;
+
                             const isLabelMeasure = isDouble && mIndex === 0;
+                            // เช็กว่าเป็นห้องพิมพ์หรือเปล่า
+                            const isTextMeasure = typeof measure[0] === 'string' && measure[0].startsWith('@TEXT_SPAN_');
+                            const spanCount = isTextMeasure ? parseInt(measure[0].split('_')[2], 10) || 1 : 1;
+                            
                             const colsPerLine = isDouble ? 9 : 8;
                             const isFirstInLine = mIndex % colsPerLine === 0;
-                            const isLastInLine = mIndex % colsPerLine === colsPerLine - 1 || mIndex === row.length - 1;
+                            const isLastInLine = (mIndex + spanCount - 1) % colsPerLine === colsPerLine - 1 || mIndex === row.length - 1;
 
                             return (
                               <div 
                                 key={mIndex} 
                                 className="grid bg-white relative h-full w-full" 
                                 style={{ 
-                                  gridTemplateColumns: isLabelMeasure ? '1fr' : `repeat(${measure.length}, minmax(0, 1fr))`,
+                                  gridColumn: `span ${spanCount}`, // 👈 สั่งขยายช่องให้คลุมตามจำนวนที่ลาก
+                                  gridTemplateColumns: isLabelMeasure ? '1fr' : (isTextMeasure ? '1fr' : `repeat(${measure.length}, minmax(0, 1fr))`),
                                   height: `${layoutConfig.measureHeight}px`,
                                   borderTop: `${layoutConfig.outerBorderWidth ?? 1}px solid ${layoutConfig.borderColor || '#0f172a'}`,
                                   borderBottom: isDoubleRight ? 'none' : `${layoutConfig.outerBorderWidth ?? 1}px solid ${layoutConfig.borderColor || '#0f172a'}`,
@@ -984,7 +1080,24 @@ const Sheet = forwardRef((props, ref) => {
                                   <div className="flex items-center justify-center w-full h-full text-[13px] font-bold text-slate-700 tracking-wide select-none" style={{ fontFamily: noteFontFamily }}>
                                     {measure[0]}
                                   </div>
-                                ) : (
+                                ) : isTextMeasure ? (
+                                  // 📝 โหมดช่องพิมพ์ข้อความพิเศษ!
+                                  <div className="w-full h-full p-1 bg-amber-50/30 hover:bg-amber-100/30 transition-colors">
+                                    <div
+                                      contentEditable
+                                      suppressContentEditableWarning
+                                      className="w-full h-full outline-none text-center cursor-text overflow-hidden flex items-center justify-center break-words"
+                                      style={{ fontFamily: textFontFamily, fontSize: `${layoutConfig.textFontSize || 16}px` }}
+                                      onMouseDown={(e) => { e.stopPropagation(); setSelectedCell([rIndex, mIndex, 0]); }}
+                                      onBlur={(e) => updateMeasureText(rIndex, mIndex, e.target.innerHTML)}
+                                      onKeyDown={(e) => {
+                                         e.stopPropagation(); // 👈 กันไม่ให้ปุ่มคีย์บอร์ดไปลั่นลบบรรทัดหรือคีย์ลัดอื่นๆ
+                                         if (e.key === 'Enter') e.preventDefault(); // กันเผลอขึ้นบรรทัดใหม่ในช่องเล็กๆ
+                                      }}
+                                      dangerouslySetInnerHTML={{ __html: measure[1] || '' }}
+                                    />
+                                  </div>
+                                ) : (                         
                                   measure.map((note, cIndex) => {
                                     let isInRange = false;
                                     let minR = -1, maxR = -1, minCol = -1, maxCol = -1;
@@ -1016,6 +1129,8 @@ const Sheet = forwardRef((props, ref) => {
                                     const cellCustomStyle = layoutConfig.customStyles?.[`${rIndex}_${mIndex}_${cIndex}`] || {};
                                     const cellFontSize = cellCustomStyle.fontSize || layoutConfig.fontSize || 30;
 
+                                    const isEditingToken = editingTokenCell?.r === rIndex && editingTokenCell?.m === mIndex && editingTokenCell?.c === cIndex;
+
                                     return (
                                       <div 
                                         id={`note-${rIndex}-${mIndex}-${cIndex}`}
@@ -1023,10 +1138,11 @@ const Sheet = forwardRef((props, ref) => {
                                         onMouseDown={(e) => {
                                           e.stopPropagation(); 
                                           if (setSelectedSymbolId) setSelectedSymbolId(null);
-                                          if (e.button !== 2) startSelection(rIndex, mIndex, cIndex);
+                                          if (!isEditingToken && e.button !== 2) startSelection(rIndex, mIndex, cIndex);
                                           if (setToolbarMode) setToolbarMode('default');
                                         }}
                                         onClick={(e) => e.stopPropagation()}
+                                        
                                         onMouseEnter={() => updateSelection(rIndex, mIndex, cIndex)}
                                         onContextMenu={(e) => handleRightClick(e, rIndex, mIndex, cIndex)}
                                         className={`flex items-center justify-center cursor-crosshair transition-all ${cellBgClass}`} 
@@ -1034,8 +1150,37 @@ const Sheet = forwardRef((props, ref) => {
                                           fontSize: `${cellFontSize}px`, fontFamily: cellCustomStyle.noteFontFamily || noteFontFamily,
                                           borderRight: (cIndex < measure.length - 1 && layoutConfig.innerBorderWidth > 0) ? `${layoutConfig.innerBorderWidth}px solid ${layoutConfig.borderColor}66` : 'none' 
                                         }}
+                                        title={isReadOnly ? undefined : 'ดับเบิลคลิกเพื่อแก้ไขโน้ตแบบหลายตัวในช่องเดียว'}
                                       >
-                                        {renderSheetNote(note, rIndex, mIndex, cIndex)}
+                                        {isEditingToken ? (
+                                          <input
+                                            id={`token-editor-${rIndex}-${mIndex}-${cIndex}`}
+                                            type="text"
+                                            value={editingTokenValue}
+                                            autoFocus
+                                            spellCheck={false}
+                                            maxLength={8}
+                                            onMouseDown={(e) => e.stopPropagation()}
+                                            onClick={(e) => e.stopPropagation()}
+                                            onChange={(e) => setEditingTokenValue(e.target.value.replace(/\s+/g, ''))}
+                                            onBlur={() => commitTokenEdit()}
+                                            onKeyDown={(e) => {
+                                              if (e.key === 'Enter') {
+                                                e.preventDefault();
+                                                commitTokenEdit(); // บันทึกลูกสะบัด
+                                                if (moveSelectionNext) moveSelectionNext(); // ⭐ สั่งให้กระโดดไปช่องขวาต่อทันที!
+                                              } else if (e.key === 'Escape') {
+                                                e.preventDefault();
+                                                cancelTokenEdit();
+                                              }
+                                            }}
+                                            className="w-full h-full bg-white text-center outline-none px-1 text-slate-900"
+                                            style={{ fontSize: `${Math.max(cellFontSize - 2, 18)}px`, fontFamily: cellCustomStyle.noteFontFamily || noteFontFamily }}
+                                            placeholder="-"
+                                          />
+                                        ) : (
+                                          renderSheetNote(note, rIndex, mIndex, cIndex)
+                                        )}
                                       </div>
                                     );
                                   })

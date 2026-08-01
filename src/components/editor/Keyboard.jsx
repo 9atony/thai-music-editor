@@ -9,7 +9,9 @@ const Keyboard = () => {
     addRow, removeRow, addDoubleRow,
     addMeasure, removeMeasure, addNoteColumn, removeNoteColumn,
     copySelection, pasteSelection, clipboardData, addPageBreak,
-    isOctaveMode, setIsOctaveMode
+    isOctaveMode, setIsOctaveMode,
+    appendNoteToCurrentCell, trimCurrentCellToken, moveSelectionNext, moveSelectionPrev,
+    convertMeasureToText
   } = useContext(MusicContext);
 
   const [hoveredIdx, setHoveredIdx] = useState(null);
@@ -27,29 +29,47 @@ const Keyboard = () => {
     return finalNote;
   };
 
-  const handleKeyClick = (idx) => {
-    if (!inputNote) return;
+  // 👇 เติมตัวแปร e เข้าไปในวงเล็บ
+  const handleKeyClick = (idx, e) => { 
+    if (!inputNote || !appendNoteToCurrentCell) return;
 
     if (isOctaveMode && currentInstrument.id === 'ranat-ek' && idx > 14) return;
 
     const k = currentInstrument.keys[idx];
     const clickedNoteStr = getFormattedStr(k.eng, k.thai);
 
+    let noteToInsert = clickedNoteStr;
     if (isOctaveMode && currentInstrument.id === 'ranat-ek') {
       const pairIdx = idx + 7;
       if (pairIdx < currentInstrument.keys.length) {
         const pairK = currentInstrument.keys[pairIdx];
-        const rightHandNoteStr = getFormattedStr(pairK.eng, pairK.thai);
-
-        inputNote(rightHandNoteStr);
-        playNote(currentInstrument.id, clickedNoteStr, layoutConfig.volume ?? 100);
+        noteToInsert = getFormattedStr(pairK.eng, pairK.thai);
       }
+    }
+
+    // ⭐ เช็กว่ามีการกดปุ่ม Shift ค้างไว้ด้วยหรือไม่ (e.shiftKey)
+    if (e && e.shiftKey) {
+      // ถ้ากด Shift ค้างไว้: ให้ต่อท้ายเป็นลูกสะบัด (ช่องไม่เลื่อน)
+      appendNoteToCurrentCell(noteToInsert);
     } else {
-      inputNote(clickedNoteStr);
+      // ถ้าไม่ได้กด Shift: ลงโน้ตปกติ แล้วเด้งข้ามช่องทันที
+      inputNote(noteToInsert);
     }
   };
 
   const handleSpecialKey = (note) => {
+    if (note === 'TRIM_LAST') {
+      if (trimCurrentCellToken) trimCurrentCellToken();
+      return;
+    }
+    if (note === 'NEXT_CELL') {
+      if (moveSelectionNext) moveSelectionNext();
+      return;
+    }
+    if (note === 'PREV_CELL') {
+      if (moveSelectionPrev) moveSelectionPrev();
+      return;
+    }
     if (inputNote) inputNote(note);
   };
 
@@ -164,12 +184,16 @@ const Keyboard = () => {
             {/* โซน 2: จัดการตัวโน้ต */}
             <ToolbarSection>
               <ToolButton onClick={() => handleSpecialKey('-')} bgClass="bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V4a2 2 0 10-4 0v1.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>} label="พักเสียง" title="ใส่ขีดพักเสียง" />
+              <ToolButton onClick={() => handleSpecialKey('PREV_CELL')} bgClass="bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>} label="ย้อนช่อง" title="ย้ายไปช่องก่อนหน้า" />
+              <ToolButton onClick={() => handleSpecialKey('NEXT_CELL')} bgClass="bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>} label="จบช่อง" title="ยืนยันช่องนี้แล้วไปช่องถัดไป" />
+              <ToolButton onClick={() => handleSpecialKey('TRIM_LAST')} bgClass="bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H8m0 0l4 4m-4-4l4-4M4 6h7M4 18h7" /></svg>} label="ลบตัวท้าย" title="ลบตัวโน้ตตัวสุดท้ายในช่องปัจจุบัน" />
               <ToolButton onClick={copySelection} bgClass="bg-emerald-50 text-emerald-600 border-emerald-200 hover:bg-emerald-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>} label="คัดลอก" title="คัดลอกโน้ต" />
               <ToolButton onClick={pasteSelection} disabled={clipboardData.length === 0} bgClass="bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>} label="วาง" title="วางโน้ต" />
             </ToolbarSection>
 
             {/* โซน 3: สร้าง/เพิ่มโครงสร้าง */}
             <ToolbarSection bodyClass="bg-slate-50 border border-slate-200">
+              <ToolButton onClick={convertMeasureToText} bgClass="bg-[#fff5f0] text-orange-700 border-orange-100 hover:bg-[#ffece0]" icon={<span className="text-lg leading-none">T</span>} label="ช่องพิมพ์" title="เปลี่ยนห้องโน้ตเป็นห้องพิมพ์ข้อความ" />
               <ToolButton onClick={addNoteColumn} bgClass="bg-[#f2f4ff] text-blue-700 border-blue-100 hover:bg-[#e8ecff]" icon={<span className="text-lg leading-none">+</span>} label="โน้ต" title="เพิ่มคอลัมน์โน้ต" />
               <ToolButton onClick={addMeasure} bgClass="bg-[#eefbf3] text-emerald-700 border-emerald-100 hover:bg-[#e1f7ea]" icon={<span className="text-lg leading-none">+</span>} label="ห้อง" title="เพิ่มห้องเพลง" />
               <ToolButton onClick={addRow} bgClass="bg-[#f7efff] text-violet-700 border-violet-100 hover:bg-[#efe2ff]" icon={<span className="text-lg leading-none">+</span>} label="บรรทัด" title="เพิ่มบรรทัดเดี่ยว" />
@@ -191,6 +215,10 @@ const Keyboard = () => {
         </div>
 
         {/* แผงแป้นคีย์บอร์ด */}
+        <div className="px-4 pt-2 text-[11px] font-semibold text-slate-500">
+          คลิกปุ่มโน้ตเพื่อเติมโน้ตเพิ่มในช่องเดียวกัน แล้วกด “จบช่อง” เพื่อเลื่อนไปช่องถัดไป
+        </div>
+
         <div className="relative z-0 flex w-full overflow-hidden">
           <div className="flex-1 overflow-x-auto pb-2 pt-2 custom-scrollbar transition-all duration-300">
             <div className="flex bg-slate-800 p-1 rounded-xl shadow-inner w-max mx-auto gap-[2px]">
@@ -223,7 +251,7 @@ const Keyboard = () => {
                       e.preventDefault(); 
                         if (!isBlocked) handleSpecialKey('-'); // 👈 เพิ่มคำสั่งพิมพ์ตัวพักเสียงเข้าไป
                     }}
-                    onClick={() => { if (!isBlocked) handleKeyClick(i); }}
+                    onClick={(e) => { if (!isBlocked) handleKeyClick(i, e); }}
                     className={btnClass}
                   >
                     <span className={`absolute top-2 text-[10px] uppercase tracking-wider opacity-40 ${isHovered || isActive ? 'font-bold text-current opacity-70' : ''}`}>{k.eng}</span>
