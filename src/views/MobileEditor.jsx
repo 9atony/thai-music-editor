@@ -74,7 +74,7 @@ const MobileEditor = ({ onBack }) => {
   };
 
   return (
-    <div className="flex flex-col h-screen bg-slate-900 w-full overflow-hidden" style={{ fontFamily: 'Prompt, sans-serif' }}>
+    <div className="flex flex-col h-screen bg-white w-full overflow-hidden" style={{ fontFamily: 'Prompt, sans-serif' }}>
       
       {/* 1. Top Bar */}
       <header className="h-16 bg-white flex items-center justify-between px-3 shrink-0 z-20 shadow-sm rounded-b-2xl">
