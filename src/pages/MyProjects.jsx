@@ -413,7 +413,7 @@ useEffect(() => {
                 <img src={TmeIcon} alt="Icon" className="w-8 h-8 object-contain drop-shadow-sm" />
               </div>
               <div className="flex-1 overflow-hidden">
-                <h4 className="font-bold text-slate-800 text-sm line-clamp-2 break-words pr-4">{file.name || "โปรเจกต์ไม่มีชื่อ"}</h4>
+                <h4 className="font-bold text-slate-800 text-sm line-clamp-3 break-words pr-4">{file.name || "โปรเจกต์ไม่มีชื่อ"}</h4>
                 <div className="flex items-center gap-2 mt-0.5">
                   <p className="text-[10px] text-slate-400 font-medium">{formatTimeMobile(file.updatedAt)}</p>
                   <span className="text-[8px] bg-slate-100 text-slate-400 px-1.5 py-0.5 rounded font-bold">{formatSize(file.sheetData)}</span>
