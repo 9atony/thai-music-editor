@@ -303,7 +303,7 @@ useEffect(() => {
                     <img src={TmeIcon} alt="File Icon" className="w-full h-full object-contain drop-shadow-[0_10px_15px_rgba(0,0,0,0.15)]" />
                  </div>
               </div>
-              <h4 className="font-bold text-slate-900 text-sm w-full truncate mb-1">{project.name || "โปรเจกต์ไม่มีชื่อ"}</h4>
+              <h4 className="font-bold text-slate-900 text-sm w-full line-clamp-3 break-words mb-1">{project.name || "โปรเจกต์ไม่มีชื่อ"}</h4>
               <p className="text-[11px] text-slate-500 font-medium mb-3">{formatTime(project.updatedAt)}</p>
             </button>
           ))}
@@ -326,7 +326,7 @@ useEffect(() => {
               <div className="w-full h-24 bg-slate-50 rounded-xl mb-3 flex items-center justify-center border border-slate-100">
                 <img src={TmeIcon} alt="File Icon" className="w-12 h-12 object-contain" />
               </div>
-              <h4 className="font-bold text-slate-800 text-[11px] truncate w-[85%]">{project.name || "โปรเจกต์ไม่มีชื่อ"}</h4>
+              <h4 className="font-bold text-slate-800 text-[11px] line-clamp-3 break-words w-[85%]">{project.name || "โปรเจกต์ไม่มีชื่อ"}</h4>
               <p className="text-[9px] text-slate-400 font-medium mt-0.5">{formatTimeMobile(project.updatedAt)}</p>
             </div>
           ))}
@@ -380,7 +380,7 @@ useEffect(() => {
                         <div className="w-8 h-8 flex items-center justify-center shrink-0">
                           <img src={TmeIcon} alt="File Icon" className="w-full h-full object-contain" />
                         </div>
-                        <span className="text-sm font-bold text-slate-700 truncate">{file.name || "โปรเจกต์ไม่มีชื่อ"}</span>
+                        <span className="text-sm font-bold text-slate-700 line-clamp-3 break-words">{file.name || "โปรเจกต์ไม่มีชื่อ"}</span>
                       </div>
                     </td>
                     <td className="py-3 px-5 text-xs font-medium text-slate-500 hidden sm:table-cell">Thai Music Editor</td>
@@ -413,9 +413,7 @@ useEffect(() => {
                 <img src={TmeIcon} alt="Icon" className="w-8 h-8 object-contain drop-shadow-sm" />
               </div>
               <div className="flex-1 overflow-hidden">
-                <h4 className="font-bold text-slate-800 text-sm truncate pr-4">
-                  {file.name || "โปรเจกต์ไม่มีชื่อ"}
-                </h4>
+                <h4 className="font-bold text-slate-800 text-sm line-clamp-2 break-words pr-4">{file.name || "โปรเจกต์ไม่มีชื่อ"}</h4>
                 <div className="flex items-center gap-2 mt-0.5">
                   <p className="text-[10px] text-slate-400 font-medium">{formatTimeMobile(file.updatedAt)}</p>
                   <span className="text-[8px] bg-slate-100 text-slate-400 px-1.5 py-0.5 rounded font-bold">{formatSize(file.sheetData)}</span>

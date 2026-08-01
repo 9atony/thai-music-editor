@@ -150,7 +150,7 @@ const Home = ({ onNewProject, onPageChange }) => {
                  </div>
               </div>
               <div className="w-full">
-                <h4 className="font-bold text-slate-900 text-sm w-full truncate mb-1">
+                <h4 className="font-bold text-slate-900 text-sm w-full line-clamp-3 break-words mb-1">
                   {project.name || "โปรเจกต์ไม่มีชื่อ"}
                 </h4>
                 <p className="text-[11px] text-slate-500 font-medium">
@@ -173,7 +173,7 @@ const Home = ({ onNewProject, onPageChange }) => {
                 <img src={TmeIcon} alt="Icon" className="w-8 h-8 object-contain drop-shadow-sm" />
               </div>
               <div className="flex-1 overflow-hidden">
-                <h4 className="font-bold text-slate-800 text-sm truncate w-[90%]">
+                <h4 className="font-bold text-slate-800 text-sm line-clamp-3 break-words w-[90%]">
                   {project.name || "โปรเจกต์ไม่มีชื่อ"}
                 </h4>
                 <p className="text-[10px] text-slate-400 font-medium mt-0.5">
@@ -194,9 +194,9 @@ const Home = ({ onNewProject, onPageChange }) => {
              </div>
           )}
         </div>
-
+        
       </div>
-
+      
       {/* แถวล่างสุด */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 md:gap-6">
         <div className="lg:col-span-3 bg-white border border-slate-100 md:border-slate-200 shadow-sm md:shadow-none rounded-3xl p-6 md:p-8 flex items-center justify-between relative overflow-hidden">
