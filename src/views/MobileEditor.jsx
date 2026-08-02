@@ -4,7 +4,8 @@ import Sheet from '../components/editor/Sheet';
 
 const MobileEditor = ({ onBack }) => {
   const { 
-    projectName, 
+    projectName,
+    songName, 
     isPlaying, 
     togglePlay, 
     stopPlayback,
@@ -130,9 +131,11 @@ const MobileEditor = ({ onBack }) => {
         </button>
         
         <div className="flex-1 text-center px-2 overflow-hidden flex flex-col justify-center">
-          <span className="font-bold text-slate-800 text-sm truncate w-full">{projectName || "โปรเจกต์ไม่มีชื่อ"}</span>
+          {/* 👈 ใช้ songName เป็นหลักเพื่อให้ตรงกับหัวกระดาษ */}
+          <span className="font-bold text-slate-800 text-sm truncate w-full">
+            {songName || projectName || "โปรเจกต์ไม่มีชื่อ"}
+          </span>
           <div className="flex items-center justify-center gap-1.5 mt-0.5">
-            {/* 🎵 แถบแสดงชื่อเครื่องดนตรี */}
             <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md font-semibold tracking-wide border border-slate-200">
               {currentInstrument?.name || "เครื่องดนตรีไทย"}
             </span>
