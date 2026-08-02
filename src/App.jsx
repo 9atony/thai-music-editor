@@ -58,6 +58,28 @@ function App() {
     return () => unsubscribe();
   }, []);
 
+// ⭐ ดักจับปุ่ม Back ของเบราว์เซอร์/มือถือ (ป้องกันกดแล้วหลุดออกจากเว็บ)
+  useEffect(() => {
+    window.history.pushState(null, null, window.location.href);
+
+    const handlePopState = () => {
+      // ดันประวัติหลอกไว้ซ้ำเรื่อยๆ เพื่อดักปุ่ม Back ไม่ให้หลุดเว็บ
+      window.history.pushState(null, null, window.location.href);
+
+      // ถ้าตอนนี้อยู่หน้า Editor ให้กด Back แล้วเด้งกลับหน้าก่อนหน้า (เช่น home หรือ my-projects)
+      if (currentView === 'editor') {
+        setCurrentView(previousView);
+      } 
+      // ถ้าไม่ได้อยู่หน้า Editor แต่เป็นหน้าเมนูย่อยอื่นๆ ให้กด Back แล้วกลับมาหน้า home
+      else if (currentView !== 'home' && currentView !== 'landing') {
+        setCurrentView('home');
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [currentView, previousView]);
+
   if (isCheckingAuth) {
     return <div className="min-h-screen bg-slate-50 flex items-center justify-center font-sans text-slate-500 font-medium">กำลังตรวจสอบข้อมูล...</div>;
   }

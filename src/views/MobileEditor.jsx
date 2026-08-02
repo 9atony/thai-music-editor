@@ -35,6 +35,47 @@ const MobileEditor = ({ onBack }) => {
     }
   }, [setIsOctaveMode]);
 
+  // ⭐ 1. สร้าง Ref เพื่อดึงสถานะ isPlaying ปัจจุบันโดยไม่ทำให้ useEffect รีรัน
+  const isPlayingRef = useRef(isPlaying);
+  useEffect(() => {
+    isPlayingRef.current = isPlaying;
+  }, [isPlaying]);
+
+  // ⭐ 2. ดักจับปุ่ม Back ของมือถือ (Hardware/Browser Back Button)
+  useEffect(() => {
+    // ดันประวัติจำลองเข้าไป 1 ชั้น เพื่อไม่ให้กด Back แล้วหลุดเว็บ
+    window.history.pushState(null, null, window.location.href);
+    
+    const handlePopState = (e) => {
+      // เมื่อผู้ใช้กดปุ่ม Back ของมือถือ
+      if (isPlayingRef.current && stopPlayback) {
+        stopPlayback();
+      }
+      onBack(); // สั่งให้กลับไปหน้าก่อนหน้าผ่าน State ของแอปแทนการปิดเว็บ
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, [onBack, stopPlayback]);
+
+// ⭐ 3. ดักจับการเผลอปิดแท็บ หรือกดรีเฟรช (F5) บนคอมพิวเตอร์
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      // เบราว์เซอร์ยุคใหม่จะแสดงข้อความแจ้งเตือนมาตรฐานของมันเอง 
+      e.preventDefault();
+      e.returnValue = ''; 
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, []);
+
   const formatTimeDisplay = (seconds) => {
     if (isNaN(seconds) || seconds < 0) return "0:00";
     const m = Math.floor(seconds / 60);

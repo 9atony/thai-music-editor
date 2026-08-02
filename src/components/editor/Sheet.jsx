@@ -1063,7 +1063,7 @@ const Sheet = forwardRef((props, ref) => {
                             return (
                               <div 
                                 key={mIndex} 
-                                className="grid bg-white relative h-full w-full" 
+                                className="grid bg-white relative h-full w-full overflow-hidden" 
                                 style={{ 
                                   gridColumn: `span ${spanCount}`, // 👈 สั่งขยายช่องให้คลุมตามจำนวนที่ลาก
                                   gridTemplateColumns: isLabelMeasure ? '1fr' : (isTextMeasure ? '1fr' : `repeat(${measure.length}, minmax(0, 1fr))`),
@@ -1148,7 +1148,7 @@ const Sheet = forwardRef((props, ref) => {
                                         
                                         onMouseEnter={() => updateSelection(rIndex, mIndex, cIndex)}
                                         onContextMenu={(e) => handleRightClick(e, rIndex, mIndex, cIndex)}
-                                        className={`flex items-center justify-center cursor-crosshair transition-all ${cellBgClass}`} 
+                                        className={`flex items-center justify-center cursor-crosshair transition-all min-h-0 overflow-hidden ${cellBgClass}`} 
                                         style={{ 
                                           fontSize: `${cellFontSize}px`, fontFamily: cellCustomStyle.noteFontFamily || noteFontFamily,
                                           borderRight: (cIndex < measure.length - 1 && layoutConfig.innerBorderWidth > 0) ? `${layoutConfig.innerBorderWidth}px solid ${layoutConfig.borderColor}66` : 'none' 

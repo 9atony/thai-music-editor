@@ -4,8 +4,7 @@ import { getAuth, signInWithEmailAndPassword, signOut } from "firebase/auth";
 import { 
   getFirestore, collection, query, orderBy, limit, getDocs, 
   addDoc, doc, updateDoc, serverTimestamp 
-} from 'firebase/firestore'; // ⭐ รวมการ import ไว้ที่เดียว
-
+} from 'firebase/firestore'; 
 import { getStorage } from "firebase/storage";
 
 // 1. Firebase Config
@@ -28,21 +27,18 @@ export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const storage = getStorage(app);
 
-// 4. ฟังก์ชันต่างๆ (เขียนไว้หลังประกาศ db และ auth แล้ว จึงใช้งานได้ปกติ)
-// ใน src/utils/firebase.js
+// 4. ฟังก์ชันต่างๆ
 export const fetchRecentProjects = async (uid) => {
   try {
     const projectsRef = collection(db, `users/${uid}/projects`);
     const q = query(projectsRef, orderBy('updatedAt', 'desc'), limit(5));
     const querySnapshot = await getDocs(q);
     
-    // ⭐ ปรับตรงนี้ครับ
     return querySnapshot.docs.map(doc => {
       const data = doc.data();
       return {
         id: doc.id,
         ...data,
-        // แปลงกลับเป็น Array ถ้ามี sheetData
         sheetData: data.sheetData ? JSON.parse(data.sheetData) : []
       };
     });
@@ -52,15 +48,35 @@ export const fetchRecentProjects = async (uid) => {
   }
 };
 
+// ⭐ [แก้ไขแล้ว] ฟังก์ชันสำหรับดึงข้อมูลทุกโปรเจกต์ของ User สำหรับ Backup
+export const fetchAllProjects = async (uid) => {
+  try {
+    const projectsRef = collection(db, `users/${uid}/projects`);
+    // ✅ เอา orderBy ออก สั่ง getDocs ดึงข้อมูลจาก collection ตรงๆ เลยเพื่อกวาดมาทั้งหมด
+    const querySnapshot = await getDocs(projectsRef);
+    
+    return querySnapshot.docs.map(doc => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        ...data,
+        sheetData: data.sheetData ? JSON.parse(data.sheetData) : []
+      };
+    });
+  } catch (error) {
+    console.error("ดึงข้อมูลโปรเจกต์ทั้งหมดไม่สำเร็จ:", error);
+    throw error;
+  }
+};
+
 export const loginUser = (email, password) => signInWithEmailAndPassword(auth, email, password);
 export const logoutUser = () => signOut(auth);
 
 export const saveProjectToDB = async (uid, projectId, projectData) => {
   try {
-    // ⭐ แปลงข้อมูลที่มี Array ซ้อนกันให้เป็น String ก่อนเซฟ
     const dataToSave = {
       ...projectData,
-      sheetData: JSON.stringify(projectData.sheetData), // แปลงเป็น JSON String
+      sheetData: JSON.stringify(projectData.sheetData), 
       updatedAt: serverTimestamp()
     };
 
@@ -78,4 +94,3 @@ export const saveProjectToDB = async (uid, projectId, projectData) => {
     throw error;
   }
 };
-
