@@ -20,6 +20,11 @@ const Keyboard = () => {
   const [isMinimized, setIsMinimized] = useState(false);
   const [isInstMenuOpen, setIsInstMenuOpen] = useState(false);
 
+  // ตรวจสอบว่าเป็นเครื่องดนตรีที่เล่นคู่ 8 ได้หรือไม่ (ระนาดเอก, ระนาดทุ้ม)
+  const isOctaveInstrument = currentInstrument.keys.length >= 8;
+  // คำนวณหา Index สูงสุดที่กดได้ (หักออก 7 ลูก เพราะต้องเอาไว้ตีคู่)
+  const maxValidIdx = currentInstrument.keys.length - 8; 
+
   const getFormattedStr = (eng, thai) => {
     const octave = parseInt(eng.replace(/\D/g, ''));
     let finalNote = thai;
@@ -29,29 +34,21 @@ const Keyboard = () => {
     return finalNote;
   };
 
-  // 👇 เติมตัวแปร e เข้าไปในวงเล็บ
-  // 👇 เติมตัวแปร e เข้าไปในวงเล็บ
   const handleKeyClick = (idx, e) => {
     if (!inputNote || !appendNoteToCurrentCell) return;
 
-    if (isOctaveMode && currentInstrument.id === 'ranat-ek' && idx > 14) return;
+    // เปลี่ยนมาใช้เงื่อนไขแบบไดนามิกที่รองรับทุกเครื่อง
+    if (isOctaveMode && isOctaveInstrument && idx > maxValidIdx) return;
 
     const k = currentInstrument.keys[idx];
-    // ⭐ FIX: ใส่ pitch ที่คลิกจริงลง cell เสมอ (ห้าม override ไปเป็น pair)
-    // เสียงคู่ 8 จะถูกเล่นอัตโนมัติโดย playResolvedInstrumentNote ใน MusicContext
-    // (octave layer ทำงานตอน preview/play ไม่ใช่ตอนใส่ cell)
     const noteToInsert = getFormattedStr(k.eng, k.thai);
 
-    // ⭐ เช็กว่ามีการกดปุ่ม Shift ค้างไว้ด้วยหรือไม่ (e.shiftKey)
     if (e && e.shiftKey) {
-      // ถ้ากด Shift ค้างไว้: ให้ต่อท้ายเป็นลูกสะบัด (ช่องไม่เลื่อน)
       appendNoteToCurrentCell(noteToInsert);
     } else {
-      // ถ้าไม่ได้กด Shift: ลงโน้ตปกติ แล้วเด้งข้ามช่องทันที
       inputNote(noteToInsert);
     }
   };
-
 
   const handleSpecialKey = (note) => {
     if (note === 'TRIM_LAST') {
@@ -163,7 +160,8 @@ const Keyboard = () => {
                 )}
               </div>
 
-              {currentInstrument.id === 'ranat-ek' && (
+              {/* แสดงปุ่มเปิด/ปิดโหมดคู่ 8 เมื่อเป็นระนาดเอกหรือระนาดทุ้ม */}
+              {isOctaveInstrument && (
                 <label className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-500 cursor-pointer shadow-sm">
                   <input type="checkbox" className="sr-only" checked={isOctaveMode} onChange={(e) => setIsOctaveMode(e.target.checked)} />
                   <span className="whitespace-nowrap">โหมด คู่ 8</span>
@@ -190,7 +188,7 @@ const Keyboard = () => {
             {/* โซน 3: สร้าง/เพิ่มโครงสร้าง */}
             <ToolbarSection bodyClass="bg-slate-50 border border-slate-200">
               <ToolButton onClick={convertMeasureToText} bgClass="bg-[#fff5f0] text-orange-700 border-orange-100 hover:bg-[#ffece0]" icon={<span className="text-lg leading-none">T</span>} label="ช่องพิมพ์" title="เปลี่ยนห้องโน้ตเป็นห้องพิมพ์ข้อความ" />
-              <ToolButton onClick={addNoteColumn} bgClass="bg-[#f2f4ff] text-blue-700 border-blue-100 hover:bg-[#e8ecff]" icon={<span className="text-lg leading-none">+</span>} label="โน้ต" title="เพิ่มคอลัมน์โน้ต" />
+              <ToolButton onClick={addNoteColumn} bgClass="bg-[#f2f4ff] text-blue-700 border-blue-100 hover:bg-[#e8ecff]" icon={<span className="text-lg leading-none">+</span>} label="จังหวะ" title="เพิ่มคอลัมน์โน้ต" />
               <ToolButton onClick={addMeasure} bgClass="bg-[#eefbf3] text-emerald-700 border-emerald-100 hover:bg-[#e1f7ea]" icon={<span className="text-lg leading-none">+</span>} label="ห้อง" title="เพิ่มห้องเพลง" />
               <ToolButton onClick={addRow} bgClass="bg-[#f7efff] text-violet-700 border-violet-100 hover:bg-[#efe2ff]" icon={<span className="text-lg leading-none">+</span>} label="บรรทัด" title="เพิ่มบรรทัดเดี่ยว" />
               <ToolButton onClick={addDoubleRow} bgClass="bg-[#f7efff] text-violet-700 border-violet-100 hover:bg-[#efe2ff]" icon={<span className="text-lg leading-none">+</span>} label="บรรทัดคู่" title="เพิ่มบรรทัดคู่" />
@@ -203,7 +201,7 @@ const Keyboard = () => {
             {/* โซน 4: ลบโครงสร้างและโน้ต (ขวาสุด สีแดงทั้งหมด) */}
             <ToolbarSection wrapperClass="ml-auto" bodyClass="bg-red-50 border border-red-100">
               <ToolButton onClick={() => handleSpecialKey('BACKSPACE')} bgClass="bg-white text-red-600 border-red-200 hover:bg-red-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2M3 12l6.414 6.414a2 2 0 001.414.586H19a2 2 0 002-2V7a2 2 0 00-2-2h-8.172a2 2 0 00-1.414.586L3 12z" /></svg>} label="ลบโน้ต" title="ลบโน้ต (Backspace)" />
-              <ToolButton onClick={removeNoteColumn} bgClass="bg-white text-red-600 border-red-200 hover:bg-red-100" icon={<span className="text-lg leading-none">−</span>} label="ลบโน้ต" title="ลบคอลัมน์โน้ต" />
+              <ToolButton onClick={removeNoteColumn} bgClass="bg-white text-red-600 border-red-200 hover:bg-red-100" icon={<span className="text-lg leading-none">−</span>} label="ลบจังหวะ" title="ลบคอลัมน์โน้ต" />
               <ToolButton onClick={removeMeasure} bgClass="bg-white text-red-600 border-red-200 hover:bg-red-100" icon={<span className="text-lg leading-none">−</span>} label="ลบห้อง" title="ลบห้องเพลง" />
               <ToolButton onClick={removeRow} bgClass="bg-white text-red-600 border-red-200 hover:bg-red-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 7h12M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-7 0l1 12h6l1-12" /></svg>} label="ลบบรรทัด" title="ลบบรรทัดปัจจุบัน" />
             </ToolbarSection>
@@ -219,9 +217,11 @@ const Keyboard = () => {
           <div className="flex-1 overflow-x-auto pb-2 pt-2 custom-scrollbar transition-all duration-300">
             <div className="flex bg-slate-800 p-1 rounded-xl shadow-inner w-max mx-auto gap-[2px]">
               {currentInstrument.keys.map((k, i) => {
-                const isBlocked = isOctaveMode && currentInstrument.id === 'ranat-ek' && i > 14;
-                const isHovered = hoveredIdx === i || (isOctaveMode && currentInstrument.id === 'ranat-ek' && hoveredIdx !== null && i === hoveredIdx + 7);
-                const isActive = activeIdx === i || (isOctaveMode && currentInstrument.id === 'ranat-ek' && activeIdx !== null && i === activeIdx + 7);
+                
+                // ใช้ตัวแปรไดนามิกเพื่อคุมการโชว์/ซ่อน/บล็อกปุ่ม
+                const isBlocked = isOctaveMode && isOctaveInstrument && i > maxValidIdx;
+                const isHovered = hoveredIdx === i || (isOctaveMode && isOctaveInstrument && hoveredIdx !== null && i === hoveredIdx + 7);
+                const isActive = activeIdx === i || (isOctaveMode && isOctaveInstrument && activeIdx !== null && i === activeIdx + 7);
 
                 let btnClass = 'w-14 h-[100px] shrink-0 border-b-[5px] rounded-b-md flex flex-col items-center justify-end pb-5 transition-all shadow-sm group select-none relative ';
 
@@ -245,7 +245,7 @@ const Keyboard = () => {
                     onPointerEnter={() => { if (!isBlocked) setHoveredIdx(i); }}
                     onContextMenu={(e) => { 
                       e.preventDefault(); 
-                        if (!isBlocked) handleSpecialKey('-'); // 👈 เพิ่มคำสั่งพิมพ์ตัวพักเสียงเข้าไป
+                        if (!isBlocked) handleSpecialKey('-');
                     }}
                     onClick={(e) => { if (!isBlocked) handleKeyClick(i, e); }}
                     className={btnClass}

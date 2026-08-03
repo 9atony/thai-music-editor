@@ -165,6 +165,7 @@ const Settings = () => {
               >
                 <option value="ranat-ek">ระนาดเอก</option>
                 <option value="khong-wong-yai">ฆ้องวงใหญ่</option>
+                <option value="ranat-tum">ระนาดทุ้ม</option>
               </select>
             </div>
             <hr className="border-slate-100" />

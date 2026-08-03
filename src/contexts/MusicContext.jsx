@@ -267,7 +267,7 @@ export const MusicProvider = ({ children }) => {
     const { bypassOctaveLayer = false } = options;
     playNote(currentInstrument.id, noteStr, vol);
 
-    if (!bypassOctaveLayer && isOctaveModeRef.current && currentInstrument.id === 'ranat-ek') {
+   if (!bypassOctaveLayer && isOctaveModeRef.current) {
       const preferredDirection = getPreferredOctaveDirection(currentInstrument, noteStr);
       const octavePairNote = getOctavePairNote(currentInstrument, noteStr, preferredDirection);
       if (octavePairNote && octavePairNote !== noteStr) {
@@ -297,6 +297,23 @@ export const MusicProvider = ({ children }) => {
     const normalizedToken = normalizeCellToken(token);
     const newData = sheetData.map((rowData) => rowData.map((measure) => [...measure]));
     newData[row][meas][cell] = normalizedToken;
+
+    // ⭐ ระบบบันทึกคู่ 8 อัตโนมัติในบรรทัดคู่ (สำหรับแก้ไข Inline)
+    if (isOctaveModeRef.current && rowTypes[row].startsWith('double')) {
+        const pairRow = rowTypes[row] === 'double-right' ? row + 1 : row - 1;
+        if (pairRow >= 0 && pairRow < newData.length) {
+            if (normalizedToken === '-') {
+                newData[pairRow][meas][cell] = '-';
+            } else {
+                const parts = splitThaiNoteToken(normalizedToken);
+                const pairedParts = parts.map(n => {
+                    const prefDir = getPreferredOctaveDirection(currentInstrument, n);
+                    return getOctavePairNote(currentInstrument, n, prefDir) || n;
+                });
+                newData[pairRow][meas][cell] = pairedParts.join('');
+            }
+        }
+    }
 
     commitChange(newData);
     setSelectionRange(null);
@@ -361,15 +378,36 @@ export const MusicProvider = ({ children }) => {
     const incomingParts = splitThaiNoteToken(note);
     if (incomingParts.length === 0) return;
 
-    const currentToken = normalizeCellToken(sheetData[row][meas][cell]);
+    const newData = sheetData.map((rowData) => rowData.map((measure) => [...measure]));
+
+    const currentToken = normalizeCellToken(newData[row][meas][cell]);
     const currentParts = currentToken === '-' ? [] : splitThaiNoteToken(currentToken);
     const mergedToken = normalizeCellToken([...currentParts, ...incomingParts].join(''));
 
-    updateCellToken(row, meas, cell, mergedToken, {
-      preview: options.preview !== false,
-      keepSelection: true,
-      volume: options.volume ?? (layoutConfigRef.current.volume ?? 100),
-    });
+    newData[row][meas][cell] = mergedToken;
+
+    // ⭐ ระบบบันทึกคู่ 8 อัตโนมัติ (สำหรับแทรกโน้ต/ลูกสะบัด)
+    if (isOctaveModeRef.current && rowTypes[row].startsWith('double')) {
+        const pairRow = rowTypes[row] === 'double-right' ? row + 1 : row - 1;
+        if (pairRow >= 0 && pairRow < newData.length) {
+            const incomingStr = incomingParts.join('');
+            const prefDir = getPreferredOctaveDirection(currentInstrument, incomingStr);
+            const incomingPair = getOctavePairNote(currentInstrument, incomingStr, prefDir) || incomingStr;
+            
+            const pairCurrentToken = normalizeCellToken(newData[pairRow][meas][cell]);
+            const pairCurrentParts = pairCurrentToken === '-' ? [] : splitThaiNoteToken(pairCurrentToken);
+            const pairMergedToken = normalizeCellToken([...pairCurrentParts, incomingPair].join(''));
+            
+            newData[pairRow][meas][cell] = pairMergedToken;
+        }
+    }
+
+    commitChange(newData);
+    setSelectionRange(null);
+    if (options.keepSelection !== false) setSelectedCell([row, meas, cell]);
+    if (options.preview !== false && mergedToken !== '-') {
+      previewCellToken(mergedToken, options.volume ?? (layoutConfigRef.current.volume ?? 100));
+    }
 
     if (options.moveNext) {
       setTimeout(() => moveSelectionToAdjacentCell('next'), 0);
@@ -388,10 +426,23 @@ export const MusicProvider = ({ children }) => {
     const currentParts = splitThaiNoteToken(currentToken);
     const nextToken = currentParts.length <= 1 ? '-' : currentParts.slice(0, -1).join('');
 
-    updateCellToken(row, meas, cell, nextToken, {
-      preview: false,
-      keepSelection: true,
-    });
+    const newData = sheetData.map((rowData) => rowData.map((measure) => [...measure]));
+    newData[row][meas][cell] = nextToken;
+
+    // ⭐ ระบบลบคู่ 8 อัตโนมัติ (สำหรับลูกสะบัด)
+    if (isOctaveModeRef.current && rowTypes[row].startsWith('double')) {
+        const pairRow = rowTypes[row] === 'double-right' ? row + 1 : row - 1;
+        if (pairRow >= 0 && pairRow < newData.length) {
+            const pairCurrentToken = normalizeCellToken(newData[pairRow][meas][cell]);
+            if (pairCurrentToken !== '-') {
+                const pairCurrentParts = splitThaiNoteToken(pairCurrentToken);
+                const pairNextToken = pairCurrentParts.length <= 1 ? '-' : pairCurrentParts.slice(0, -1).join('');
+                newData[pairRow][meas][cell] = pairNextToken;
+            }
+        }
+    }
+
+    commitChange(newData);
   };
 
   const [headerDetails, setHeaderDetails] = useState([
@@ -1006,9 +1057,10 @@ export const MusicProvider = ({ children }) => {
   };
 
   const inputNote = (note) => {
-    if (isReadOnlyRef.current) return; // ⭐ บล็อกในโหมดอ่านอย่างเดียว
-    const newData = [...sheetData];
+    if (isReadOnlyRef.current) return; 
+    const newData = sheetData.map(row => row.map(meas => [...meas]));
     let isBlockSelection = false;
+    
     if (selectionRange && selectionRange.start && selectionRange.end) {
         const { start: [sr, sm, sc], end: [er, em, ec] } = selectionRange;
         if (sr !== er || sm !== em || sc !== ec) isBlockSelection = true;
@@ -1027,7 +1079,23 @@ export const MusicProvider = ({ children }) => {
           for (let m = 0; m < sheetData[r].length; m++) {
             if (rowTypes[r].startsWith('double') && m === 0) continue;
             for (let c = 0; c < sheetData[r][m].length; c++) {
-              if (currentCol >= minCol && currentCol <= maxCol) newData[r][m][c] = normalizedToken;
+              if (currentCol >= minCol && currentCol <= maxCol) {
+                  newData[r][m][c] = normalizedToken;
+                  
+                  // ⭐ ระบบบันทึกคู่ 8 อัตโนมัติ (สำหรับตอนคลุมดำหลายช่อง)
+                  if (isOctaveModeRef.current && rowTypes[r].startsWith('double')) {
+                      const pairRow = rowTypes[r] === 'double-right' ? r + 1 : r - 1;
+                      if (pairRow >= 0 && pairRow < newData.length) {
+                          if (normalizedToken === '-') {
+                              newData[pairRow][m][c] = '-';
+                          } else {
+                              const prefDir = getPreferredOctaveDirection(currentInstrument, normalizedToken);
+                              const pairNote = getOctavePairNote(currentInstrument, normalizedToken, prefDir) || normalizedToken;
+                              newData[pairRow][m][c] = pairNote;
+                          }
+                      }
+                  }
+              }
               currentCol++;
             }
           }
@@ -1043,6 +1111,15 @@ export const MusicProvider = ({ children }) => {
 
     if (note === 'BACKSPACE') {
       newData[row][meas][cell] = '-';
+      
+      // ⭐ ระบบลบคู่ 8 อัตโนมัติ
+      if (isOctaveModeRef.current && rowTypes[row].startsWith('double')) {
+          const pairRow = rowTypes[row] === 'double-right' ? row + 1 : row - 1;
+          if (pairRow >= 0 && pairRow < newData.length) {
+              newData[pairRow][meas][cell] = '-';
+          }
+      }
+
       commitChange(newData);
       if (cell > 0) setSelectedCell([row, meas, cell - 1]);
       else if (meas > 0) {
@@ -1057,6 +1134,17 @@ export const MusicProvider = ({ children }) => {
     } else {
       const normalizedToken = normalizeCellToken(note);
       newData[row][meas][cell] = normalizedToken;
+      
+      // ⭐ ระบบพิมพ์คู่ 8 อัตโนมัติ (พิมพ์ปกติ)
+      if (isOctaveModeRef.current && rowTypes[row].startsWith('double')) {
+          const pairRow = rowTypes[row] === 'double-right' ? row + 1 : row - 1;
+          if (pairRow >= 0 && pairRow < newData.length) {
+              const prefDir = getPreferredOctaveDirection(currentInstrument, normalizedToken);
+              const pairNote = getOctavePairNote(currentInstrument, normalizedToken, prefDir) || normalizedToken;
+              newData[pairRow][meas][cell] = pairNote;
+          }
+      }
+
       if (normalizedToken !== '-') previewCellToken(normalizedToken, layoutConfig.volume ?? 100);
       commitChange(newData);
       if (cell < sheetData[row][meas].length - 1) setSelectedCell([row, meas, cell + 1]);
