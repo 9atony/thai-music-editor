@@ -10,7 +10,8 @@ import saveIcon from '../../assets/icons/save.png';
 const Navbar = ({ onPrint, onOpenSettings, onBack }) => {
   const { 
     saveProject, loadProject, newProject, undo, redo, 
-    canUndo, canRedo, stopPlayback, projectName, setProjectName 
+    canUndo, canRedo, stopPlayback, projectName, setProjectName,
+    songName, setSongName
   } = useContext(MusicContext);
 
   return (
@@ -40,7 +41,8 @@ const Navbar = ({ onPrint, onOpenSettings, onBack }) => {
 
           <div className="hidden sm:flex items-center">
             <input 
-              type="text" value={projectName || ''} onChange={(e) => setProjectName(e.target.value)}
+              // 👇 เปลี่ยน value และ onChange ให้ไปคุม songName แทน
+              type="text" value={songName || projectName || ''} onChange={(e) => setSongName(e.target.value)}
               placeholder="โปรเจกต์ไม่มีชื่อ"
               className="text-lg font-bold text-slate-700 bg-transparent border-b-2 border-transparent hover:border-slate-200 focus:border-sky-500 focus:outline-none focus:ring-0 placeholder:text-slate-300 w-40 md:w-64 truncate transition-colors px-1 py-0.5"
               title="คลิกเพื่อเปลี่ยนชื่อเพลง"
