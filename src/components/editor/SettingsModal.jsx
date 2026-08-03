@@ -6,8 +6,7 @@ const SettingsModal = ({ isOpen, onClose }) => {
   const { 
     currentInstrument, changeInstrument, 
     layoutConfig, setLayoutConfig,
-    headerDetails, addDetail, removeDetail, updateDetail,
-    songName, setSongName
+    headerDetails, addDetail, removeDetail, updateDetail
   } = useContext(MusicContext);
   
   const [activeTab, setActiveTab] = useState('info');
@@ -39,21 +38,32 @@ const SettingsModal = ({ isOpen, onClose }) => {
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm transition-opacity">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden animate-fade-in-up">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col overflow-hidden animate-fade-in-up">
         
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-slate-50">
-          <h2 className="text-lg font-bold text-slate-800">⚙️ การตั้งค่าโปรเจกต์</h2>
+          <div className="flex items-center gap-2.5 text-slate-800">
+            <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+            <h2 className="text-lg font-bold">การตั้งค่าโปรเจกต์</h2>
+          </div>
           <button onClick={onClose} className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
         </div>
 
-        {/* Tabs - ลบแท็บป้ายกำกับออกเหลือแค่ 2 แท็บ */}
+        {/* Tabs */}
         <div className="flex px-6 pt-4 gap-2 border-b border-slate-200 bg-white">
           {[
-            { id: 'info', label: 'ข้อมูลโปรเจกต์', icon: '📄' },
-            { id: 'style', label: 'ตั้งค่ากระดาษ', icon: '⚙️' }
+            { 
+              id: 'info', 
+              label: 'ข้อมูลโปรเจกต์', 
+              icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+            },
+            { 
+              id: 'style', 
+              label: 'ตั้งค่ากระดาษ', 
+              icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" /></svg>
+            }
           ].map(tab => (
             <button 
               key={tab.id}
@@ -62,7 +72,7 @@ const SettingsModal = ({ isOpen, onClose }) => {
                 activeTab === tab.id ? 'border-sky-500 text-sky-600 bg-sky-50/50' : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50'
               }`}
             >
-              <span>{tab.icon}</span> {tab.label}
+              <span className={activeTab === tab.id ? 'text-sky-500' : 'text-slate-400'}>{tab.icon}</span> {tab.label}
             </button>
           ))}
         </div>
@@ -74,7 +84,10 @@ const SettingsModal = ({ isOpen, onClose }) => {
           {activeTab === 'info' && (
             <div className="space-y-6">
               <section>
-                <label className="text-sm font-bold text-slate-700 block mb-2">🎹 เครื่องดนตรีหลัก</label>
+                <label className="text-sm font-bold text-slate-700 flex items-center gap-2 mb-2">
+                  <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" /></svg>
+                  เครื่องดนตรีหลัก
+                </label>
                 <select 
                   value={currentInstrument.id}
                   onChange={(e) => changeInstrument(e.target.value)}
@@ -87,25 +100,10 @@ const SettingsModal = ({ isOpen, onClose }) => {
               </section>
 
               <section>
-                <label className="text-sm font-bold text-slate-700 block mb-2">📝 หัวกระดาษ (ชื่อเพลง)</label>
-                <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm space-y-4">
-                  <input 
-                    type="text" value={songName} onChange={(e) => setSongName(e.target.value)}
-                    className="w-full p-2 text-sm text-sky-900 bg-slate-50 border border-slate-200 rounded-md focus:outline-none focus:border-sky-400 font-bold text-center"
-                    placeholder="พิมพ์ชื่อเพลงที่นี่..."
-                  />
-                  <div>
-                    <label className="text-xs text-slate-500 flex justify-between mb-1.5">
-                      <span>ขนาดอักษร</span>
-                      <span className="font-bold text-sky-600">{layoutConfig.songNameSize}px</span>
-                    </label>
-                    <input type="range" min="20" max="100" value={layoutConfig.songNameSize} onChange={(e) => updateLayout('songNameSize', parseInt(e.target.value))} className="w-full h-1.5 bg-slate-200 rounded-lg accent-sky-500 cursor-pointer" />
-                  </div>
-                </div>
-              </section>
-
-              <section>
-                <label className="text-sm font-bold text-slate-700 block mb-2">📌 รายละเอียดเพิ่มเติม (มุมขวาบน)</label>
+                <label className="text-sm font-bold text-slate-700 flex items-center gap-2 mb-2">
+                  <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" /></svg>
+                  รายละเอียดเพิ่มเติม (มุมขวาบน)
+                </label>
                 <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm space-y-4">
                   <div className="space-y-2">
                     {headerDetails.map((detail) => (
@@ -116,8 +114,9 @@ const SettingsModal = ({ isOpen, onClose }) => {
                         <input type="text" value={detail.value} onChange={(e) => updateDetail(detail.id, 'value', e.target.value)} className="w-2/3 text-sm text-slate-700 bg-transparent outline-none" placeholder="รายละเอียด" />
                       </div>
                     ))}
-                    <button onClick={addDetail} className="w-full py-2 border border-dashed border-slate-300 rounded-md text-sm text-slate-500 hover:border-sky-400 hover:text-sky-600 hover:bg-sky-50 transition-all font-semibold">
-                      + เพิ่มข้อมูล
+                    <button onClick={addDetail} className="w-full py-2 border border-dashed border-slate-300 rounded-md text-sm text-slate-500 hover:border-sky-400 hover:text-sky-600 hover:bg-sky-50 transition-all font-semibold flex justify-center items-center gap-1.5">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
+                      เพิ่มข้อมูล
                     </button>
                   </div>
                 </div>
@@ -130,11 +129,14 @@ const SettingsModal = ({ isOpen, onClose }) => {
             <div className="space-y-6">
               <section className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm space-y-4">
                 <div className="flex justify-between items-center border-b border-slate-100 pb-2">
-                  <label className="text-sm font-bold text-slate-700">📄 ระยะขอบกระดาษ</label>
-                  <select value={layoutConfig.marginUnit || 'px'} onChange={handleUnitChange} className="text-xs border rounded bg-slate-50 py-1 px-2 font-bold text-sky-600 focus:outline-none">
-                    <option value="px">Pixel (px)</option>
-                    <option value="cm">Centimeter</option>
-                    <option value="in">Inch</option>
+                  <label className="text-sm font-bold text-slate-700 flex items-center gap-2">
+                    <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" /></svg>
+                    ระยะขอบกระดาษ
+                  </label>
+                  <select value={layoutConfig.marginUnit || 'px'} onChange={handleUnitChange} className="text-xs border border-slate-200 rounded-md bg-slate-50 py-1 px-2 font-bold text-sky-600 focus:outline-none focus:border-sky-300">
+                    <option value="px">พิกเซล (px)</option>
+                    <option value="cm">เซนติเมตร (cm)</option>
+                    <option value="in">นิ้ว (in)</option>
                   </select>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
@@ -144,18 +146,6 @@ const SettingsModal = ({ isOpen, onClose }) => {
                       <input type="number" step="0.1" value={layoutConfig[`margin${pos}`] ?? 48} onChange={(e) => updateLayout(`margin${pos}`, parseFloat(e.target.value) || 0)} className="w-full border border-slate-200 rounded-md p-2 text-sm text-center focus:ring-2 focus:ring-sky-200 focus:outline-none" />
                     </div>
                   ))}
-                </div>
-              </section>
-
-              <section className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm space-y-4">
-                <label className="text-sm font-bold text-slate-700 block border-b border-slate-100 pb-2">📏 สัดส่วนตาราง</label>
-                <div>
-                  <label className="text-xs text-slate-500 flex justify-between mb-1.5"><span>ความสูงห้องเพลง</span><span className="font-bold text-sky-600">{layoutConfig.measureHeight}px</span></label>
-                  <input type="range" min="30" max="100" value={layoutConfig.measureHeight} onChange={(e) => updateLayout('measureHeight', parseInt(e.target.value))} className="w-full h-1.5 bg-slate-200 rounded-lg accent-sky-500 cursor-pointer" />
-                </div>
-                <div>
-                  <label className="text-xs text-slate-500 flex justify-between mb-1.5"><span>ระยะห่างระหว่างบรรทัด</span><span className="font-bold text-sky-600">{layoutConfig.rowGap}px</span></label>
-                  <input type="range" min="0" max="100" value={layoutConfig.rowGap} onChange={(e) => updateLayout('rowGap', parseInt(e.target.value))} className="w-full h-1.5 bg-slate-200 rounded-lg accent-sky-500 cursor-pointer" />
                 </div>
               </section>
             </div>
