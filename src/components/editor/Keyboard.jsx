@@ -18,8 +18,7 @@ const Keyboard = () => {
   const [hoveredIdx, setHoveredIdx] = useState(null);
   const [activeIdx, setActiveIdx] = useState(null);
   
-  // ⭐ เปลี่ยนการเก็บข้อมูลไฟให้ระบุแยกได้ว่าเป็นมือไหน (left/right/single)
-  const [activeLitKeys, setActiveLitKeys] = useState({});
+  // ❌ เอา activeLitKeys (React State) ออกไป ใช้แค่ Ref สำหรับจับเวลาแทน
   const litTimersRef = useRef({});
 
   const [isMinimized, setIsMinimized] = useState(false);
@@ -37,37 +36,34 @@ const Keyboard = () => {
     return finalNote;
   };
 
- 
-    // ⭐ เพิ่ม Ref สำหรับจดบันทึกไฟแบบเรียลไทม์ (ป้องกัน React State Collision)
-  const litKeysTrackerRef = useRef({});
-
+  // ⭐ อัปเดต: สั่งงานไฟกะพริบผ่าน DOM ทันที (ป้องกัน React กลืนคำสั่งใน Production)
   useEffect(() => {
     const handleNotePlayed = (e) => {
       const { note, hand } = e.detail; 
       const idx = currentInstrument.keys.findIndex(k => getFormattedStr(k.eng, k.thai) === note);
       
       if (idx !== -1) {
+        // 1. ชี้เป้าไปที่ปุ่มบนหน้าจอโดยตรง
+        const btn = document.getElementById(`kbd-key-${idx}`);
+        if (!btn) return;
+
+        // 2. เคลียร์เวลาเก่าทิ้ง
         if (litTimersRef.current[idx]) clearTimeout(litTimersRef.current[idx]);
 
-        const executeLightOn = () => {
-          // ใช้ Ref จดคิวไว้ก่อน แล้วค่อยสั่ง Update State ทีเดียว
-          litKeysTrackerRef.current[idx] = hand;
-          setActiveLitKeys({ ...litKeysTrackerRef.current });
+        // 3. บังคับดึงคลาสสีเก่าออกก่อน (เพื่อจำลองการยกไม้)
+        btn.classList.remove('lit-left', 'lit-right', 'lit-single');
+        
+        // 4. บังคับให้เบราว์เซอร์รู้ตัวว่าลบคลาสแล้ว (Force Reflow)
+        void btn.offsetWidth;
 
-          litTimersRef.current[idx] = setTimeout(() => {
-            delete litKeysTrackerRef.current[idx];
-            setActiveLitKeys({ ...litKeysTrackerRef.current });
-          }, 200); 
-        };
+        // 5. สาดสีใหม่เข้าไปทันที
+        const handClass = `lit-${hand}`;
+        btn.classList.add(handClass);
 
-        if (litKeysTrackerRef.current[idx]) {
-          // ถ้าไฟดวงนี้ติดอยู่แล้ว สั่งดับแวบหนึ่งแล้วติดใหม่
-          delete litKeysTrackerRef.current[idx];
-          setActiveLitKeys({ ...litKeysTrackerRef.current });
-          setTimeout(executeLightOn, 20); 
-        } else {
-          executeLightOn();
-        }
+        // 6. ตั้งเวลาลบสีออก
+        litTimersRef.current[idx] = setTimeout(() => {
+          btn.classList.remove(handClass);
+        }, 200); 
       }
     };
 
@@ -147,6 +143,33 @@ const Keyboard = () => {
 
   return (
     <div className={`relative flex flex-col z-10 w-full font-sans transition-colors duration-300 ${isOctaveMode && !isMinimized ? 'bg-[#fffdf0]' : 'bg-[#eaf4fc]'}`}>
+      
+      {/* ⭐ ระบบไฟกะพริบที่ถูกคุมด้วย CSS ล้วนๆ ทะลุข้อจำกัดของ React */}
+      <style>
+        {`
+          .lit-left {
+            background-color: #0ea5e9 !important; 
+            border-color: #0284c7 !important; 
+            border-bottom-width: 0px !important;
+            transform: translateY(0.25rem) !important; 
+            color: white !important;
+            box-shadow: inset 0 4px 10px rgba(0,0,0,0.3) !important;
+          }
+          .lit-right, .lit-single {
+            background-color: #f43f5e !important; 
+            border-color: #e11d48 !important; 
+            border-bottom-width: 0px !important;
+            transform: translateY(0.25rem) !important;
+            color: white !important;
+            box-shadow: inset 0 4px 10px rgba(0,0,0,0.3) !important;
+          }
+          .lit-left span, .lit-right span, .lit-single span {
+            color: white !important;
+            font-weight: bold !important;
+            opacity: 0.9 !important;
+          }
+        `}
+      </style>
 
       <div className="absolute -top-[30px] right-4 sm:right-8 z-20 flex gap-2">
         <button
@@ -268,25 +291,13 @@ const Keyboard = () => {
                 const k = isReduceMode ? shiftNoteObject(kOriginal, 1) : kOriginal;
                 const isBlocked = isOctaveMode && isOctaveInstrument && i > maxValidIdx;
                 
-                // ⭐ เช็กว่าปุ่มนี้กำลังโดนไฟสาดใส่หรือไม่ และมือไหนกำลังตี
-                const activeHand = activeLitKeys[i];
-                const isLit = !!activeHand;
-                
+                // เราไม่ต้องใช้ State แล้ว เพราะใช้ CSS ควบคุมสีทั้งหมดผ่าน class
                 const isHovered = hoveredIdx === i || (isOctaveMode && isOctaveInstrument && hoveredIdx !== null && i === hoveredIdx + 7);
                 const isActive = activeIdx === i || (isOctaveMode && isOctaveInstrument && activeIdx !== null && i === activeIdx + 7);
 
                 let btnClass = 'w-14 h-[100px] shrink-0 border-b-[5px] rounded-b-md flex flex-col items-center justify-end pb-5 transition-all shadow-sm group select-none relative ';
 
-                // ⭐ ให้สิทธิ์แสงโชว์เหนือสถานะอื่นทั้งหมด (แยกสีมือซ้ายและขวา)
-                if (isLit) {
-                  if (activeHand === 'left') {
-                    // มือซ้ายสีฟ้า (Sky)
-                    btnClass += 'bg-sky-500 border-sky-600 border-b-0 translate-y-1 text-white shadow-[inset_0_4px_10px_rgba(0,0,0,0.3)] ';
-                  } else {
-                    // มือขวา หรือ บรรทัดเดี่ยวสีแดง (Rose)
-                    btnClass += 'bg-rose-500 border-rose-600 border-b-0 translate-y-1 text-white shadow-[inset_0_4px_10px_rgba(0,0,0,0.3)] ';
-                  }
-                } else if (isActive) {
+                if (isActive) {
                   btnClass += isOctaveMode ? 'bg-amber-300 border-amber-300 border-b-0 translate-y-1 text-amber-900 ' : 'bg-sky-200 border-sky-200 border-b-0 translate-y-1 text-sky-900 ';
                 } else if (isHovered) {
                   btnClass += isOctaveMode ? 'bg-amber-100 border-amber-400 text-amber-700 ' : 'bg-sky-50 border-sky-400 text-sky-600 ';
@@ -299,6 +310,7 @@ const Keyboard = () => {
                 return (
                   <button
                     key={i}
+                    id={`kbd-key-${i}`} // ⭐ เพิ่ม ID ตรงนี้ให้ Javascript ยิงคำสั่งแสงได้แม่นๆ
                     onPointerDown={(e) => { e.preventDefault(); if (!isBlocked) setActiveIdx(i); }}
                     onPointerUp={() => setActiveIdx(null)}
                     onPointerLeave={() => { setActiveIdx(null); setHoveredIdx(null); }}
@@ -311,7 +323,7 @@ const Keyboard = () => {
                     onClick={(e) => { if (!isBlocked) handleKeyClick(i, e); }}
                     className={btnClass}
                   >
-                    <span className={`absolute top-2 text-[10px] uppercase tracking-wider opacity-40 ${isHovered || isActive || isLit ? 'font-bold text-current opacity-70' : ''}`}>{k.eng}</span>
+                    <span className={`absolute top-2 text-[10px] uppercase tracking-wider opacity-40 ${isHovered || isActive ? 'font-bold text-current opacity-70' : ''}`}>{k.eng}</span>
                     {renderNoteLabel(k.thai, k.eng)}
                   </button>
                 );
