@@ -21,61 +21,66 @@ const MobileEditor = ({ onBack }) => {
     isLoopAll, setIsLoopAll,
     isLoopOne, setIsLoopOne,
     layoutConfig, setLayoutConfig,
-    currentInstrument, // 👈 ดึงข้อมูลเครื่องดนตรีปัจจุบัน
+    currentInstrument,
     isOctaveMode, 
-    setIsOctaveMode    // 👈 ดึงตัวเปิด/ปิดโหมดคู่ 8
+    setIsOctaveMode
   } = useContext(MusicContext);
 
   const sheetContainerRef = useRef(null);
   const [isQueueOpen, setIsQueueOpen] = useState(false);
 
-  // ⭐ ตั้งค่าให้เปิดโหมดคู่ 8 (Octave Mode) เป็น Default ทันทีที่เข้ามาหน้า Mobile
   useEffect(() => {
     if (setIsOctaveMode) {
       setIsOctaveMode(true);
     }
   }, [setIsOctaveMode]);
 
-  // ⭐ 1. สร้าง Ref เพื่อดึงสถานะ isPlaying ปัจจุบันโดยไม่ทำให้ useEffect รีรัน
   const isPlayingRef = useRef(isPlaying);
   useEffect(() => {
     isPlayingRef.current = isPlaying;
   }, [isPlaying]);
 
-  // ⭐ 2. ดักจับปุ่ม Back ของมือถือ (Hardware/Browser Back Button)
+  // ⭐ ดักจับการกดปุ่ม Back
   useEffect(() => {
-    // ดันประวัติจำลองเข้าไป 1 ชั้น เพื่อไม่ให้กด Back แล้วหลุดเว็บ
     window.history.pushState(null, null, window.location.href);
     
     const handlePopState = (e) => {
-      // เมื่อผู้ใช้กดปุ่ม Back ของมือถือ
       if (isPlayingRef.current && stopPlayback) {
         stopPlayback();
       }
-      onBack(); // สั่งให้กลับไปหน้าก่อนหน้าผ่าน State ของแอปแทนการปิดเว็บ
+      onBack();
     };
 
     window.addEventListener('popstate', handlePopState);
-    
-    return () => {
-      window.removeEventListener('popstate', handlePopState);
-    };
+    return () => window.removeEventListener('popstate', handlePopState);
   }, [onBack, stopPlayback]);
 
-// ⭐ 3. ดักจับการเผลอปิดแท็บ หรือกดรีเฟรช (F5) บนคอมพิวเตอร์
+  // ⭐ ดักจับการปิดแท็บ
   useEffect(() => {
     const handleBeforeUnload = (e) => {
-      // เบราว์เซอร์ยุคใหม่จะแสดงข้อความแจ้งเตือนมาตรฐานของมันเอง 
       e.preventDefault();
       e.returnValue = ''; 
     };
 
     window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, []);
+
+  // ⭐ ฟีเจอร์ใหม่: ดักจับการพับหน้าจอ (แก้ปัญหาเสียงกระตุก/เสียงรวบ)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      // ถ้าหน้าจอถูกซ่อน (พับแอป/ปิดจอ) และเพลงกำลังเล่นอยู่ ให้สั่งหยุดทันที!
+      if (document.hidden && isPlayingRef.current && stopPlayback) {
+        stopPlayback();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
     
     return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, []);
+  }, [stopPlayback]);
 
   const formatTimeDisplay = (seconds) => {
     if (isNaN(seconds) || seconds < 0) return "0:00";
@@ -131,7 +136,6 @@ const MobileEditor = ({ onBack }) => {
         </button>
         
         <div className="flex-1 text-center px-2 overflow-hidden flex flex-col justify-center">
-          {/* 👈 ใช้ songName เป็นหลักเพื่อให้ตรงกับหัวกระดาษ */}
           <span className="font-bold text-slate-800 text-sm truncate w-full">
             {songName || projectName || "โปรเจกต์ไม่มีชื่อ"}
           </span>
@@ -245,7 +249,6 @@ const MobileEditor = ({ onBack }) => {
           
           <div className="flex-1 overflow-auto p-5 custom-scrollbar flex flex-col gap-5">
             
-            {/* ⭐ ส่วนเปิด/ปิดโหมดคู่ 8 (Octave Mode) */}
             <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex items-center justify-between">
               <div className="flex items-center gap-3">
                  <div className="w-10 h-10 bg-white rounded-xl shadow-sm flex items-center justify-center text-sky-500 border border-slate-100">
@@ -256,7 +259,6 @@ const MobileEditor = ({ onBack }) => {
                    <div className="text-xs text-slate-400">บรรเลงเสียงสูงคู่ขนานอัตโนมัติ</div>
                  </div>
               </div>
-              {/* ปุ่ม Switch เปิด/ปิด */}
               <button 
                 onClick={() => setIsOctaveMode(!isOctaveMode)}
                 className={`w-14 h-8 flex items-center rounded-full p-1 transition-colors duration-300 ${isOctaveMode ? 'bg-sky-500' : 'bg-slate-300'}`}
@@ -265,7 +267,6 @@ const MobileEditor = ({ onBack }) => {
               </button>
             </div>
 
-            {/* ส่วนตั้งค่า BPM */}
             <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex items-center justify-between">
               <div className="flex items-center gap-3">
                  <div className="w-10 h-10 bg-white rounded-xl shadow-sm flex items-center justify-center text-sky-500 border border-slate-100">
@@ -291,7 +292,6 @@ const MobileEditor = ({ onBack }) => {
               </div>
             </div>
 
-            {/* ส่วนคิวเพลง */}
             <div>
               <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 px-1">ลำดับท่อนเพลง</div>
               {playbackSequence && playbackSequence.length > 0 ? (

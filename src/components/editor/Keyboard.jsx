@@ -1,6 +1,5 @@
-import React, { useContext, useState } from 'react';
+import React, { useContext, useState, useEffect, useRef } from 'react';
 import { MusicContext } from '../../contexts/MusicContext';
-import { playNote } from '../../utils/audioEngine';
 import { INSTRUMENT_CONFIG } from '../../utils/instrumentConfig'; 
 
 const Keyboard = () => {
@@ -10,19 +9,23 @@ const Keyboard = () => {
     addMeasure, removeMeasure, addNoteColumn, removeNoteColumn,
     copySelection, pasteSelection, clipboardData, addPageBreak,
     isOctaveMode, setIsOctaveMode,
+    isReduceMode, setIsReduceMode, shiftNoteObject,
+    isShowPlayMode, setIsShowPlayMode,
     appendNoteToCurrentCell, trimCurrentCellToken, moveSelectionNext, moveSelectionPrev,
     convertMeasureToText
   } = useContext(MusicContext);
 
   const [hoveredIdx, setHoveredIdx] = useState(null);
   const [activeIdx, setActiveIdx] = useState(null);
+  
+  // ⭐ เปลี่ยนการเก็บข้อมูลไฟให้ระบุแยกได้ว่าเป็นมือไหน (left/right/single)
+  const [activeLitKeys, setActiveLitKeys] = useState({});
+  const litTimersRef = useRef({});
 
   const [isMinimized, setIsMinimized] = useState(false);
   const [isInstMenuOpen, setIsInstMenuOpen] = useState(false);
 
-  // ตรวจสอบว่าเป็นเครื่องดนตรีที่เล่นคู่ 8 ได้หรือไม่ (ระนาดเอก, ระนาดทุ้ม)
   const isOctaveInstrument = currentInstrument.keys.length >= 8;
-  // คำนวณหา Index สูงสุดที่กดได้ (หักออก 7 ลูก เพราะต้องเอาไว้ตีคู่)
   const maxValidIdx = currentInstrument.keys.length - 8; 
 
   const getFormattedStr = (eng, thai) => {
@@ -34,13 +37,51 @@ const Keyboard = () => {
     return finalNote;
   };
 
+  // ⭐ อัปเดตการรับสัญญาณ ให้มีเอฟเฟกต์ยกไม้ และจำมือซ้ายขวา
+  useEffect(() => {
+    const handleNotePlayed = (e) => {
+      const { note, hand } = e.detail; 
+      const idx = currentInstrument.keys.findIndex(k => getFormattedStr(k.eng, k.thai) === note);
+      
+      if (idx !== -1) {
+        if (litTimersRef.current[idx]) clearTimeout(litTimersRef.current[idx]);
+
+        const turnOnLight = () => {
+          setActiveLitKeys(prev => ({ ...prev, [idx]: hand }));
+          litTimersRef.current[idx] = setTimeout(() => {
+            setActiveLitKeys(prev => {
+              const next = { ...prev };
+              delete next[idx];
+              return next;
+            });
+          }, 200); 
+        };
+
+        // ถ้าไฟปุ่มนี้ติดอยู่แล้ว ให้สั่งดับแวบหนึ่งแล้วค่อยติดใหม่ (ยกไม้แล้วตีซ้ำ)
+        setActiveLitKeys(prev => {
+          if (prev[idx]) {
+            const next = { ...prev };
+            delete next[idx];
+            setTimeout(turnOnLight, 20); // ดับไป 20ms เพื่อจำลองการยกไม้
+            return next;
+          } else {
+            turnOnLight();
+            return prev;
+          }
+        });
+      }
+    };
+
+    window.addEventListener('tme-note-played', handleNotePlayed);
+    return () => window.removeEventListener('tme-note-played', handleNotePlayed);
+  }, [currentInstrument]);
+
   const handleKeyClick = (idx, e) => {
     if (!inputNote || !appendNoteToCurrentCell) return;
-
-    // เปลี่ยนมาใช้เงื่อนไขแบบไดนามิกที่รองรับทุกเครื่อง
     if (isOctaveMode && isOctaveInstrument && idx > maxValidIdx) return;
 
-    const k = currentInstrument.keys[idx];
+    const kOriginal = currentInstrument.keys[idx];
+    const k = isReduceMode ? shiftNoteObject(kOriginal, 1) : kOriginal;
     const noteToInsert = getFormattedStr(k.eng, k.thai);
 
     if (e && e.shiftKey) {
@@ -123,10 +164,8 @@ const Keyboard = () => {
 
       <div className={`border-t transition-all duration-500 ease-in-out flex flex-col w-full relative ${isMinimized ? 'max-h-0 opacity-0 border-transparent' : `opacity-100 ${isOctaveMode ? 'border-amber-200' : 'border-sky-200'}`}`}>
         
-        {/* แถบเครื่องมือ (Toolbar) */}
         <div className="relative z-[120] w-full overflow-visible border-b border-slate-200/70 bg-[#f8f8fb]/95 p-2 shadow-[0_2px_10px_rgba(0,0,0,0.02)] backdrop-blur-sm flex items-center gap-3">
           
-          {/* โซน 1: ตั้งค่าหลัก (ซ้ายสุด) */}
           <div className="flex items-center gap-2 z-30 shrink-0">
             <ToolbarSection bodyClass="bg-[#fffaf0] border border-amber-100">
               <div className="relative">
@@ -160,7 +199,22 @@ const Keyboard = () => {
                 )}
               </div>
 
-              {/* แสดงปุ่มเปิด/ปิดโหมดคู่ 8 เมื่อเป็นระนาดเอกหรือระนาดทุ้ม */}
+              <label className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-500 cursor-pointer shadow-sm">
+                <input type="checkbox" className="sr-only" checked={isShowPlayMode} onChange={(e) => setIsShowPlayMode(e.target.checked)} />
+                <span className="whitespace-nowrap">แสดงการตี</span>
+                <div className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${isShowPlayMode ? 'bg-rose-500' : 'bg-slate-300'}`}>
+                  <div className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white transition-transform ${isShowPlayMode ? 'translate-x-4' : ''}`}></div>
+                </div>
+              </label>
+
+              <label className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-500 cursor-pointer shadow-sm">
+                <input type="checkbox" className="sr-only" checked={isReduceMode} onChange={(e) => setIsReduceMode(e.target.checked)} />
+                <span className="whitespace-nowrap">โหมดลดเสียง</span>
+                <div className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${isReduceMode ? 'bg-sky-400' : 'bg-slate-300'}`}>
+                  <div className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white transition-transform ${isReduceMode ? 'translate-x-4' : ''}`}></div>
+                </div>
+              </label>
+
               {isOctaveInstrument && (
                 <label className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-500 cursor-pointer shadow-sm">
                   <input type="checkbox" className="sr-only" checked={isOctaveMode} onChange={(e) => setIsOctaveMode(e.target.checked)} />
@@ -174,8 +228,6 @@ const Keyboard = () => {
           </div>
 
           <div className="flex-1 overflow-x-auto custom-scrollbar flex items-center gap-3 pb-0.5 w-full">
-            
-            {/* โซน 2: จัดการตัวโน้ต */}
             <ToolbarSection>
               <ToolButton onClick={() => handleSpecialKey('-')} bgClass="bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V4a2 2 0 10-4 0v1.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>} label="พักเสียง" title="ใส่ขีดพักเสียง" />
               <ToolButton onClick={() => handleSpecialKey('PREV_CELL')} bgClass="bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>} label="ย้อนช่อง" title="ย้ายไปช่องก่อนหน้า" />
@@ -185,7 +237,6 @@ const Keyboard = () => {
               <ToolButton onClick={pasteSelection} disabled={clipboardData.length === 0} bgClass="bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>} label="วาง" title="วางโน้ต" />
             </ToolbarSection>
 
-            {/* โซน 3: สร้าง/เพิ่มโครงสร้าง */}
             <ToolbarSection bodyClass="bg-slate-50 border border-slate-200">
               <ToolButton onClick={convertMeasureToText} bgClass="bg-[#fff5f0] text-orange-700 border-orange-100 hover:bg-[#ffece0]" icon={<span className="text-lg leading-none">T</span>} label="ช่องพิมพ์" title="เปลี่ยนห้องโน้ตเป็นห้องพิมพ์ข้อความ" />
               <ToolButton onClick={addNoteColumn} bgClass="bg-[#f2f4ff] text-blue-700 border-blue-100 hover:bg-[#e8ecff]" icon={<span className="text-lg leading-none">+</span>} label="จังหวะ" title="เพิ่มคอลัมน์โน้ต" />
@@ -195,10 +246,8 @@ const Keyboard = () => {
               <ToolButton onClick={addPageBreak} bgClass="bg-white text-slate-600 border-slate-200 hover:bg-slate-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6zM14 3v5h5M16 13H8M16 17H8M10 9H8" /></svg>} label="หน้าใหม่" title="เพิ่มจุดตัดหน้ากระดาษ" />
             </ToolbarSection>
 
-            {/* Spacer เพื่อดันโซน 4 ไปขวาสุด */}
             <div className="flex-1 min-w-[10px]"></div>
 
-            {/* โซน 4: ลบโครงสร้างและโน้ต (ขวาสุด สีแดงทั้งหมด) */}
             <ToolbarSection wrapperClass="ml-auto" bodyClass="bg-red-50 border border-red-100">
               <ToolButton onClick={() => handleSpecialKey('BACKSPACE')} bgClass="bg-white text-red-600 border-red-200 hover:bg-red-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2M3 12l6.414 6.414a2 2 0 001.414.586H19a2 2 0 002-2V7a2 2 0 00-2-2h-8.172a2 2 0 00-1.414.586L3 12z" /></svg>} label="ลบโน้ต" title="ลบโน้ต (Backspace)" />
               <ToolButton onClick={removeNoteColumn} bgClass="bg-white text-red-600 border-red-200 hover:bg-red-100" icon={<span className="text-lg leading-none">−</span>} label="ลบจังหวะ" title="ลบคอลัมน์โน้ต" />
@@ -208,7 +257,6 @@ const Keyboard = () => {
           </div>
         </div>
 
-        {/* แผงแป้นคีย์บอร์ด */}
         <div className="px-4 pt-2 text-[11px] font-semibold text-slate-500">
           คลิกปุ่มโน้ตเพื่อเติมโน้ตเพิ่มในช่องเดียวกัน แล้วกด “จบช่อง” เพื่อเลื่อนไปช่องถัดไป
         </div>
@@ -216,16 +264,30 @@ const Keyboard = () => {
         <div className="relative z-0 flex w-full overflow-hidden">
           <div className="flex-1 overflow-x-auto pb-2 pt-2 custom-scrollbar transition-all duration-300">
             <div className="flex bg-slate-800 p-1 rounded-xl shadow-inner w-max mx-auto gap-[2px]">
-              {currentInstrument.keys.map((k, i) => {
+              {currentInstrument.keys.map((kOriginal, i) => {
                 
-                // ใช้ตัวแปรไดนามิกเพื่อคุมการโชว์/ซ่อน/บล็อกปุ่ม
+                const k = isReduceMode ? shiftNoteObject(kOriginal, 1) : kOriginal;
                 const isBlocked = isOctaveMode && isOctaveInstrument && i > maxValidIdx;
+                
+                // ⭐ เช็กว่าปุ่มนี้กำลังโดนไฟสาดใส่หรือไม่ และมือไหนกำลังตี
+                const activeHand = activeLitKeys[i];
+                const isLit = !!activeHand;
+                
                 const isHovered = hoveredIdx === i || (isOctaveMode && isOctaveInstrument && hoveredIdx !== null && i === hoveredIdx + 7);
                 const isActive = activeIdx === i || (isOctaveMode && isOctaveInstrument && activeIdx !== null && i === activeIdx + 7);
 
                 let btnClass = 'w-14 h-[100px] shrink-0 border-b-[5px] rounded-b-md flex flex-col items-center justify-end pb-5 transition-all shadow-sm group select-none relative ';
 
-                if (isActive) {
+                // ⭐ ให้สิทธิ์แสงโชว์เหนือสถานะอื่นทั้งหมด (แยกสีมือซ้ายและขวา)
+                if (isLit) {
+                  if (activeHand === 'left') {
+                    // มือซ้ายสีฟ้า (Sky)
+                    btnClass += 'bg-sky-500 border-sky-600 border-b-0 translate-y-1 text-white shadow-[inset_0_4px_10px_rgba(0,0,0,0.3)] ';
+                  } else {
+                    // มือขวา หรือ บรรทัดเดี่ยวสีแดง (Rose)
+                    btnClass += 'bg-rose-500 border-rose-600 border-b-0 translate-y-1 text-white shadow-[inset_0_4px_10px_rgba(0,0,0,0.3)] ';
+                  }
+                } else if (isActive) {
                   btnClass += isOctaveMode ? 'bg-amber-300 border-amber-300 border-b-0 translate-y-1 text-amber-900 ' : 'bg-sky-200 border-sky-200 border-b-0 translate-y-1 text-sky-900 ';
                 } else if (isHovered) {
                   btnClass += isOctaveMode ? 'bg-amber-100 border-amber-400 text-amber-700 ' : 'bg-sky-50 border-sky-400 text-sky-600 ';
@@ -250,7 +312,7 @@ const Keyboard = () => {
                     onClick={(e) => { if (!isBlocked) handleKeyClick(i, e); }}
                     className={btnClass}
                   >
-                    <span className={`absolute top-2 text-[10px] uppercase tracking-wider opacity-40 ${isHovered || isActive ? 'font-bold text-current opacity-70' : ''}`}>{k.eng}</span>
+                    <span className={`absolute top-2 text-[10px] uppercase tracking-wider opacity-40 ${isHovered || isActive || isLit ? 'font-bold text-current opacity-70' : ''}`}>{k.eng}</span>
                     {renderNoteLabel(k.thai, k.eng)}
                   </button>
                 );

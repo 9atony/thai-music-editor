@@ -12,7 +12,6 @@ const getVisualIndex = (rowIndex, rowTypesArray) => {
       vIdx++;
     }
   }
-  // ⭐ เพิ่มเงื่อนไข: ถ้าเป็นมือซ้าย ให้ถอย Index กลับมาใช้ร่วมกับมือขวาด้านบน
   if (rowTypesArray[rowIndex] === 'double-left') {
     return Math.max(0, vIdx - 1);
   }
@@ -53,22 +52,34 @@ const splitThaiNoteToken = (token) => {
   }, []);
 };
 
-const parseCellToken = (token) => {
+// ⭐ อัปเดต: รองรับ Accent และ Custom Velocities
+const parseCellToken = (token, sabatStyle = 'crescendo', customVels = []) => {
   const notes = splitThaiNoteToken(token);
   if (notes.length === 0) return [];
   if (notes.length === 1) return [{ note: notes[0], ratio: 0, emphasis: 1 }];
 
-  return notes.map((note, index) => ({
-    note,
-    ratio: index / notes.length,
-    emphasis: index === notes.length - 1 ? 1 : Math.max(0.55, 0.88 - (index * 0.08)),
-  }));
-};
+  return notes.map((note, index) => {
+    let emp = 1;
+    
+    if (sabatStyle === 'custom' && customVels.length === notes.length) {
+       // ถ้าใช้แบบ Custom ให้ดึงจากสไลเดอร์ (หาร 100 ให้เป็นทศนิยม)
+       emp = customVels[index] / 100;
+    } else if (sabatStyle === 'flat') {
+       emp = 1;
+    } else if (sabatStyle === 'accent') {
+       // เบา-ดัง-ดัง (ตัวแรกเบา 50%, ตัวที่เหลือ 100%)
+       emp = index === 0 ? 0.5 : 1;
+    } else {
+       // Crescendo เดิม
+       emp = index === notes.length - 1 ? 1 : Math.max(0.55, 0.88 - (index * 0.08));
+    }
 
-const getTokenPreviewAnchor = (token) => {
-  const events = parseCellToken(token);
-  if (events.length === 0) return null;
-  return events[events.length - 1].note;
+    return {
+      note,
+      ratio: index / notes.length,
+      emphasis: emp,
+    };
+  });
 };
 
 const formatInstrumentNote = (key) => {
@@ -117,6 +128,49 @@ const getOctavePairNote = (instrument, noteStr, preferredDirection = 'up') => {
   return null;
 };
 
+export const shiftNoteObject = (keyObj, steps) => {
+  const engPitches = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
+  const thaiPitches = ['ด', 'ร', 'ม', 'ฟ', 'ซ', 'ล', 'ท'];
+  const pitch = keyObj.eng.replace(/\d/g, '');
+  const octave = parseInt(keyObj.eng.replace(/\D/g, ''), 10);
+  const idx = engPitches.indexOf(pitch);
+  if (idx === -1) return keyObj;
+
+  const newIdx = idx + steps;
+  const newOctave = octave + Math.floor(newIdx / 7);
+  const newPitchIdx = ((newIdx % 7) + 7) % 7;
+  
+  return {
+    thai: thaiPitches[newPitchIdx],
+    eng: engPitches[newPitchIdx] + newOctave
+  };
+};
+
+export const shiftNoteString = (noteStr, steps) => {
+  if (!noteStr || noteStr === '-') return noteStr;
+  let thaiChar = noteStr.replace(/[\u0E3A\u200B\u0E4D]/g, '');
+  let octave = 4;
+  if (noteStr.includes('\u0E4D')) octave = 5;
+  else if (noteStr.includes('\u0E3A\u200B')) octave = 2;
+  else if (noteStr.includes('\u0E3A')) octave = 3;
+
+  const thaiPitches = ['ด', 'ร', 'ม', 'ฟ', 'ซ', 'ล', 'ท'];
+  const engPitches = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
+  const idx = thaiPitches.indexOf(thaiChar);
+  if (idx === -1) return noteStr;
+  
+  const mockEng = engPitches[idx] + octave;
+  const shifted = shiftNoteObject({ thai: thaiChar, eng: mockEng }, steps);
+  
+  let finalNote = shifted.thai;
+  const newOctave = parseInt(shifted.eng.replace(/\D/g, ''));
+  if (newOctave >= 5) finalNote += '\u0E4D';
+  else if (newOctave === 2) finalNote += '\u0E3A\u200B';
+  else if (newOctave === 3) finalNote += '\u0E3A';
+  
+  return finalNote;
+};
+
 export const MusicProvider = ({ children }) => {
   const [currentInstrument, setCurrentInstrument] = useState(INSTRUMENT_CONFIG["khong-wong-yai"] || INSTRUMENT_CONFIG["ranat-ek"]);
   const [sheetData, setSheetData] = useState(Array(4).fill().map(() => Array(8).fill().map(() => Array(4).fill('-'))));
@@ -125,22 +179,15 @@ export const MusicProvider = ({ children }) => {
   const [selectedCell, setSelectedCell] = useState([0, 0, 0]);
   
   const [songName, setSongName] = useState("เพลงลาวดวงเดือน");
-  // ⭐ เพิ่ม State สำหรับชื่อโปรเจกต์แยกต่างหาก
   const [projectName, setProjectName] = useState("โปรเจกต์ไม่มีชื่อ");
   const handleSetSongName = (newName) => {
-    if (isReadOnlyRef.current) return; // ⭐ บล็อกในโหมดอ่านอย่างเดียว
-    
-    // ⭐ ซักฟอกโค้ด HTML ออก เอาแต่ข้อความล้วนๆ ไปเป็นชื่อโปรเจกต์
+    if (isReadOnlyRef.current) return;
     const tempDiv = document.createElement("div");
     tempDiv.innerHTML = newName;
     const plainText = tempDiv.textContent || tempDiv.innerText || "";
-
-    // ถ้าชื่อโปรเจกต์ยังเป็นค่าเริ่มต้น ให้เปลี่ยนชื่อโปรเจกต์ตาม (ใช้ข้อความล้วน)
     if (projectName === "โปรเจกต์ไม่มีชื่อ" || projectName === "เพลงใหม่" || projectName === songName) {
       setProjectName(plainText);
     }
-    
-    // ส่วนบนกระดาษยังคงเก็บโค้ด HTML ไว้เหมือนเดิมเพื่อให้แสดงฟอนต์ได้
     setSongName(newName);
   };
   
@@ -148,7 +195,10 @@ export const MusicProvider = ({ children }) => {
   const [selectionRange, setSelectionRange] = useState(null); 
   const [symbols, setSymbols] = useState([]); 
   const [selectedSymbolId, setSelectedSymbolId] = useState(null);
+  
   const [isOctaveMode, setIsOctaveMode] = useState(false);
+  const [isReduceMode, setIsReduceMode] = useState(false);
+  const [isShowPlayMode, setIsShowPlayMode] = useState(false);
   const [toolbarMode, setToolbarMode] = useState('default');
 
   const [playbackSequence, setPlaybackSequence] = useState([]); 
@@ -165,28 +215,22 @@ export const MusicProvider = ({ children }) => {
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [isLoaded, setIsLoaded] = useState(false);
   const [projectId, setProjectId] = useState(null); 
-  // ⭐ State สำหรับระบบแจ้งเตือนก่อนเปิดทับ
   const [pendingAction, setPendingAction] = useState({ isOpen: false, type: null, payload: null });
-  
-  // ⭐ State สำหรับโหมดอ่านอย่างเดียว (ใช้กับหน้าตัวอย่างเพลง - Samples)
   const [isReadOnly, setIsReadOnly] = useState(false);
+  
   const isReadOnlyRef = useRef(false);
   const setReadOnlyMode = (readOnly) => {
     isReadOnlyRef.current = readOnly;
     setIsReadOnly(readOnly);
-    if (readOnly) setProjectId(null); // ⭐ ป้องกันการเซฟทับโปรเจกต์เดิม
+    if (readOnly) setProjectId(null); 
   };
   
-  // ⭐ เพิ่มพารามิเตอร์ skipWarning เข้ามา
   const checkUnsavedAndPrompt = (type, payload, skipWarning = false) => {
-    // ⭐ ถ้ากำลังอยู่ในโหมดอ่านอย่างเดียว ไม่ต้องเตือนบันทึก ให้รันคำสั่งเลย
     if (isReadOnlyRef.current) {
       executeAction(type, payload);
       return;
     }
     const isFreshProject = !projectId && historyIndex <= 0 && projectName === "โปรเจกต์ไม่มีชื่อ";
-    
-    // ถ้ามี "บัตรผ่าน" (กดจาก Home/MyProjects) หรือเป็นโปรเจกต์ใหม่เอี่ยม ให้รันทันทีไม่ต้องเตือน
     if (skipWarning || isFreshProject) {
       executeAction(type, payload);
     } else {
@@ -198,13 +242,12 @@ export const MusicProvider = ({ children }) => {
     if (type === 'NEW') performNewProject();
     else if (type === 'LOAD_LOCAL') performLoadProject(payload);
     else if (type === 'LOAD_FIREBASE') performLoadProjectFromFirebase(payload);
-    
     setPendingAction({ isOpen: false, type: null, payload: null });
   };
+  
   const autoSaveToFirebase = async (data) => {
     const uid = auth.currentUser?.uid;
     if (!uid) return; 
-
     try {
       const id = await saveProjectToDB(uid, projectId, data);
       if (!projectId && id) setProjectId(id); 
@@ -226,12 +269,20 @@ export const MusicProvider = ({ children }) => {
   const effectTimersRef = useRef([]);
   const mutedCellsRef = useRef(new Set());
   
+  // ⭐ อัปเดต: เพิ่มการตั้งค่าเริ่มต้นแบบ Global สำหรับลูกสะบัดและลูกกรอ
   const [layoutConfig, setLayoutConfig] = useState({
     fontSize: 30, isBold: false, isItalic: false, measureHeight: 48,
     rowGap: 32, songNameSize: 48, authorSize: 16, detailsAlign: 'between',
     borderWidth: 2, innerBorderWidth: 1, borderColor: '#1e293b', borderRadius: 0,
-    bpm: 80, volume: 100, activeSymbol: 'sabat', symbolColor: '#1e293b',
-    symbolStrokeWidth: 2.5, symbolHeight: 20, marginTop: 48, marginBottom: 48, marginLeft: 48, marginRight: 48,
+    bpm: 80, volume: 100, 
+    
+    // === ตั้งค่าเริ่มต้น ลูกสะบัด ===
+    sabatColor: '#1e293b', sabatStrokeWidth: 2.5, sabatCurve: 20, sabatOffset: 4, sabatStyle: 'crescendo',
+    // === ตั้งค่าเริ่มต้น ลูกกรอ ===
+    kroColor: '#3b82f6', kroStrokeWidth: 2.5, kroOffset: 30, kroSpeed: 65, kroStartHand: 'right',
+    
+    activeSymbol: 'sabat', symbolColor: '#1e293b', symbolStrokeWidth: 2.5, symbolHeight: 20, 
+    marginTop: 48, marginBottom: 48, marginLeft: 48, marginRight: 48,
     marginUnit: 'px', textLineHeight: 1.5, textFontSize: 16
   });
 
@@ -241,6 +292,8 @@ export const MusicProvider = ({ children }) => {
   const rowTypesRef = useRef(rowTypes);
   const symbolsRef = useRef(symbols);
   const isOctaveModeRef = useRef(isOctaveMode); 
+  const isReduceModeRef = useRef(isReduceMode); 
+  const isShowPlayModeRef = useRef(isShowPlayMode);
   const sectionLabelsRef = useRef(sectionLabels);
   const playbackSequenceRef = useRef(playbackSequence);
   const activeSequenceIdxRef = useRef(0);
@@ -248,7 +301,6 @@ export const MusicProvider = ({ children }) => {
   const isLoopAllRef = useRef(isLoopAll); 
   const isLoopOneRef = useRef(isLoopOne); 
   const sheetMapRef = useRef([]);
-  // ⭐ 1. สร้างป้ายแขวนหน้าประตู เพื่อล็อกการเซฟรัวๆ
   const isImportingRef = useRef(false);
 
   useEffect(() => { layoutConfigRef.current = layoutConfig; }, [layoutConfig]);
@@ -256,6 +308,8 @@ export const MusicProvider = ({ children }) => {
   useEffect(() => { rowTypesRef.current = rowTypes; }, [rowTypes]);
   useEffect(() => { symbolsRef.current = symbols; }, [symbols]); 
   useEffect(() => { isOctaveModeRef.current = isOctaveMode; }, [isOctaveMode]); 
+  useEffect(() => { isReduceModeRef.current = isReduceMode; }, [isReduceMode]);
+  useEffect(() => { isShowPlayModeRef.current = isShowPlayMode; }, [isShowPlayMode]);
   useEffect(() => { sectionLabelsRef.current = sectionLabels; }, [sectionLabels]);
   useEffect(() => { playbackSequenceRef.current = playbackSequence; }, [playbackSequence]);
   useEffect(() => { isLoopAllRef.current = isLoopAll; }, [isLoopAll]);
@@ -264,26 +318,38 @@ export const MusicProvider = ({ children }) => {
   const playResolvedInstrumentNote = (noteStr, vol, options = {}) => {
     if (!noteStr || noteStr === '-') return;
 
-    const { bypassOctaveLayer = false } = options;
-    playNote(currentInstrument.id, noteStr, vol);
+    const { bypassOctaveLayer = false, hand = 'single' } = options;
+    const actualNoteToPlay = isReduceModeRef.current ? shiftNoteString(noteStr, -1) : noteStr;
+    
+    playNote(currentInstrument.id, actualNoteToPlay, vol);
+    
+    if (isShowPlayModeRef.current) {
+        window.dispatchEvent(new CustomEvent('tme-note-played', { detail: { note: actualNoteToPlay, hand } }));
+    }
 
    if (!bypassOctaveLayer && isOctaveModeRef.current) {
-      const preferredDirection = getPreferredOctaveDirection(currentInstrument, noteStr);
-      const octavePairNote = getOctavePairNote(currentInstrument, noteStr, preferredDirection);
-      if (octavePairNote && octavePairNote !== noteStr) {
+      const preferredDirection = getPreferredOctaveDirection(currentInstrument, actualNoteToPlay);
+      const octavePairNote = getOctavePairNote(currentInstrument, actualNoteToPlay, preferredDirection);
+      if (octavePairNote && octavePairNote !== actualNoteToPlay) {
         playNote(currentInstrument.id, octavePairNote, vol);
+        
+        if (isShowPlayModeRef.current) {
+            window.dispatchEvent(new CustomEvent('tme-note-played', { detail: { note: octavePairNote, hand } }));
+        }
       }
     }
   };
 
   const previewCellToken = (token, baseVolume = layoutConfigRef.current.volume ?? 100, previewGapMs = 90) => {
-    const events = parseCellToken(token);
+    // ⭐ ใช้ค่าสไตล์เริ่มต้นในการพรีวิว
+    const sabatStyle = layoutConfigRef.current.sabatStyle ?? 'crescendo';
+    const events = parseCellToken(token, sabatStyle);
     if (events.length === 0) return;
 
     events.forEach((event, index) => {
       const delay = events.length === 1 ? 0 : Math.max(0, Math.floor(index * previewGapMs));
       const volume = Math.max(0, Math.round(baseVolume * (event.emphasis ?? 1)));
-      const playEvent = () => playResolvedInstrumentNote(event.note, volume);
+      const playEvent = () => playResolvedInstrumentNote(event.note, volume, { hand: 'single' }); 
 
       if (delay <= 0) playEvent();
       else effectTimersRef.current.push(setTimeout(playEvent, delay));
@@ -298,7 +364,6 @@ export const MusicProvider = ({ children }) => {
     const newData = sheetData.map((rowData) => rowData.map((measure) => [...measure]));
     newData[row][meas][cell] = normalizedToken;
 
-    // ⭐ ระบบบันทึกคู่ 8 อัตโนมัติในบรรทัดคู่ (สำหรับแก้ไข Inline)
     if (isOctaveModeRef.current && rowTypes[row].startsWith('double')) {
         const pairRow = rowTypes[row] === 'double-right' ? row + 1 : row - 1;
         if (pairRow >= 0 && pairRow < newData.length) {
@@ -307,8 +372,10 @@ export const MusicProvider = ({ children }) => {
             } else {
                 const parts = splitThaiNoteToken(normalizedToken);
                 const pairedParts = parts.map(n => {
-                    const prefDir = getPreferredOctaveDirection(currentInstrument, n);
-                    return getOctavePairNote(currentInstrument, n, prefDir) || n;
+                    const actualNote = isReduceModeRef.current ? shiftNoteString(n, -1) : n;
+                    const prefDir = getPreferredOctaveDirection(currentInstrument, actualNote);
+                    const pairNoteBase = getOctavePairNote(currentInstrument, actualNote, prefDir) || actualNote;
+                    return isReduceModeRef.current ? shiftNoteString(pairNoteBase, 1) : pairNoteBase;
                 });
                 newData[pairRow][meas][cell] = pairedParts.join('');
             }
@@ -323,40 +390,28 @@ export const MusicProvider = ({ children }) => {
     }
   };
 
-
   const moveSelectionToAdjacentCell = (direction = 'next') => {
     if (!selectedCell) return;
-
     let [row, meas, cell] = selectedCell;
     const isNext = direction !== 'prev';
 
     if (isNext) {
-      if (cell < sheetData[row][meas].length - 1) {
-        cell += 1;
-      } else if (meas < sheetData[row].length - 1) {
-        meas += 1;
-        if (rowTypes[row].startsWith('double') && meas === 0) meas = 1;
-        cell = 0;
-      } else {
+      if (cell < sheetData[row][meas].length - 1) cell += 1;
+      else if (meas < sheetData[row].length - 1) { meas += 1; if (rowTypes[row].startsWith('double') && meas === 0) meas = 1; cell = 0; }
+      else {
         let nextR = row + 1;
         while (nextR < sheetData.length && (rowTypes[nextR] === 'page-break' || rowTypes[nextR] === 'text')) nextR++;
         if (nextR >= sheetData.length) return;
-        row = nextR;
-        meas = rowTypes[row].startsWith('double') ? 1 : 0;
-        cell = 0;
+        row = nextR; meas = rowTypes[row].startsWith('double') ? 1 : 0; cell = 0;
       }
     } else {
-      if (cell > 0) {
-        cell -= 1;
-      } else if (meas > (rowTypes[row].startsWith('double') ? 1 : 0)) {
-        meas -= 1;
-        cell = sheetData[row][meas].length - 1;
-      } else {
+      if (cell > 0) cell -= 1;
+      else if (meas > (rowTypes[row].startsWith('double') ? 1 : 0)) { meas -= 1; cell = sheetData[row][meas].length - 1; }
+      else {
         let prevR = row - 1;
         while (prevR >= 0 && (rowTypes[prevR] === 'page-break' || rowTypes[prevR] === 'text')) prevR--;
         if (prevR < 0) return;
-        row = prevR;
-        meas = sheetData[row].length - 1;
+        row = prevR; meas = sheetData[row].length - 1;
         if (rowTypes[row].startsWith('double') && meas === 0) meas = 1;
         cell = sheetData[row][meas].length - 1;
       }
@@ -371,7 +426,6 @@ export const MusicProvider = ({ children }) => {
 
   const appendNoteToCurrentCell = (note, options = {}) => {
     if (isReadOnlyRef.current || !selectedCell) return;
-
     const [row, meas, cell] = selectedCell;
     if (rowTypes[row] === 'page-break' || rowTypes[row] === 'text' || (rowTypes[row].startsWith('double') && meas === 0)) return;
 
@@ -379,20 +433,20 @@ export const MusicProvider = ({ children }) => {
     if (incomingParts.length === 0) return;
 
     const newData = sheetData.map((rowData) => rowData.map((measure) => [...measure]));
-
     const currentToken = normalizeCellToken(newData[row][meas][cell]);
     const currentParts = currentToken === '-' ? [] : splitThaiNoteToken(currentToken);
     const mergedToken = normalizeCellToken([...currentParts, ...incomingParts].join(''));
 
     newData[row][meas][cell] = mergedToken;
 
-    // ⭐ ระบบบันทึกคู่ 8 อัตโนมัติ (สำหรับแทรกโน้ต/ลูกสะบัด)
     if (isOctaveModeRef.current && rowTypes[row].startsWith('double')) {
         const pairRow = rowTypes[row] === 'double-right' ? row + 1 : row - 1;
         if (pairRow >= 0 && pairRow < newData.length) {
             const incomingStr = incomingParts.join('');
-            const prefDir = getPreferredOctaveDirection(currentInstrument, incomingStr);
-            const incomingPair = getOctavePairNote(currentInstrument, incomingStr, prefDir) || incomingStr;
+            const actualIncoming = isReduceModeRef.current ? shiftNoteString(incomingStr, -1) : incomingStr;
+            const prefDir = getPreferredOctaveDirection(currentInstrument, actualIncoming);
+            const pairBase = getOctavePairNote(currentInstrument, actualIncoming, prefDir) || actualIncoming;
+            const incomingPair = isReduceModeRef.current ? shiftNoteString(pairBase, 1) : pairBase;
             
             const pairCurrentToken = normalizeCellToken(newData[pairRow][meas][cell]);
             const pairCurrentParts = pairCurrentToken === '-' ? [] : splitThaiNoteToken(pairCurrentToken);
@@ -408,15 +462,11 @@ export const MusicProvider = ({ children }) => {
     if (options.preview !== false && mergedToken !== '-') {
       previewCellToken(mergedToken, options.volume ?? (layoutConfigRef.current.volume ?? 100));
     }
-
-    if (options.moveNext) {
-      setTimeout(() => moveSelectionToAdjacentCell('next'), 0);
-    }
+    if (options.moveNext) setTimeout(() => moveSelectionToAdjacentCell('next'), 0);
   };
 
   const trimCurrentCellToken = () => {
     if (isReadOnlyRef.current || !selectedCell) return;
-
     const [row, meas, cell] = selectedCell;
     if (rowTypes[row] === 'page-break' || rowTypes[row] === 'text' || (rowTypes[row].startsWith('double') && meas === 0)) return;
 
@@ -429,7 +479,6 @@ export const MusicProvider = ({ children }) => {
     const newData = sheetData.map((rowData) => rowData.map((measure) => [...measure]));
     newData[row][meas][cell] = nextToken;
 
-    // ⭐ ระบบลบคู่ 8 อัตโนมัติ (สำหรับลูกสะบัด)
     if (isOctaveModeRef.current && rowTypes[row].startsWith('double')) {
         const pairRow = rowTypes[row] === 'double-right' ? row + 1 : row - 1;
         if (pairRow >= 0 && pairRow < newData.length) {
@@ -463,9 +512,7 @@ export const MusicProvider = ({ children }) => {
     const labels = new Set();
     Object.values(sectionLabels).forEach(arr => {
       arr.forEach(l => {
-        if (l.text && !l.text.includes('กลับต้น') && l.text.trim() !== '') {
-          labels.add(l.text.trim());
-        }
+        if (l.text && !l.text.includes('กลับต้น') && l.text.trim() !== '') labels.add(l.text.trim());
       });
     });
     return Array.from(labels);
@@ -599,8 +646,10 @@ export const MusicProvider = ({ children }) => {
       const standardMsPerCell = 15000 / currentBpm;
       const msPerCell = Math.floor(standardMsPerCell * (4 / cellCountInMeasure));
 
+      // ⭐ ส่งค่าสไตล์ของลูกสะบัดเข้าไปคำนวณน้ำหนักเสียง
       const scheduleTokenPlayback = (tokenStr, vol, cellDurationMs = msPerCell, baseDelayMs = 0, options = {}) => {
-        const tokenEvents = parseCellToken(tokenStr);
+        const sabatStyle = layoutConfigRef.current.sabatStyle ?? 'crescendo';
+        const tokenEvents = parseCellToken(tokenStr, sabatStyle);
         if (tokenEvents.length === 0) return;
 
         tokenEvents.forEach((event) => {
@@ -688,59 +737,72 @@ export const MusicProvider = ({ children }) => {
                   const startNotes = events[0] ? events[0].filter(n => n !== '-') : [];
                   const noteA = startNotes.length > 0 ? startNotes[0] : null;
                   if (noteA) {
-                      const preferredDirection = getPreferredOctaveDirection(currentInstrument, noteA);
-                      const noteB = getOctavePairNote(currentInstrument, noteA, preferredDirection) || getOctavePairNote(currentInstrument, noteA, preferredDirection === 'down' ? 'up' : 'down') || noteA;
-                      const kroIntervalMs = 65; 
+                      const actualA = isReduceModeRef.current ? shiftNoteString(noteA, -1) : noteA;
+                      const preferredDirection = getPreferredOctaveDirection(currentInstrument, actualA);
+                      const pairBase = getOctavePairNote(currentInstrument, actualA, preferredDirection) || getOctavePairNote(currentInstrument, actualA, preferredDirection === 'down' ? 'up' : 'down') || actualA;
+                      const noteB = isReduceModeRef.current ? shiftNoteString(pairBase, 1) : pairBase;
+                      
+                      // ⭐ อัปเดต: ระบบดึงความเร็วจากค่าเฉพาะจุดก่อน ถ้าไม่มีค่อยดึงจาก Global
+                      const kroSpeed = sym.speed ?? layoutConfigRef.current.kroSpeed ?? 65;
+                      const startHand = sym.startHand ?? layoutConfigRef.current.kroStartHand ?? 'right';
+                      
                       let isNoteA = true;
                       window.kroInterval = setInterval(() => {
-                          triggerPlaybackNote(isNoteA ? noteA : noteB, layoutConfigRef.current.volume ?? 100, { bypassOctaveLayer: true });
+                          // ⭐ อัปเดต: สลับมือซ้าย/ขวาตามลำดับที่เลือกไว้
+                          const currentHand = isNoteA 
+                              ? (startHand === 'left' ? 'left' : 'right') 
+                              : (startHand === 'left' ? 'right' : 'left');
+                              
+                          playResolvedInstrumentNote(isNoteA ? noteA : noteB, layoutConfigRef.current.volume ?? 100, { bypassOctaveLayer: true, hand: currentHand });
                           isNoteA = !isNoteA;
-                      }, kroIntervalMs);
+                      }, kroSpeed);
                       effectTimersRef.current.push(setTimeout(() => { clearInterval(window.kroInterval); window.kroInterval = null; }, timeUntilEnd));
                   }
               } else {
-                  // === ระบบสะบัดอัจฉริยะ (หารเฉลี่ยจังหวะเท่ากันจากจุดเริ่มถึงจุดจบ) ===
                   let sequenceOfChords = [];
-                  
-                  // 1. ดึงโน้ตทุกตัวในสัญลักษณ์มากางเรียงเป็นแถว
                   events.forEach(colNotes => {
-                      let parsedCols = colNotes.map(token => parseCellToken(token)); 
+                      let parsedCols = colNotes.map(token => parseCellToken(token, sym.style ?? layoutConfigRef.current.sabatStyle ?? 'crescendo')); 
                       let maxNotes = Math.max(...parsedCols.map(p => p.length));
                       for(let i = 0; i < maxNotes; i++) {
                           let chord = [];
-                          parsedCols.forEach(p => {
-                              if (i < p.length) chord.push(p[i].note);
-                          });
+                          parsedCols.forEach(p => { if (i < p.length) chord.push(p[i].note); });
                           if (chord.length > 0) sequenceOfChords.push(chord);
                       }
                   });
 
-                  // 2. คำนวณระยะเวลาทั้งหมด (ถ้าวาดคลุมช่องเดียวให้ใช้เวลาของ 1 ช่อง)
                   const totalDurationMs = dist > 0 ? (dist * msPerCell) : (msPerCell * 0.8);
                   const stepCount = sequenceOfChords.length;
+                  const sabatStyle = sym.style ?? layoutConfigRef.current.sabatStyle ?? 'crescendo';
 
                   if (stepCount === 1) {
-                      // กรณีมีโน้ตตัวเดียวในสัญลักษณ์ ให้ตกจังหวะจบ
                       let vol = layoutConfigRef.current.volume ?? 100;
-                      sequenceOfChords[0].forEach(n => {
-                          scheduleTokenPlayback(n, vol, msPerCell, totalDurationMs);
-                      });
+                      sequenceOfChords[0].forEach(n => scheduleTokenPlayback(n, vol, msPerCell, totalDurationMs, { hand: 'single' }));
                   } else if (stepCount > 1) {
-                      // 3. หารเฉลี่ยระยะเวลาให้โน้ตทุกตัวห่างเท่ากันเป๊ะ
                       const intervalMs = totalDurationMs / (stepCount - 1);
-                      
+                      const sabatStyle = sym.style ?? layoutConfigRef.current.sabatStyle ?? 'crescendo';
+                      const customVels = sym.customvelocities || sym.customVelocities || []; // ⭐ ดึงค่าน้ำหนักจากสไลเดอร์
+
                       sequenceOfChords.forEach((chord, stepIdx) => {
-                          // คำนวณเวลาเริ่มเล่นของแต่ละตัว
                           const playTime = stepIdx * intervalMs;
-                          
-                          // ลอจิกน้ำหนักเสียง (เน้นหนักที่โน้ตตัวสุดท้าย)
                           const revIdx = (stepCount - 1) - stepIdx; 
                           let vol = layoutConfigRef.current.volume ?? 100;
-                          if (revIdx > 0) vol = Math.max(0, vol * (1 - (revIdx * 0.15)));
                           
-                          chord.forEach(n => {
-                              scheduleTokenPlayback(n, vol, Math.max(80, intervalMs), playTime);
-                          });
+                          // ⭐ ลอจิกปรับความดังตามที่คุณเลื่อนสไลเดอร์หรือเลือก Preset
+                          if (sabatStyle === 'custom' && customVels.length === stepCount) {
+                              // ถ้าปรับแต่งเอง (Custom) ให้คูณตามค่าสไลเดอร์ของโน้ตตัวนั้นๆ ตรงๆ เลย
+                              vol = Math.round(vol * (customVels[stepIdx] / 100));
+                          } else if (sabatStyle === 'accent') {
+                              // เบอดังดัง (ตัวแรก 50%, ที่เหลือ 100%)
+                              vol = stepIdx === 0 ? Math.round(vol * 0.5) : vol;
+                          } else if (sabatStyle === 'flat') {
+                              // เท่ากันหมด
+                              vol = layoutConfigRef.current.volume ?? 100;
+                          } else if (sabatStyle === 'crescendo' && revIdx > 0) {
+                              // เน้นตก (ค่อยๆ ดังขึ้น)
+                              vol = Math.max(0, vol * (1 - (revIdx * 0.15)));
+                          }
+                          
+                          chord.forEach(n => scheduleTokenPlayback(n, vol, Math.max(80, intervalMs), playTime, { hand: 'single' }));
                       });
                   }
               }
@@ -750,10 +812,10 @@ export const MusicProvider = ({ children }) => {
       if (currentRowTypes[r] === 'double-right') {
         const rightCellId = getCellId(r, m, c);
         const leftCellId = getCellId(r + 1, m, c);
-        if (!mutedCellsRef.current.has(rightCellId)) scheduleTokenPlayback(currentSheetData[r][m][c], layoutConfigRef.current.volume ?? 100);
-        if (!mutedCellsRef.current.has(leftCellId)) scheduleTokenPlayback(currentSheetData[r + 1] ? currentSheetData[r + 1][m][c] : '-', layoutConfigRef.current.volume ?? 100);
+        if (!mutedCellsRef.current.has(rightCellId)) scheduleTokenPlayback(currentSheetData[r][m][c], layoutConfigRef.current.volume ?? 100, msPerCell, 0, { hand: 'right' });
+        if (!mutedCellsRef.current.has(leftCellId)) scheduleTokenPlayback(currentSheetData[r + 1] ? currentSheetData[r + 1][m][c] : '-', layoutConfigRef.current.volume ?? 100, msPerCell, 0, { hand: 'left' });
       } else {
-        if (!mutedCellsRef.current.has(getCellId(r, m, c))) scheduleTokenPlayback(currentSheetData[r][m][c], layoutConfigRef.current.volume ?? 100);
+        if (!mutedCellsRef.current.has(getCellId(r, m, c))) scheduleTokenPlayback(currentSheetData[r][m][c], layoutConfigRef.current.volume ?? 100, msPerCell, 0, { hand: 'single' });
       }
 
       let nextC = c + 1;
@@ -888,25 +950,21 @@ export const MusicProvider = ({ children }) => {
           currentCol++;
         }
       }
-      // เก็บข้อมูลแถวและเซลล์โน้ต
       if (rowData.length > 0) copiedBlock.push({ rowOffset: r - minR, cells: rowData });
     }
 
-    // ⭐ ระบบใหม่: ค้นหาและก๊อปปี้ "สัญลักษณ์" ที่อยู่ในระยะที่เราคลุมดำ
     const copiedSymbols = [];
     symbols.forEach(sym => {
         const symStartCol = getFlattenedCol(sheetData[sym.start[0]], rowTypes[sym.start[0]], sym.start[1], sym.start[2]);
         const symEndCol = getFlattenedCol(sheetData[sym.end[0]], rowTypes[sym.end[0]], sym.end[1], sym.end[2]);
         const sR = sym.start[0], eR = sym.end[0];
 
-        // ถ้าสัญลักษณ์นี้อยู่ภายในการคลุมดำทั้งหมด
         if (sR >= minR && sR <= maxR && eR >= minR && eR <= maxR &&
             symStartCol >= minCol && symStartCol <= maxCol &&
             symEndCol >= minCol && symEndCol <= maxCol) {
             
             copiedSymbols.push({
                 ...sym,
-                // แปลงพิกัดให้เป็นพิกัดอ้างอิงเพื่อนำไปวางที่ใหม่
                 startRelR: sR - minR,
                 startRelCol: symStartCol - minCol,
                 endRelR: eR - minR,
@@ -915,7 +973,6 @@ export const MusicProvider = ({ children }) => {
         }
     });
 
-    // บันทึกใส่ Clipboard ทั้งโน้ตและสัญลักษณ์
     setClipboardData({ block: copiedBlock, symbols: copiedSymbols });
     setSelectionRange(null); 
   };
@@ -927,7 +984,6 @@ export const MusicProvider = ({ children }) => {
     let blockToPaste = [];
     let symbolsToPaste = [];
 
-    // ดักจับเผื่อกรณีเคลียร์ข้อมูลจากเวอร์ชันเก่า
     if (Array.isArray(clipboardData)) {
        if (clipboardData.length === 0) return;
        blockToPaste = clipboardData.map((row, idx) => ({ rowOffset: idx, cells: row }));
@@ -944,7 +1000,6 @@ export const MusicProvider = ({ children }) => {
     let lastValidCursor = [r, m, c];
     const startCol = getFlattenedCol(newData[r], rowTypes[r], m, c);
 
-    // ฟังก์ชันช่วยคำนวณพิกัดให้แม่นยำตอนวางสัญลักษณ์
     const getCoordsFromFlatCol = (rowIdx, targetFlatCol) => {
         let currentCol = 0;
         for (let ms = 0; ms < newData[rowIdx].length; ms++) {
@@ -957,7 +1012,6 @@ export const MusicProvider = ({ children }) => {
         return null;
     };
 
-    // ⭐ 1. วางตัวโน้ตทับ (รักษารูปแบบและจำนวนตัวโน้ตเป๊ะๆ)
     blockToPaste.forEach(pastedRow => {
         const targetR = r + pastedRow.rowOffset;
         if (targetR >= newData.length || rowTypes[targetR] === 'page-break' || rowTypes[targetR] === 'text') return;
@@ -977,7 +1031,6 @@ export const MusicProvider = ({ children }) => {
         }
     });
 
-    // ⭐ 2. เสกสัญลักษณ์ (Symbols) ที่ก๊อปปี้มาลงบนตำแหน่งใหม่
     const newPastedSymbols = [];
     symbolsToPaste.forEach(sym => {
         const targetStartR = r + sym.startRelR;
@@ -993,7 +1046,7 @@ export const MusicProvider = ({ children }) => {
 
         if (newStartCoords && newEndCoords) {
             newPastedSymbols.push({
-                id: Date.now() + Math.random(), // สร้าง ID ใหม่กันชน
+                id: Date.now() + Math.random(),
                 type: sym.type,
                 start: newStartCoords,
                 end: newEndCoords,
@@ -1004,9 +1057,7 @@ export const MusicProvider = ({ children }) => {
         }
     });
 
-    if (newPastedSymbols.length > 0) {
-        newSymbols = [...newSymbols, ...newPastedSymbols];
-    }
+    if (newPastedSymbols.length > 0) newSymbols = [...newSymbols, ...newPastedSymbols];
 
     commitChange(newData, rowTypes, sectionLabels, newSymbols, rowMargins); 
     setSelectedCell(lastValidCursor);
@@ -1016,7 +1067,6 @@ export const MusicProvider = ({ children }) => {
     if (isReadOnlyRef.current) return; 
     if (!selectionRange) return;
     
-    // สั่งก๊อปปี้ทั้งโน้ตและสัญลักษณ์ลง Clipboard ก่อน
     copySelection();
     
     const { start: [sr, sm, sc], end: [er, em, ec] } = selectionRange;
@@ -1040,7 +1090,6 @@ export const MusicProvider = ({ children }) => {
       }
     }
 
-    // ⭐ ลบสัญลักษณ์ที่โดน Cut ออกจากกระดาษด้วย
     const remainingSymbols = symbols.filter(sym => {
         const symStartCol = getFlattenedCol(sheetData[sym.start[0]], rowTypes[sym.start[0]], sym.start[1], sym.start[2]);
         const symEndCol = getFlattenedCol(sheetData[sym.end[0]], rowTypes[sym.end[0]], sym.end[1], sym.end[2]);
@@ -1049,7 +1098,7 @@ export const MusicProvider = ({ children }) => {
         const isInside = sR >= minR && sR <= maxR && eR >= minR && eR <= maxR &&
                          symStartCol >= minCol && symStartCol <= maxCol &&
                          symEndCol >= minCol && symEndCol <= maxCol;
-        return !isInside; // ถ้าไม่ได้อยู่ในการ Cut ให้เก็บไว้
+        return !isInside; 
     });
 
     commitChange(newData, rowTypes, sectionLabels, remainingSymbols, rowMargins);
@@ -1082,16 +1131,16 @@ export const MusicProvider = ({ children }) => {
               if (currentCol >= minCol && currentCol <= maxCol) {
                   newData[r][m][c] = normalizedToken;
                   
-                  // ⭐ ระบบบันทึกคู่ 8 อัตโนมัติ (สำหรับตอนคลุมดำหลายช่อง)
                   if (isOctaveModeRef.current && rowTypes[r].startsWith('double')) {
                       const pairRow = rowTypes[r] === 'double-right' ? r + 1 : r - 1;
                       if (pairRow >= 0 && pairRow < newData.length) {
                           if (normalizedToken === '-') {
                               newData[pairRow][m][c] = '-';
                           } else {
-                              const prefDir = getPreferredOctaveDirection(currentInstrument, normalizedToken);
-                              const pairNote = getOctavePairNote(currentInstrument, normalizedToken, prefDir) || normalizedToken;
-                              newData[pairRow][m][c] = pairNote;
+                              const actualNote = isReduceModeRef.current ? shiftNoteString(normalizedToken, -1) : normalizedToken;
+                              const prefDir = getPreferredOctaveDirection(currentInstrument, actualNote);
+                              const pairBase = getOctavePairNote(currentInstrument, actualNote, prefDir) || actualNote;
+                              newData[pairRow][m][c] = isReduceModeRef.current ? shiftNoteString(pairBase, 1) : pairBase;
                           }
                       }
                   }
@@ -1112,12 +1161,9 @@ export const MusicProvider = ({ children }) => {
     if (note === 'BACKSPACE') {
       newData[row][meas][cell] = '-';
       
-      // ⭐ ระบบลบคู่ 8 อัตโนมัติ
       if (isOctaveModeRef.current && rowTypes[row].startsWith('double')) {
           const pairRow = rowTypes[row] === 'double-right' ? row + 1 : row - 1;
-          if (pairRow >= 0 && pairRow < newData.length) {
-              newData[pairRow][meas][cell] = '-';
-          }
+          if (pairRow >= 0 && pairRow < newData.length) newData[pairRow][meas][cell] = '-';
       }
 
       commitChange(newData);
@@ -1135,13 +1181,13 @@ export const MusicProvider = ({ children }) => {
       const normalizedToken = normalizeCellToken(note);
       newData[row][meas][cell] = normalizedToken;
       
-      // ⭐ ระบบพิมพ์คู่ 8 อัตโนมัติ (พิมพ์ปกติ)
       if (isOctaveModeRef.current && rowTypes[row].startsWith('double')) {
           const pairRow = rowTypes[row] === 'double-right' ? row + 1 : row - 1;
           if (pairRow >= 0 && pairRow < newData.length) {
-              const prefDir = getPreferredOctaveDirection(currentInstrument, normalizedToken);
-              const pairNote = getOctavePairNote(currentInstrument, normalizedToken, prefDir) || normalizedToken;
-              newData[pairRow][meas][cell] = pairNote;
+              const actualNote = isReduceModeRef.current ? shiftNoteString(normalizedToken, -1) : normalizedToken;
+              const prefDir = getPreferredOctaveDirection(currentInstrument, actualNote);
+              const pairBase = getOctavePairNote(currentInstrument, actualNote, prefDir) || actualNote;
+              newData[pairRow][meas][cell] = isReduceModeRef.current ? shiftNoteString(pairBase, 1) : pairBase;
           }
       }
 
@@ -1157,7 +1203,7 @@ export const MusicProvider = ({ children }) => {
   };
 
   const addRow = (insertAtTop = null) => { 
-    if (isReadOnlyRef.current) return; // ⭐ บล็อกในโหมดอ่านอย่างเดียว
+    if (isReadOnlyRef.current) return;
     if (isPlayingRef.current) stopPlayback(); 
     setSelectionRange(null); 
     
@@ -1196,7 +1242,7 @@ export const MusicProvider = ({ children }) => {
   };
 
   const addDoubleRow = (insertAtTop = null) => {
-    if (isReadOnlyRef.current) return; // ⭐ บล็อกในโหมดอ่านอย่างเดียว
+    if (isReadOnlyRef.current) return;
     if (isPlayingRef.current) stopPlayback(); 
     setSelectionRange(null); 
     
@@ -1235,7 +1281,7 @@ export const MusicProvider = ({ children }) => {
   };
 
   const addPageBreak = (insertAtTop = null) => {
-    if (isReadOnlyRef.current) return; // ⭐ บล็อกในโหมดอ่านอย่างเดียว
+    if (isReadOnlyRef.current) return;
     if (isPlayingRef.current) stopPlayback(); 
     setSelectionRange(null);
     
@@ -1263,7 +1309,7 @@ export const MusicProvider = ({ children }) => {
   };
 
   const addTextRow = (insertAtTop = null) => {
-    if (isReadOnlyRef.current) return; // ⭐ บล็อกในโหมดอ่านอย่างเดียว
+    if (isReadOnlyRef.current) return;
     if (isPlayingRef.current) stopPlayback(); 
     setSelectionRange(null);
     
@@ -1293,8 +1339,8 @@ export const MusicProvider = ({ children }) => {
   const updateTextRow = (rIndex, text) => { if (isReadOnlyRef.current) return; const newData = [...sheetData]; newData[rIndex] = [[text]]; setSheetData(newData); };
 
   const removeRow = () => {
-    if (isReadOnlyRef.current) return; // ⭐ บล็อกในโหมดอ่านอย่างเดียว
-    if (isPlayingRef.current) stopPlayback(); // ⭐ สั่งหยุดเพลง
+    if (isReadOnlyRef.current) return;
+    if (isPlayingRef.current) stopPlayback();
     setSelectionRange(null); 
     const rowIdx = selectedCell[0];
     let deleteCount = 1, startIndex = rowIdx;
@@ -1338,8 +1384,9 @@ export const MusicProvider = ({ children }) => {
     let nextRow = startIndex >= newData.length ? newData.length - 1 : startIndex;
     setSelectedCell([nextRow, newRowTypes[nextRow].startsWith('double') ? 1 : 0, 0]);
   };
+
   const removeMeasure = () => {
-    if (isReadOnlyRef.current) return; // ⭐ บล็อกในโหมดอ่านอย่างเดียว
+    if (isReadOnlyRef.current) return;
     setSelectionRange(null); 
     const [rowIdx, measIdx] = selectedCell;
     if (rowTypes[rowIdx] === 'page-break' || rowTypes[rowIdx] === 'text' || (rowTypes[rowIdx].startsWith('double') && measIdx === 0)) return; 
@@ -1354,7 +1401,7 @@ export const MusicProvider = ({ children }) => {
   };
 
   const addNoteColumn = () => {
-    if (isReadOnlyRef.current) return; // ⭐ บล็อกในโหมดอ่านอย่างเดียว
+    if (isReadOnlyRef.current) return;
     setSelectionRange(null); 
     const [rowIdx, measIdx, cellIdx] = selectedCell;
     if (rowTypes[rowIdx] === 'page-break' || rowTypes[rowIdx] === 'text' || (rowTypes[rowIdx].startsWith('double') && measIdx === 0)) return; 
@@ -1363,7 +1410,7 @@ export const MusicProvider = ({ children }) => {
   };
 
   const removeNoteColumn = () => {
-    if (isReadOnlyRef.current) return; // ⭐ บล็อกในโหมดอ่านอย่างเดียว
+    if (isReadOnlyRef.current) return;
     setSelectionRange(null); 
     const [rowIdx, measIdx, cellIdx] = selectedCell;
     if (rowTypes[rowIdx] === 'page-break' || rowTypes[rowIdx] === 'text' || (rowTypes[rowIdx].startsWith('double') && measIdx === 0)) return; 
@@ -1375,7 +1422,7 @@ export const MusicProvider = ({ children }) => {
   };
 
   const addMeasure = () => {
-    if (isReadOnlyRef.current) return; // ⭐ บล็อกในโหมดอ่านอย่างเดียว
+    if (isReadOnlyRef.current) return;
     setSelectionRange(null); 
     const [rowIdx, measIdx] = selectedCell;
     if (rowTypes[rowIdx] === 'page-break' || rowTypes[rowIdx] === 'text') return;
@@ -1430,13 +1477,12 @@ export const MusicProvider = ({ children }) => {
   const addSectionLabel = (visualIndex) => { if (isReadOnlyRef.current) return; commitChange(sheetData, rowTypes, { ...sectionLabels, [visualIndex]: [...(sectionLabels[visualIndex] || []), { id: Date.now(), text: "", position: 'top-left', fontSize: 18, isBold: true, offsetY: 6 }] }); };
   const updateSectionLabel = (visualIndex, labelId, updates) => { if (isReadOnlyRef.current) return; commitChange(sheetData, rowTypes, { ...sectionLabels, [visualIndex]: (sectionLabels[visualIndex] || []).map(l => l.id === labelId ? { ...l, ...updates } : l) }); };
   const removeSectionLabel = (visualIndex, labelId) => {
-    if (isReadOnlyRef.current) return; // ⭐ บล็อกในโหมดอ่านอย่างเดียว
+    if (isReadOnlyRef.current) return;
     const newState = { ...sectionLabels }, filtered = (sectionLabels[visualIndex] || []).filter(l => l.id !== labelId);
     if (filtered.length > 0) newState[visualIndex] = filtered; else delete newState[visualIndex];
     commitChange(sheetData, rowTypes, newState);
   };
 
-  // ⭐ อัปเดตให้บันทึกชื่อโปรเจกต์ (projectName) และตั้งค่าทั้งหมดในฟังก์ชันนี้
   const saveProject = () => {
     if (isReadOnlyRef.current) return;
     const projectData = { 
@@ -1451,9 +1497,11 @@ export const MusicProvider = ({ children }) => {
       currentInstrument: currentInstrument.id, 
       rowMargins, 
       playbackSequence,
-      isLoopAll,       // 👈 เก็บโหมดวนลูปทั้งหมด
-      isLoopOne,       // 👈 เก็บโหมดวนลูปเพลงเดียว
-      isOctaveMode     // 👈 เก็บสถานะโหมดเล่นคู่ 8
+      isLoopAll,
+      isLoopOne,
+      isOctaveMode,
+      isReduceMode,
+      isShowPlayMode 
     };
     const url = URL.createObjectURL(new Blob([JSON.stringify(projectData, null, 2)], { type: 'application/json' }));
     const a = document.createElement('a'); a.href = url; a.download = `${projectName || 'my-song'}.tme`; a.click(); URL.revokeObjectURL(url);
@@ -1464,23 +1512,16 @@ export const MusicProvider = ({ children }) => {
     const reader = new FileReader();
     
     reader.onload = async (e) => {
-      isImportingRef.current = true; // ⭐ แขวนป้าย: ล็อกออโต้เซฟทันทีที่เริ่มอ่านไฟล์
+      isImportingRef.current = true;
       try {
         const data = JSON.parse(e.target.result);
-        
-        // 1. ดึงชื่อไฟล์มา (เผื่อไว้กรณีโปรเจกต์ไม่มีชื่อเลย)
         const fileNameWithoutExt = file.name ? file.name.replace(/\.[^/.]+$/, "") : "";
-        
-        // ⭐ 2. ดึงชื่อโปรเจกต์จากไฟล์ .tme มาใช้เป็นหลักก่อน (ถ้าไม่มีค่อยใช้ชื่อไฟล์)
         const targetProjectName = data.name || fileNameWithoutExt || "โปรเจกต์ไม่มีชื่อ";
-        
-        // ⭐ 3. ดึงชื่อเพลงบนกระดาษจากไฟล์ .tme (ถ้าไม่มีค่อยใช้ชื่อโปรเจกต์)
         const targetSongName = data.songName || targetProjectName;
         
         setProjectName(targetProjectName);
-        setSongName(targetSongName); // จะไม่โดนชื่อไฟล์เขียนทับแล้ว
-        
-        setProjectId(null); // บังคับล้าง ID เก่าทิ้ง
+        setSongName(targetSongName); 
+        setProjectId(null);
       
         let parsedSheetData = data.sheetData;
         if (data.sheetData) {
@@ -1490,20 +1531,16 @@ export const MusicProvider = ({ children }) => {
         if (data.rowTypes) setRowTypes(data.rowTypes);
         if (data.sectionLabels) setSectionLabels(data.sectionLabels);
         if (data.symbols) setSymbols(data.symbols);
-        // ใช้แบบ Merge เพื่อรักษาค่า Layout ไม่ให้ฟอนต์เพี้ยน
         if (data.layoutConfig) setLayoutConfig(prev => ({ ...prev, ...data.layoutConfig }));
         if (data.headerDetails) setHeaderDetails(data.headerDetails);
-        
-        // โหลดเครื่องดนตรี
-        if (data.currentInstrument && INSTRUMENT_CONFIG[data.currentInstrument]) {
-          setCurrentInstrument(INSTRUMENT_CONFIG[data.currentInstrument]);
-        }
+        if (data.currentInstrument && INSTRUMENT_CONFIG[data.currentInstrument]) setCurrentInstrument(INSTRUMENT_CONFIG[data.currentInstrument]);
 
-        // โหลดการตั้งค่าการเล่น
         if (data.playbackSequence) setPlaybackSequence(data.playbackSequence);
         if (data.isLoopAll !== undefined) setIsLoopAll(data.isLoopAll);
         if (data.isLoopOne !== undefined) setIsLoopOne(data.isLoopOne);
         if (data.isOctaveMode !== undefined) setIsOctaveMode(data.isOctaveMode);
+        if (data.isReduceMode !== undefined) setIsReduceMode(data.isReduceMode);
+        if (data.isShowPlayMode !== undefined) setIsShowPlayMode(data.isShowPlayMode);
         
         const loadedMargins = data.rowMargins || Array(data.sheetData?.length || 4).fill({ top: 0, bottom: 0, left: 0 });
         setRowMargins(loadedMargins);
@@ -1511,30 +1548,22 @@ export const MusicProvider = ({ children }) => {
         setSelectionRange(null);
         commitChange(parsedSheetData, data.rowTypes, data.sectionLabels, data.symbols, loadedMargins);
 
-        // 4. บันทึกลง Firebase ด้วยชื่อที่ถูกต้อง
         const uid = auth.currentUser?.uid;
         if (uid) {
            const projectDataToSave = { 
-             name: targetProjectName, 
-             songName: targetSongName, 
-             sheetData: parsedSheetData || sheetData, 
-             rowTypes: data.rowTypes || rowTypes, 
-             sectionLabels: data.sectionLabels || sectionLabels, 
-             symbols: data.symbols || symbols, 
-             layoutConfig: { ...layoutConfig, ...(data.layoutConfig || {}) }, 
-             headerDetails: data.headerDetails || headerDetails, 
-             currentInstrument: data.currentInstrument || currentInstrument?.id || 'ranat-ek', 
-             rowMargins: loadedMargins, 
-             playbackSequence: data.playbackSequence || playbackSequence,
-             isLoopAll: data.isLoopAll || false, 
-             isLoopOne: data.isLoopOne || false, 
-             isOctaveMode: data.isOctaveMode || false
+             name: targetProjectName, songName: targetSongName, sheetData: parsedSheetData || sheetData, 
+             rowTypes: data.rowTypes || rowTypes, sectionLabels: data.sectionLabels || sectionLabels, 
+             symbols: data.symbols || symbols, layoutConfig: { ...layoutConfig, ...(data.layoutConfig || {}) }, 
+             headerDetails: data.headerDetails || headerDetails, currentInstrument: data.currentInstrument || currentInstrument?.id || 'ranat-ek', 
+             rowMargins: loadedMargins, playbackSequence: data.playbackSequence || playbackSequence,
+             isLoopAll: data.isLoopAll || false, isLoopOne: data.isLoopOne || false, 
+             isOctaveMode: data.isOctaveMode || false, isReduceMode: data.isReduceMode || false,
+             isShowPlayMode: data.isShowPlayMode || false
            };
            
            const newId = await saveProjectToDB(uid, null, projectDataToSave);
            if (newId) setProjectId(newId); 
         }
-
       } catch (error) {
         console.error("Load project error:", error);
         alert("ไฟล์ไม่ถูกต้อง หรือไฟล์เสียหายครับ!"); 
@@ -1546,8 +1575,7 @@ export const MusicProvider = ({ children }) => {
   };
 
   const performNewProject = () => {
-    isImportingRef.current = true; // ⭐ แขวนป้าย: ล็อกออโต้เซฟ
-    // เอา if (window.confirm(...)) ออก เพราะเรามี UI แจ้งเตือนแล้ว
+    isImportingRef.current = true;
     const initSheet = Array(4).fill().map(() => Array(8).fill().map(() => Array(4).fill('-')));
     const initType = Array(4).fill('single');
     const initMar = Array(4).fill({ top: 0, bottom: 0, left: 0 });
@@ -1559,8 +1587,6 @@ export const MusicProvider = ({ children }) => {
     setHeaderDetails([{ id: 1, label: "อัตราจังหวะ", value: "๒ ชั้น" }, { id: 2, label: "หน้าทับ", value: "สองไม้" }, { id: 3, label: "บันไดเสียง", value: "ทางเพียงออ" }, { id: 4, label: "ผู้บันทึก", value: "9atony" }]);
     setSelectedCell([0, 0, 0]); setSelectionRange(null); setHistoryIndex(-1); setHistory([]); localStorage.removeItem('thaiMusicEditorAutoSave');
     commitChange(initSheet, initType, {}, [], initMar);
-    
-    // ⭐ ปลดป้าย: ปลดล็อกออโต้เซฟ
     setTimeout(() => { isImportingRef.current = false; }, 1000);
   };
 
@@ -1583,12 +1609,9 @@ export const MusicProvider = ({ children }) => {
             const validLabels = labels.filter(l => !l.text.includes('กลับต้น') && l.text.trim() !== '');
 
             if (validLabels.length > 0 && vIdx !== lastProcessedVIdx) {
-                // ⭐ 1. อัปเดตบรรทัดจบให้ "ทุกป้ายกำกับ" ของท่อนก่อนหน้านี้ให้เรียบร้อย
                 sheetSections.forEach(sec => {
                     if (sec.endRow === currentSheetData.length - 1) sec.endRow = lastValidRow;
                 });
-                
-                // ⭐ 2. ดึง "ทุกป้ายกำกับ" ในบรรทัดนี้ (ไม่ว่าจะมุมไหน) มาสร้างเป็นท่อนเล่นเพลงทั้งหมด
                 validLabels.forEach(vl => {
                     sheetSections.push({ label: vl.text.trim(), startRow: r, endRow: currentSheetData.length - 1 });
                 });
@@ -1597,7 +1620,6 @@ export const MusicProvider = ({ children }) => {
             lastValidRow = r;
             if (currentRowTypes[r] === 'double-right') lastValidRow = r + 1; 
         }
-        // ⭐ 3. ปิดท้ายบรรทัดจบของเพลงให้ครบทุกป้าย
         sheetSections.forEach(sec => {
             if (sec.endRow === currentSheetData.length - 1) sec.endRow = lastValidRow;
         });
@@ -1746,7 +1768,7 @@ export const MusicProvider = ({ children }) => {
   };
 
   const undo = () => {
-    if (isReadOnlyRef.current) return; // ⭐ บล็อกในโหมดอ่านอย่างเดียว
+    if (isReadOnlyRef.current) return;
     if (historyIndex > 0) {
       const prev = history[historyIndex - 1];
       setSheetData(prev.sheetData);
@@ -1759,7 +1781,7 @@ export const MusicProvider = ({ children }) => {
   };
 
   const redo = () => {
-    if (isReadOnlyRef.current) return; // ⭐ บล็อกในโหมดอ่านอย่างเดียว
+    if (isReadOnlyRef.current) return;
     if (historyIndex < history.length - 1) {
       const next = history[historyIndex + 1];
       setSheetData(next.sheetData);
@@ -1771,7 +1793,6 @@ export const MusicProvider = ({ children }) => {
     }
   };
 
-  
   useEffect(() => {
     const saved = localStorage.getItem('thaiMusicEditorAutoSave');
     if (saved) {
@@ -1789,6 +1810,13 @@ export const MusicProvider = ({ children }) => {
         if (data.playbackSequence) setPlaybackSequence(data.playbackSequence);
         const loadedMargins = data.rowMargins || Array(data.sheetData?.length || 4).fill({ top: 0, bottom: 0, left: 0 });
         setRowMargins(loadedMargins);
+        
+        if (data.isLoopAll !== undefined) setIsLoopAll(data.isLoopAll);
+        if (data.isLoopOne !== undefined) setIsLoopOne(data.isLoopOne);
+        if (data.isOctaveMode !== undefined) setIsOctaveMode(data.isOctaveMode);
+        if (data.isReduceMode !== undefined) setIsReduceMode(data.isReduceMode);
+        if (data.isShowPlayMode !== undefined) setIsShowPlayMode(data.isShowPlayMode); 
+
         commitChange(data.sheetData || sheetData, data.rowTypes || rowTypes, data.sectionLabels || sectionLabels, data.symbols || symbols, loadedMargins);
       } catch (error) {
         commitChange(sheetData, rowTypes, sectionLabels, symbols, rowMargins);
@@ -1800,32 +1828,26 @@ export const MusicProvider = ({ children }) => {
   }, []);
 
  useEffect(() => {
-    // ⭐ 2. ถ้ามีป้ายแขวนว่ากำลังโหลดไฟล์อยู่ (isImportingRef) หรือโหมดอ่านอย่างเดียว ให้หยุดทำงานเด็ดขาด!
     if (!isLoaded || isImportingRef.current || isReadOnly) return; 
     
-    // ⭐ 1. สร้างเงื่อนไขเช็กว่าเป็น "โปรเจกต์ใหม่เอี่ยม" หรือไม่
     const isFreshProject = !projectId && historyIndex <= 0 && projectName === "โปรเจกต์ไม่มีชื่อ" && songName === "เพลงใหม่";
 
     const projectData = { 
       name: projectName, songName, sheetData, rowTypes, sectionLabels, 
       symbols, layoutConfig, headerDetails, currentInstrument: currentInstrument.id, 
       rowMargins, playbackSequence,
-      isLoopAll, isLoopOne, isOctaveMode // 👈 เพิ่ม 3 ตัวนี้เข้าไปในการออโต้เซฟ
+      isLoopAll, isLoopOne, isOctaveMode, isReduceMode, isShowPlayMode 
     };
     
-    // สำรองข้อมูลลงเครื่อง (localStorage) ไว้เผื่อเน็ตหลุดเสมอ
     localStorage.setItem('thaiMusicEditorAutoSave', JSON.stringify(projectData));
     
-    // ⭐ 2. ถ้า "ไม่ใช่" โปรเจกต์ใหม่เอี่ยม (คือมีการแก้ไขแล้ว) ค่อยสั่งเซฟลง Firebase
     if (!isFreshProject) {
       autoSaveToFirebase(projectData);
     }
-
-  // ⭐ อย่าลืมเพิ่ม 3 ตัวแปรนี้เข้าไปใน Dependency Array ด้านล่างด้วยครับ 👇
-  }, [isLoaded, projectName, songName, sheetData, rowTypes, sectionLabels, symbols, layoutConfig, headerDetails, currentInstrument, rowMargins, playbackSequence, isLoopAll, isLoopOne, isOctaveMode, projectId, historyIndex, isReadOnly]);
+  }, [isLoaded, projectName, songName, sheetData, rowTypes, sectionLabels, symbols, layoutConfig, headerDetails, currentInstrument, rowMargins, playbackSequence, isLoopAll, isLoopOne, isOctaveMode, isReduceMode, isShowPlayMode, projectId, historyIndex, isReadOnly]);
 
   const updateRowMarginsList = (arg1, arg2, arg3) => {
-    if (isReadOnlyRef.current) return; // ⭐ บล็อกในโหมดอ่านอย่างเดียว
+    if (isReadOnlyRef.current) return;
     const newRowMargins = [...rowMargins];
     if (Array.isArray(arg1)) {
       arg1.forEach(update => { newRowMargins[update.index] = { ...(newRowMargins[update.index] || { top: 0, bottom: 0, left: 0 }), ...update.changes }; });
@@ -1836,14 +1858,14 @@ export const MusicProvider = ({ children }) => {
   };
 
   const addSymbol = (type, start, end, options = {}) => {
-    if (isReadOnlyRef.current) return; // ⭐ บล็อกในโหมดอ่านอย่างเดียว
+    if (isReadOnlyRef.current) return; 
     const newSymbols = [...symbols, { id: Date.now(), type, start, end, ...options }];
     commitChange(sheetData, rowTypes, sectionLabels, newSymbols);
   };
   const updateSymbol = (id, updates) => { if (isReadOnlyRef.current) return; commitChange(sheetData, rowTypes, sectionLabels, symbols.map(s => s.id === id ? { ...s, ...updates } : s)); };
   const removeSymbol = (id) => { if (isReadOnlyRef.current) return; commitChange(sheetData, rowTypes, sectionLabels, symbols.filter(s => s.id !== id)); };
   const removeSymbolByCell = (cell) => {
-    if (isReadOnlyRef.current) return; // ⭐ บล็อกในโหมดอ่านอย่างเดียว
+    if (isReadOnlyRef.current) return; 
     if (!cell) return;
     const newSymbols = symbols.filter(s => !(s.start[0] === cell[0] && s.start[1] === cell[1] && s.start[2] === cell[2]) && !(s.end[0] === cell[0] && s.end[1] === cell[1] && s.end[2] === cell[2]));
     if (newSymbols.length !== symbols.length) commitChange(sheetData, rowTypes, sectionLabels, newSymbols);
@@ -1855,7 +1877,7 @@ export const MusicProvider = ({ children }) => {
   const changeInstrument = (instrumentId) => setCurrentInstrument(INSTRUMENT_CONFIG[instrumentId]);
   
   const performLoadProjectFromFirebase = (projectData) => {
-    isImportingRef.current = true; // ⭐ แขวนป้าย: ล็อกออโต้เซฟ
+    isImportingRef.current = true;
     try {
       const parsedSheetData = typeof projectData.sheetData === 'string' ? JSON.parse(projectData.sheetData) : projectData.sheetData;
 
@@ -1870,16 +1892,14 @@ export const MusicProvider = ({ children }) => {
       if (projectData.layoutConfig) setLayoutConfig(prev => ({ ...prev, ...projectData.layoutConfig }));
       if (projectData.headerDetails) setHeaderDetails(projectData.headerDetails);
       
-      // ⭐ โหลดเครื่องดนตรีและการตั้งค่าต่างๆ
-      if (projectData.currentInstrument && INSTRUMENT_CONFIG[projectData.currentInstrument]) {
-        setCurrentInstrument(INSTRUMENT_CONFIG[projectData.currentInstrument]);
-      }
+      if (projectData.currentInstrument && INSTRUMENT_CONFIG[projectData.currentInstrument]) setCurrentInstrument(INSTRUMENT_CONFIG[projectData.currentInstrument]);
       if (projectData.playbackSequence) setPlaybackSequence(projectData.playbackSequence);
       if (projectData.isLoopAll !== undefined) setIsLoopAll(projectData.isLoopAll);
       if (projectData.isLoopOne !== undefined) setIsLoopOne(projectData.isLoopOne);
       if (projectData.isOctaveMode !== undefined) setIsOctaveMode(projectData.isOctaveMode);
+      if (projectData.isReduceMode !== undefined) setIsReduceMode(projectData.isReduceMode);
+      if (projectData.isShowPlayMode !== undefined) setIsShowPlayMode(projectData.isShowPlayMode);
 
-      // โหลดระยะขอบ
       const loadedMargins = projectData.rowMargins || Array(parsedSheetData?.length || 4).fill({ top: 0, bottom: 0, left: 0 });
       setRowMargins(loadedMargins);
       
@@ -1893,8 +1913,6 @@ export const MusicProvider = ({ children }) => {
     }
   };
 
-  // ⭐ อัปเดตคำสั่งสาธารณะ ให้รับค่าบัตรผ่าน (skipWarning) แล้วส่งต่อให้ตัวดักจับ
-  // ⭐ ปรับให้รีเซ็ต readOnly เมื่อสร้างโปรเจกต์ใหม่หรือโหลดไฟล์ปกติ
   const newProject = (skipWarning = false) => {
     const wasReadOnly = isReadOnlyRef.current;
     setReadOnlyMode(false);
@@ -1905,22 +1923,18 @@ export const MusicProvider = ({ children }) => {
     setReadOnlyMode(false);
     checkUnsavedAndPrompt('LOAD_LOCAL', file, skipWarning || wasReadOnly);
   };
-  // ⭐ loadProjectFromFirebase รับค่า readOnly เพิ่มเติม (สำหรับหน้า Samples)
   const loadProjectFromFirebase = (data, skipWarning = false, readOnly = false) => {
     const wasReadOnly = isReadOnlyRef.current;
     setReadOnlyMode(readOnly);
     checkUnsavedAndPrompt('LOAD_FIREBASE', data, skipWarning || (wasReadOnly && !readOnly));
   };
 
-  // ⭐ ฟังก์ชันสำหรับรับข้อมูลเทมเพลตและอัปเดตกระดาษ
   const applyTemplate = (templateData) => {
-    // 1. ล้างข้อมูลโน้ตบนกระดาษออกให้หมด (เหมือนกดสร้างโปรเจกต์ใหม่)
     setSheetData(Array(4).fill().map(() => Array(8).fill().map(() => Array(4).fill('-'))));
     setRowTypes(Array(4).fill('single'));
     setSectionLabels({});
     setProjectId(null);
 
-    // 2. นำข้อมูลจากเทมเพลตมาใส่
     setSongName(templateData.defaultSongName || "เพลงใหม่");
     setProjectName("โปรเจกต์ไม่มีชื่อ");
     setHeaderDetails(templateData.headerDetails || []);
@@ -1930,9 +1944,8 @@ export const MusicProvider = ({ children }) => {
     }
   };
 
- // ⭐ วางไว้ล่างสุดเหนือ return (<MusicContext.Provider ...>)
   useEffect(() => {
-    let isCtrlCombination = false; // 👈 เพิ่มตัวแปรเช็คว่ากด Ctrl พร้อมปุ่มอื่นหรือไม่
+    let isCtrlCombination = false; 
 
     const handleKeyDown = (e) => {
       const tag = e.target?.tagName;
@@ -1940,7 +1953,6 @@ export const MusicProvider = ({ children }) => {
       
       if (isEditable) return; 
 
-      // 👈 ถ้าระหว่างกด Ctrl ค้างไว้ มีการกดปุ่มอื่นด้วย (เช่น C, V, Z)
       if (e.ctrlKey && e.key !== 'Control') {
         isCtrlCombination = true;
       }
@@ -1951,7 +1963,6 @@ export const MusicProvider = ({ children }) => {
         return;             
       }
 
-      // === 1. ปุ่ม Backspace: ลบโน้ตทีละตัว ===
       if (e.key === 'Backspace') {
         if (isReadOnlyRef.current) { e.preventDefault(); return; } 
         e.preventDefault();
@@ -1966,7 +1977,6 @@ export const MusicProvider = ({ children }) => {
         return;
       }
 
-      // === 2. ปุ่ม Delete: ลบบรรทัดทิ้ง ===
       if (e.key === 'Delete') {
         if (isReadOnlyRef.current) { e.preventDefault(); return; } 
         e.preventDefault();
@@ -1975,25 +1985,21 @@ export const MusicProvider = ({ children }) => {
           removeSymbol(selectedSymbolId);
           setSelectedSymbolId(null);
         } else if (selectedCell) {
-          removeRow(); // เรียกใช้ฟังก์ชันลบบรรทัด
+          removeRow(); 
         }
         return;
       }
 
-      // === 3. ปุ่ม Insert: แทรกบรรทัดอัจฉริยะ (เดี่ยว/คู่) ===
       if (e.key === 'Insert') {
         if (isReadOnlyRef.current) { e.preventDefault(); return; }
         e.preventDefault();
         
         if (selectedCell) {
           const [rIdx] = selectedCell;
-          const currentType = rowTypes[rIdx]; // เช็กว่าบรรทัดปัจจุบันที่เคอร์เซอร์อยู่เป็นแบบไหน
+          const currentType = rowTypes[rIdx]; 
           
-          if (currentType && currentType.startsWith('double')) {
-            addDoubleRow(); // ถ้าเป็นบรรทัดคู่ ให้เพิ่มบรรทัดคู่
-          } else {
-            addRow(); // ถ้าเป็นบรรทัดเดี่ยว ให้เพิ่มบรรทัดเดี่ยว
-          }
+          if (currentType && currentType.startsWith('double')) addDoubleRow(); 
+          else addRow(); 
         }
         return;
       }
@@ -2066,32 +2072,28 @@ export const MusicProvider = ({ children }) => {
       }
     };
 
-   // ⭐ เพิ่มฟังก์ชันดักจับตอน "ปล่อยปุ่ม" (KeyUp)
     const handleKeyUp = (e) => {
       const tag = e.target?.tagName;
       const isEditable = e.target?.isContentEditable || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
       if (isEditable) return; 
 
-      // 👇 เปลี่ยนมาเช็ก e.code ว่าเป็น "ControlRight" (ปุ่ม Ctrl ฝั่งขวา) เท่านั้น
       if (e.code === 'ControlRight') {
-        // ถ้ากด Ctrl ขวาเดี่ยวๆ ให้ใส่เครื่องหมายพักเสียง
         if (!isReadOnlyRef.current && !isCtrlCombination && selectedCell) {
           inputNote('-');
         }
       }
 
-      // รีเซ็ตค่าการกดคีย์ลัดผสม เมื่อปล่อยปุ่ม Control (ไม่ว่าจะซ้ายหรือขวา)
       if (e.key === 'Control') {
         isCtrlCombination = false;
       }
     };
     
     window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp); // 👈 เพิ่มการดักจับ KeyUp
+    window.addEventListener('keyup', handleKeyUp); 
     
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp); // 👈 ลบการดักจับ KeyUp
+      window.removeEventListener('keyup', handleKeyUp); 
     };
     
   }, [
@@ -2108,7 +2110,6 @@ export const MusicProvider = ({ children }) => {
       appendNoteToCurrentCell, trimCurrentCellToken, moveSelectionNext, moveSelectionPrev,
       layoutConfig, setLayoutConfig, headerDetails, addDetail, removeDetail, updateDetail,
       songName, setSongName: handleSetSongName, 
-      // ⭐ อย่าลืมส่ง projectName ออกไปให้ไฟล์อื่นๆ ใช้
       projectName, setProjectName,
       sectionLabels, addSectionLabel, updateSectionLabel, removeSectionLabel,
       addRow, removeRow, addMeasure, removeMeasure, selectionRange, setSelectionRange,
@@ -2120,6 +2121,9 @@ export const MusicProvider = ({ children }) => {
       symbols, addSymbol, updateSymbol, removeSymbol, removeSymbolByCell,
       selectedSymbolId, setSelectedSymbolId,
       isOctaveMode, setIsOctaveMode,
+      isReduceMode, setIsReduceMode, 
+      isShowPlayMode, setIsShowPlayMode, 
+      shiftNoteObject, shiftNoteString,
       addTextRow, updateTextRow,
       rowMargins, updateRowMarginsList,
       
@@ -2139,7 +2143,6 @@ export const MusicProvider = ({ children }) => {
       updateMeasureText      
 
     }}>
-    {/* ⭐ ระบบ UI Pop-up แจ้งเตือนก่อนเปิดทับ (ซ้อนทับทุกหน้าเว็บ) */}
       {pendingAction.isOpen && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fadeIn">
           <div className="bg-white rounded-3xl p-6 md:p-8 w-full max-w-md shadow-2xl scale-100 animate-slideUp text-center" style={{ fontFamily: 'Prompt, sans-serif' }}>
@@ -2153,17 +2156,12 @@ export const MusicProvider = ({ children }) => {
             <div className="flex flex-col gap-3">
               <button 
                 onClick={async () => {
-                  // 1. แพ็กข้อมูลโปรเจกต์ปัจจุบันทั้งหมดเพื่อเตรียมส่งขึ้นฐานข้อมูล
                   const projectData = { 
                     name: projectName, songName, sheetData, rowTypes, sectionLabels, 
                     symbols, layoutConfig, headerDetails, currentInstrument: currentInstrument.id, 
                     rowMargins, playbackSequence 
                   };
-                  
-                  // 2. สั่งบันทึกลงฐานข้อมูล Firebase (และรอให้เซฟเสร็จก่อน)
                   await autoSaveToFirebase(projectData);
-                  
-                  // 3. รันคำสั่งเปิดไฟล์ใหม่ หรือกระดาษใหม่ ที่ค้างเอาไว้ต่อทันที
                   executeAction(pendingAction.type, pendingAction.payload);
                 }} 
                 className="w-full py-3 font-bold text-white bg-sky-500 hover:bg-sky-600 rounded-xl transition-all shadow-md shadow-sky-500/20 active:scale-[0.98]"
@@ -2189,10 +2187,7 @@ export const MusicProvider = ({ children }) => {
           </div>
         </div>
       )}
-
-  
       {children}
     </MusicContext.Provider>
   );
 };
-

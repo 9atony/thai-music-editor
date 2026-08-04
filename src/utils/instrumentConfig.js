@@ -61,7 +61,7 @@ export const INSTRUMENT_CONFIG = {
       { thai: 'ร', eng: 'D5', audio: '15.wav' }, 
       { thai: 'ม', eng: 'E5', audio: '16.wav' }
     ]
-  }, // 👈 เติมลูกน้ำ (,) ตรงนี้ครับ
+  },
   "ranat-tum": {
     id: "ranat-tum",
     name: "ระนาดทุ้ม",
@@ -88,6 +88,35 @@ export const INSTRUMENT_CONFIG = {
       { thai: 'ร', eng: 'D5', audio: '15.wav' }, 
       { thai: 'ม', eng: 'E5', audio: '16.wav' },
       { thai: 'ฟ', eng: 'F5', audio: '17.wav' }
+    ]
+  },
+  "khong-wong-lek": {
+    id: "khong-wong-lek",
+    name: "ฆ้องวงเล็ก",
+    keys: [
+      // เสียงต่ำ 8 ลูก (เริ่มที่ ที ต่ำสุด)
+      { thai: 'ท', eng: 'B2', audio: '1.wav' }, 
+      { thai: 'ด', eng: 'C3', audio: '2.wav' }, 
+      { thai: 'ร', eng: 'D3', audio: '3.wav' }, 
+      { thai: 'ม', eng: 'E3', audio: '4.wav' }, 
+      { thai: 'ฟ', eng: 'F3', audio: '5.wav' },
+      { thai: 'ซ', eng: 'G3', audio: '6.wav' }, 
+      { thai: 'ล', eng: 'A3', audio: '7.wav' }, 
+      { thai: 'ท', eng: 'B3', audio: '8.wav' },
+      
+      // เสียงกลาง 7 ลูก
+      { thai: 'ด', eng: 'C4', audio: '9.wav' }, 
+      { thai: 'ร', eng: 'D4', audio: '10.wav' }, 
+      { thai: 'ม', eng: 'E4', audio: '11.wav' }, 
+      { thai: 'ฟ', eng: 'F4', audio: '12.wav' },
+      { thai: 'ซ', eng: 'G4', audio: '13.wav' }, 
+      { thai: 'ล', eng: 'A4', audio: '14.wav' }, 
+      { thai: 'ท', eng: 'B4', audio: '15.wav' },
+      
+      // เสียงสูง 3 ลูก
+      { thai: 'ด', eng: 'C5', audio: '16.wav' }, 
+      { thai: 'ร', eng: 'D5', audio: '17.wav' }, 
+      { thai: 'ม', eng: 'E5', audio: '18.wav' }
     ]
   }
 };

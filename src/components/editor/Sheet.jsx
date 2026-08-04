@@ -330,10 +330,14 @@ const Sheet = forwardRef((props, ref) => {
     symbols.forEach(sym => {
       const isKro = sym.type === 'kro';
 
-      if (isKro && sym.start[0] !== sym.end[0]) {
-        const color = sym.color || '#3b82f6';
-        const strokeW = sym.strokeWidth || 2.5;
+      // 🛠️ บังคับดึงค่าจาก Global Layout Config เป็นหลักทันที ถ้าสัญลักษณ์นั้นไม่มีค่าเฉพาะตัว
+      const color = sym.color || (isKro ? (layoutConfig.kroColor || '#3b82f6') : (layoutConfig.symbolColor || '#1e293b'));
+      const strokeW = sym.strokeWidth ?? (isKro ? (layoutConfig.kroStrokeWidth || 2.5) : (layoutConfig.symbolStrokeWidth || 2.5));
+      const offset = sym.offset ?? (isKro ? (layoutConfig.kroOffset || 30) : (layoutConfig.sabatOffset || 4));
+      const curve = sym.curve ?? layoutConfig.sabatCurve ?? 20;
 
+      if (isKro && sym.start[0] !== sym.end[0]) {
+        // กรณีลูกกรอข้ามบรรทัด (ยังคงเหมือนเดิม)
         for (let r = sym.start[0]; r <= sym.end[0]; r++) {
           const pageIndex = pages.findIndex(p => r >= p.startIndex && r < p.startIndex + p.rows.length);
           if (pageIndex === -1) continue;
@@ -351,9 +355,9 @@ const Sheet = forwardRef((props, ref) => {
             const eRect = endEl.getBoundingClientRect();
 
             const x1 = (sRect.left - pRect.left + (sRect.width / 2)) / scale;
-            const y1 = (sRect.top - pRect.top) / scale + 30; 
+            const y1 = (sRect.top - pRect.top) / scale + offset; 
             const x2 = (eRect.left - pRect.left + (eRect.width / 2)) / scale;
-            const y2 = (eRect.top - pRect.top) / scale + 30;
+            const y2 = (eRect.top - pRect.top) / scale + offset;
 
             const d = `M ${x1} ${y1} L ${x2} ${y2}`;
             if (!newPagePaths[pageIndex]) newPagePaths[pageIndex] = [];
@@ -373,20 +377,22 @@ const Sheet = forwardRef((props, ref) => {
             const eRect = endEl.getBoundingClientRect();
 
             const x1 = (sRect.left - pRect.left + (sRect.width / 2)) / scale;
-            const y1 = (sRect.top - pRect.top) / scale + 4;
+            const y1 = (sRect.top - pRect.top) / scale; 
             const x2 = (eRect.left - pRect.left + (eRect.width / 2)) / scale;
-            const y2 = (eRect.top - pRect.top) / scale + 4;
+            const y2 = (eRect.top - pRect.top) / scale;
             
             let d = "";
-            const color = sym.color || layoutConfig.symbolColor || '#1e293b';
-            const strokeW = sym.strokeWidth || layoutConfig.symbolStrokeWidth || 2.5;
 
             if (isKro) {
-                d = `M ${x1} ${y1 + 30} L ${x2} ${y2 + 30}`;
+                // วาดเส้นลูกกรอ + Offset
+                d = `M ${x1} ${y1 + offset} L ${x2} ${y2 + offset}`;
             } else {
-                const baseHeight = sym.height ?? 20;
-                const height = baseHeight + Math.abs(x2 - x1) * 0.15;
-                d = `M ${x1} ${y1} C ${x1 + (x2 - x1) * 0.25} ${y1 - height}, ${x2 - (x2 - x1) * 0.25} ${y2 - height}, ${x2} ${y2}`;
+                // วาดเส้นลูกสะบัดโค้ง + Curve + Offset (ให้วาดขึ้นไปด้านบน เลยต้องติดลบ y)
+                const finalY1 = y1 - offset;
+                const finalY2 = y2 - offset;
+                const dynamicCurve = curve + Math.abs(x2 - x1) * 0.15; // ถ้ายาวมากให้โค้งเพิ่มนิดนึง
+                
+                d = `M ${x1} ${finalY1} C ${x1 + (x2 - x1) * 0.25} ${finalY1 - dynamicCurve}, ${x2 - (x2 - x1) * 0.25} ${finalY2 - dynamicCurve}, ${x2} ${finalY2}`;
             }
 
             if (!newPagePaths[pageIndex]) newPagePaths[pageIndex] = [];
@@ -396,7 +402,7 @@ const Sheet = forwardRef((props, ref) => {
       }
     });
     setPageSvgPaths(newPagePaths);
-  }, [symbols, layoutConfig, pages, zoom, sheetData]); 
+  }, [symbols, layoutConfig, pages, zoom, sheetData]);
 
   useEffect(() => {
     if (playbackCursor !== null) return; 
