@@ -37,7 +37,10 @@ const Keyboard = () => {
     return finalNote;
   };
 
-  // ⭐ อัปเดตการรับสัญญาณ ให้มีเอฟเฟกต์ยกไม้ และจำมือซ้ายขวา
+ 
+    // ⭐ เพิ่ม Ref สำหรับจดบันทึกไฟแบบเรียลไทม์ (ป้องกัน React State Collision)
+  const litKeysTrackerRef = useRef({});
+
   useEffect(() => {
     const handleNotePlayed = (e) => {
       const { note, hand } = e.detail; 
@@ -46,29 +49,25 @@ const Keyboard = () => {
       if (idx !== -1) {
         if (litTimersRef.current[idx]) clearTimeout(litTimersRef.current[idx]);
 
-        const turnOnLight = () => {
-          setActiveLitKeys(prev => ({ ...prev, [idx]: hand }));
+        const executeLightOn = () => {
+          // ใช้ Ref จดคิวไว้ก่อน แล้วค่อยสั่ง Update State ทีเดียว
+          litKeysTrackerRef.current[idx] = hand;
+          setActiveLitKeys({ ...litKeysTrackerRef.current });
+
           litTimersRef.current[idx] = setTimeout(() => {
-            setActiveLitKeys(prev => {
-              const next = { ...prev };
-              delete next[idx];
-              return next;
-            });
+            delete litKeysTrackerRef.current[idx];
+            setActiveLitKeys({ ...litKeysTrackerRef.current });
           }, 200); 
         };
 
-        // ถ้าไฟปุ่มนี้ติดอยู่แล้ว ให้สั่งดับแวบหนึ่งแล้วค่อยติดใหม่ (ยกไม้แล้วตีซ้ำ)
-        setActiveLitKeys(prev => {
-          if (prev[idx]) {
-            const next = { ...prev };
-            delete next[idx];
-            setTimeout(turnOnLight, 20); // ดับไป 20ms เพื่อจำลองการยกไม้
-            return next;
-          } else {
-            turnOnLight();
-            return prev;
-          }
-        });
+        if (litKeysTrackerRef.current[idx]) {
+          // ถ้าไฟดวงนี้ติดอยู่แล้ว สั่งดับแวบหนึ่งแล้วติดใหม่
+          delete litKeysTrackerRef.current[idx];
+          setActiveLitKeys({ ...litKeysTrackerRef.current });
+          setTimeout(executeLightOn, 20); 
+        } else {
+          executeLightOn();
+        }
       }
     };
 

@@ -322,21 +322,34 @@ export const MusicProvider = ({ children }) => {
     const actualNoteToPlay = isReduceModeRef.current ? shiftNoteString(noteStr, -1) : noteStr;
     
     playNote(currentInstrument.id, actualNoteToPlay, vol);
-    
-    if (isShowPlayModeRef.current) {
-        window.dispatchEvent(new CustomEvent('tme-note-played', { detail: { note: actualNoteToPlay, hand } }));
-    }
 
-   if (!bypassOctaveLayer && isOctaveModeRef.current) {
+    if (!bypassOctaveLayer && isOctaveModeRef.current) {
       const preferredDirection = getPreferredOctaveDirection(currentInstrument, actualNoteToPlay);
       const octavePairNote = getOctavePairNote(currentInstrument, actualNoteToPlay, preferredDirection);
+      
       if (octavePairNote && octavePairNote !== actualNoteToPlay) {
         playNote(currentInstrument.id, octavePairNote, vol);
         
         if (isShowPlayModeRef.current) {
-            window.dispatchEvent(new CustomEvent('tme-note-played', { detail: { note: octavePairNote, hand } }));
+            // ⭐ แยกระดับเสียง Octave เพื่อกำหนดว่าอันไหนซ้าย (ต่ำ) อันไหนขวา (สูง)
+            const getOctaveNum = (str) => str.includes('\u0E4D') ? 5 : str.includes('\u0E3A\u200B') ? 2 : str.includes('\u0E3A') ? 3 : 4;
+            const mainOct = getOctaveNum(actualNoteToPlay);
+            const pairOct = getOctaveNum(octavePairNote);
+
+            if (mainOct < pairOct) {
+                window.dispatchEvent(new CustomEvent('tme-note-played', { detail: { note: actualNoteToPlay, hand: 'left' } }));
+                window.dispatchEvent(new CustomEvent('tme-note-played', { detail: { note: octavePairNote, hand: 'right' } }));
+            } else {
+                window.dispatchEvent(new CustomEvent('tme-note-played', { detail: { note: actualNoteToPlay, hand: 'right' } }));
+                window.dispatchEvent(new CustomEvent('tme-note-played', { detail: { note: octavePairNote, hand: 'left' } }));
+            }
         }
+        return; // ทำงานครบแล้ว สั่ง Return ออกไปเลย ป้องกัน Dispatch ซ้ำซ้อน
       }
+    }
+
+    if (isShowPlayModeRef.current) {
+        window.dispatchEvent(new CustomEvent('tme-note-played', { detail: { note: actualNoteToPlay, hand } }));
     }
   };
 
