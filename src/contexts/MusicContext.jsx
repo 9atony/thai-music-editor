@@ -298,12 +298,14 @@ export const MusicProvider = ({ children }) => {
   const playbackSequenceRef = useRef(playbackSequence);
   const activeSequenceIdxRef = useRef(0);
   const activeLoopRef = useRef(1);
-  const isLoopAllRef = useRef(isLoopAll); 
+ const isLoopAllRef = useRef(isLoopAll); 
   const isLoopOneRef = useRef(isLoopOne); 
   const sheetMapRef = useRef([]);
   const isImportingRef = useRef(false);
+  const currentInstrumentRef = useRef(currentInstrument); // ⭐ 1. เพิ่มตัวนี้
 
   useEffect(() => { layoutConfigRef.current = layoutConfig; }, [layoutConfig]);
+  useEffect(() => { currentInstrumentRef.current = currentInstrument; }, [currentInstrument]); // ⭐ 2. เพิ่มตัวนี้
   useEffect(() => { sheetDataRef.current = sheetData; }, [sheetData]);
   useEffect(() => { rowTypesRef.current = rowTypes; }, [rowTypes]);
   useEffect(() => { symbolsRef.current = symbols; }, [symbols]); 
@@ -320,18 +322,18 @@ export const MusicProvider = ({ children }) => {
 
     const { bypassOctaveLayer = false, hand = 'single' } = options;
     const actualNoteToPlay = isReduceModeRef.current ? shiftNoteString(noteStr, -1) : noteStr;
+    const inst = currentInstrumentRef.current; // ⭐ ดึงเครื่องดนตรีล่าสุดจาก Ref
     
-    playNote(currentInstrument.id, actualNoteToPlay, vol);
+    playNote(inst.id, actualNoteToPlay, vol);
 
     if (!bypassOctaveLayer && isOctaveModeRef.current) {
-      const preferredDirection = getPreferredOctaveDirection(currentInstrument, actualNoteToPlay);
-      const octavePairNote = getOctavePairNote(currentInstrument, actualNoteToPlay, preferredDirection);
+      const preferredDirection = getPreferredOctaveDirection(inst, actualNoteToPlay);
+      const octavePairNote = getOctavePairNote(inst, actualNoteToPlay, preferredDirection);
       
       if (octavePairNote && octavePairNote !== actualNoteToPlay) {
-        playNote(currentInstrument.id, octavePairNote, vol);
+        playNote(inst.id, octavePairNote, vol);
         
         if (isShowPlayModeRef.current) {
-            // ⭐ แยกระดับเสียง Octave เพื่อกำหนดว่าอันไหนซ้าย (ต่ำ) อันไหนขวา (สูง)
             const getOctaveNum = (str) => str.includes('\u0E4D') ? 5 : str.includes('\u0E3A\u200B') ? 2 : str.includes('\u0E3A') ? 3 : 4;
             const mainOct = getOctaveNum(actualNoteToPlay);
             const pairOct = getOctaveNum(octavePairNote);
@@ -344,7 +346,7 @@ export const MusicProvider = ({ children }) => {
                 window.dispatchEvent(new CustomEvent('tme-note-played', { detail: { note: octavePairNote, hand: 'left' } }));
             }
         }
-        return; // ทำงานครบแล้ว สั่ง Return ออกไปเลย ป้องกัน Dispatch ซ้ำซ้อน
+        return; 
       }
     }
 
@@ -751,14 +753,16 @@ export const MusicProvider = ({ children }) => {
                   const noteA = startNotes.length > 0 ? startNotes[0] : null;
                   if (noteA) {
                       const actualA = isReduceModeRef.current ? shiftNoteString(noteA, -1) : noteA;
-                      const preferredDirection = getPreferredOctaveDirection(currentInstrument, actualA);
-                      const pairBase = getOctavePairNote(currentInstrument, actualA, preferredDirection) || getOctavePairNote(currentInstrument, actualA, preferredDirection === 'down' ? 'up' : 'down') || actualA;
+                      
+                      // ⭐ แก้ให้ดึง currentInstrumentRef.current แทน currentInstrument เปล่าๆ
+                      const inst = currentInstrumentRef.current;
+                      const preferredDirection = getPreferredOctaveDirection(inst, actualA);
+                      const pairBase = getOctavePairNote(inst, actualA, preferredDirection) || getOctavePairNote(inst, actualA, preferredDirection === 'down' ? 'up' : 'down') || actualA;
                       const noteB = isReduceModeRef.current ? shiftNoteString(pairBase, 1) : pairBase;
                       
-                      // ⭐ อัปเดต: ระบบดึงความเร็วจากค่าเฉพาะจุดก่อน ถ้าไม่มีค่อยดึงจาก Global
                       const kroSpeed = sym.speed ?? layoutConfigRef.current.kroSpeed ?? 65;
                       const startHand = sym.startHand ?? layoutConfigRef.current.kroStartHand ?? 'right';
-                      
+                     
                       let isNoteA = true;
                       window.kroInterval = setInterval(() => {
                           // ⭐ อัปเดต: สลับมือซ้าย/ขวาตามลำดับที่เลือกไว้

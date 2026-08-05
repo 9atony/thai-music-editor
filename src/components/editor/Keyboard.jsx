@@ -18,7 +18,6 @@ const Keyboard = () => {
   const [hoveredIdx, setHoveredIdx] = useState(null);
   const [activeIdx, setActiveIdx] = useState(null);
   
-  // ❌ เอา activeLitKeys (React State) ออกไป ใช้แค่ Ref สำหรับจับเวลาแทน
   const litTimersRef = useRef({});
 
   const [isMinimized, setIsMinimized] = useState(false);
@@ -36,31 +35,23 @@ const Keyboard = () => {
     return finalNote;
   };
 
-  // ⭐ อัปเดต: สั่งงานไฟกะพริบผ่าน DOM ทันที (ป้องกัน React กลืนคำสั่งใน Production)
   useEffect(() => {
     const handleNotePlayed = (e) => {
       const { note, hand } = e.detail; 
       const idx = currentInstrument.keys.findIndex(k => getFormattedStr(k.eng, k.thai) === note);
       
       if (idx !== -1) {
-        // 1. ชี้เป้าไปที่ปุ่มบนหน้าจอโดยตรง
         const btn = document.getElementById(`kbd-key-${idx}`);
         if (!btn) return;
 
-        // 2. เคลียร์เวลาเก่าทิ้ง
         if (litTimersRef.current[idx]) clearTimeout(litTimersRef.current[idx]);
 
-        // 3. บังคับดึงคลาสสีเก่าออกก่อน (เพื่อจำลองการยกไม้)
         btn.classList.remove('lit-left', 'lit-right', 'lit-single');
-        
-        // 4. บังคับให้เบราว์เซอร์รู้ตัวว่าลบคลาสแล้ว (Force Reflow)
         void btn.offsetWidth;
 
-        // 5. สาดสีใหม่เข้าไปทันที
         const handClass = `lit-${hand}`;
         btn.classList.add(handClass);
 
-        // 6. ตั้งเวลาลบสีออก
         litTimersRef.current[idx] = setTimeout(() => {
           btn.classList.remove(handClass);
         }, 200); 
@@ -144,7 +135,6 @@ const Keyboard = () => {
   return (
     <div className={`relative flex flex-col z-10 w-full font-sans transition-colors duration-300 ${isOctaveMode && !isMinimized ? 'bg-[#fffdf0]' : 'bg-[#eaf4fc]'}`}>
       
-      {/* ⭐ ระบบไฟกะพริบที่ถูกคุมด้วย CSS ล้วนๆ ทะลุข้อจำกัดของ React */}
       <style>
         {`
           .lit-left {
@@ -192,7 +182,7 @@ const Keyboard = () => {
             <ToolbarSection bodyClass="bg-[#fffaf0] border border-amber-100">
               <div className="relative">
                 <div 
-                  onClick={() => setIsInstMenuOpen(!isInstMenuOpen)}
+                  onPointerDown={() => setIsInstMenuOpen(!isInstMenuOpen)}
                   className="relative flex items-center gap-2 rounded-xl bg-[#fff4d9] px-3 py-2 text-xs font-bold text-amber-900 border border-amber-200 min-w-[130px] hover:bg-[#ffeec2] transition-colors shadow-sm cursor-pointer select-none"
                 >
                   <span className="text-lg leading-none">🎼</span>
@@ -202,12 +192,12 @@ const Keyboard = () => {
 
                 {isInstMenuOpen && (
                   <>
-                    <div className="fixed inset-0 z-[180]" onClick={() => setIsInstMenuOpen(false)}></div>
+                    <div className="fixed inset-0 z-[180]" onPointerDown={() => setIsInstMenuOpen(false)}></div>
                     <div className="absolute left-0 top-[calc(100%+8px)] z-[220] min-w-[220px] w-max max-w-[280px] bg-white border border-amber-200 rounded-xl shadow-[0_18px_40px_rgba(15,23,42,0.18)] overflow-hidden py-1">
                       {Object.values(INSTRUMENT_CONFIG).map(inst => (
                         <button
                           key={inst.id}
-                          onClick={() => {
+                          onPointerDown={() => {
                             changeInstrument(inst.id);
                             setIsInstMenuOpen(false);
                           }}
@@ -221,30 +211,37 @@ const Keyboard = () => {
                 )}
               </div>
 
-              <label className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-500 cursor-pointer shadow-sm">
-                <input type="checkbox" className="sr-only" checked={isShowPlayMode} onChange={(e) => setIsShowPlayMode(e.target.checked)} />
+              {/* ⭐ เปลี่ยนเป็น onPointerDown เพื่อให้กดสับสวิตช์ได้ทันทีตอนเล่นเพลง */}
+              <div 
+                onPointerDown={() => setIsShowPlayMode(prev => !prev)} 
+                className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-500 cursor-pointer shadow-sm select-none"
+              >
                 <span className="whitespace-nowrap">แสดงการตี</span>
                 <div className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${isShowPlayMode ? 'bg-rose-500' : 'bg-slate-300'}`}>
                   <div className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white transition-transform ${isShowPlayMode ? 'translate-x-4' : ''}`}></div>
                 </div>
-              </label>
+              </div>
 
-              <label className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-500 cursor-pointer shadow-sm">
-                <input type="checkbox" className="sr-only" checked={isReduceMode} onChange={(e) => setIsReduceMode(e.target.checked)} />
+              <div 
+                onPointerDown={() => setIsReduceMode(prev => !prev)} 
+                className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-500 cursor-pointer shadow-sm select-none"
+              >
                 <span className="whitespace-nowrap">โหมดลดเสียง</span>
                 <div className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${isReduceMode ? 'bg-sky-400' : 'bg-slate-300'}`}>
                   <div className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white transition-transform ${isReduceMode ? 'translate-x-4' : ''}`}></div>
                 </div>
-              </label>
+              </div>
 
               {isOctaveInstrument && (
-                <label className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-500 cursor-pointer shadow-sm">
-                  <input type="checkbox" className="sr-only" checked={isOctaveMode} onChange={(e) => setIsOctaveMode(e.target.checked)} />
+                <div 
+                  onPointerDown={() => setIsOctaveMode(prev => !prev)} 
+                  className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-500 cursor-pointer shadow-sm select-none"
+                >
                   <span className="whitespace-nowrap">โหมด คู่ 8</span>
                   <div className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${isOctaveMode ? 'bg-amber-400' : 'bg-slate-300'}`}>
                     <div className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white transition-transform ${isOctaveMode ? 'translate-x-4' : ''}`}></div>
                   </div>
-                </label>
+                </div>
               )}
             </ToolbarSection>
           </div>
@@ -291,7 +288,6 @@ const Keyboard = () => {
                 const k = isReduceMode ? shiftNoteObject(kOriginal, 1) : kOriginal;
                 const isBlocked = isOctaveMode && isOctaveInstrument && i > maxValidIdx;
                 
-                // เราไม่ต้องใช้ State แล้ว เพราะใช้ CSS ควบคุมสีทั้งหมดผ่าน class
                 const isHovered = hoveredIdx === i || (isOctaveMode && isOctaveInstrument && hoveredIdx !== null && i === hoveredIdx + 7);
                 const isActive = activeIdx === i || (isOctaveMode && isOctaveInstrument && activeIdx !== null && i === activeIdx + 7);
 
@@ -310,7 +306,7 @@ const Keyboard = () => {
                 return (
                   <button
                     key={i}
-                    id={`kbd-key-${i}`} // ⭐ เพิ่ม ID ตรงนี้ให้ Javascript ยิงคำสั่งแสงได้แม่นๆ
+                    id={`kbd-key-${i}`} 
                     onPointerDown={(e) => { e.preventDefault(); if (!isBlocked) setActiveIdx(i); }}
                     onPointerUp={() => setActiveIdx(null)}
                     onPointerLeave={() => { setActiveIdx(null); setHoveredIdx(null); }}
