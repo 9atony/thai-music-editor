@@ -59,7 +59,8 @@ const Sheet = forwardRef((props, ref) => {
     selectedSymbolId, setSelectedSymbolId, updateTextRow,
     removeRow, addTextRow, rowMargins, updateRowMarginsList,
     setToolbarMode, stopPlayback, updateCellToken, isReadOnly,
-    moveSelectionNext, updateMeasureText
+    moveSelectionNext, updateMeasureText,
+    isAutoScroll
   } = useContext(MusicContext);
 
   // --- States & Refs ---
@@ -220,6 +221,95 @@ const Sheet = forwardRef((props, ref) => {
     if (selectedSymbolId) setToolbarMode('symbol');
   }, [selectedSymbolId, setToolbarMode]);
 
+// ==========================================
+// ⭐ 1. ระบบล็อกหน้าจอ (ปิด Scrollbar 100% ห้ามผู้ใช้เลื่อนเอง)
+// ==========================================
+  useEffect(() => {
+    const vContainer = document.querySelector('main');
+    if (vContainer) {
+      if (isPlaying && isAutoScroll) {
+        // ซ่อน Scrollbar และล็อกการไถเมาส์อย่างเด็ดขาด (ผู้ใช้จะเลื่อนไม่ได้เลย)
+        vContainer.style.overflowY = 'hidden'; 
+      } else {
+        // คืนค่าให้ผู้ใช้เลื่อนหน้าจอได้อิสระ เมื่อปิดสวิตช์หรือหยุดเล่น
+        vContainer.style.overflowY = 'auto'; 
+      }
+    }
+    // Cleanup คืนค่าเสมอเมื่อออกจากหน้าเว็บ
+    return () => {
+      if (vContainer) vContainer.style.overflowY = 'auto';
+    };
+  }, [isPlaying, isAutoScroll]);
+
+// ==========================================
+// ⭐ 2. ระบบติดตามเคอร์เซอร์ "ทีละบรรทัด" (Line-by-Line Tracking)
+// ==========================================
+  const lastScrolledRowRef = useRef(null);
+  const activePageRef = useRef(0);
+
+  useEffect(() => {
+    if (!isPlaying) lastScrolledRowRef.current = null;
+  }, [isPlaying]);
+
+  useEffect(() => {
+    const targetCursor = (isPlaying && isAutoScroll && playbackCursor) ? playbackCursor : null;
+    if (!targetCursor) return;
+
+    const [r, m, c] = targetCursor;
+    const noteEl = document.getElementById(`note-${r}-${m}-${c}`);
+    const hContainer = document.getElementById('sheet-scroll-container');
+    const page0 = document.getElementById('page-0');
+
+    if (noteEl && hContainer && page0) {
+      const pageEl = noteEl.closest('.print-page');
+
+      if (pageEl) {
+        const pageIndex = parseInt(pageEl.id.split('-')[1]);
+        const isPageChanged = activePageRef.current !== pageIndex;
+
+        // --- แกน X: เลื่อนแผ่นกระดาษแนวนอน ---
+        if (isPageChanged) {
+          const unzoomedDistance = pageEl.offsetLeft - page0.offsetLeft;
+          const targetLeft = unzoomedDistance * (zoom / 100);
+          hContainer.scrollTo({ left: targetLeft, behavior: 'smooth' });
+          activePageRef.current = pageIndex;
+        }
+
+        // --- แกน Y: เลื่อนแนวตั้ง (ทำงานเฉพาะตอนเปลี่ยนบรรทัดเท่านั้น) ---
+        const isRowChanged = lastScrolledRowRef.current !== r;
+
+        if (isRowChanged) {
+          const doVerticalScroll = () => {
+            const currentNoteEl = document.getElementById(`note-${r}-${m}-${c}`);
+            if (!currentNoteEl) return;
+
+            const vContainer = document.querySelector('main') || window;
+            const noteRect = currentNoteEl.getBoundingClientRect();
+            
+            // คำนวณให้โน้ตอยู่กลางจอ โดยหักลบความสูงแถบเครื่องมือด้านบน (ประมาณ 80px)
+            if (vContainer === window) {
+              const targetY = window.scrollY + noteRect.top - (window.innerHeight / 2) + (noteRect.height / 2);
+              window.scrollTo({ top: targetY, behavior: 'smooth' });
+            } else {
+              const parentRect = vContainer.getBoundingClientRect();
+              const topOffset = 80; 
+              const targetY = vContainer.scrollTop + (noteRect.top - parentRect.top) - topOffset - (parentRect.height / 2) + (noteRect.height / 2);
+              vContainer.scrollTo({ top: targetY, behavior: 'smooth' });
+            }
+          };
+
+          // ถ้าย้ายหน้ากระดาษ ให้รอแนวนอนสไลด์ให้เสร็จก่อน (400ms) แล้วค่อยเลื่อนบรรทัด
+          if (isPageChanged) {
+            setTimeout(doVerticalScroll, 400);
+          } else {
+            doVerticalScroll();
+          }
+
+          lastScrolledRowRef.current = r;
+        }
+      }
+    }
+  }, [playbackCursor, isAutoScroll, isPlaying, zoom]);
   // ==========================================
   // 4. Render Calculations (จัดหน้ากระดาษ)
   // ==========================================
@@ -642,11 +732,12 @@ const Sheet = forwardRef((props, ref) => {
         </button>
       </div>
 
-      {/* Main Sheet Container */}
+     {/* Main Sheet Container */}
       <div 
         ref={ref}
         id="sheet-scroll-container"
-        className="flex overflow-x-auto pb-10 pt-6 w-full max-w-full custom-scrollbar select-none print:block print:overflow-visible print:p-0 relative"
+        // ⭐ เปลี่ยนกลับเป็น pt-12 pb-32 เพื่อเอาพื้นที่อากาศออก ป้องกัน IDM บั๊ก
+        className="flex overflow-x-auto pt-12 pb-32 w-full max-w-full custom-scrollbar select-none print:block print:overflow-visible print:p-0 relative"
         style={{ paddingLeft: `max(1rem, calc(50% - ${105 * (zoom / 100)}mm))`, paddingRight: `max(1rem, calc(50% - ${105 * (zoom / 100)}mm))` }}
       >
         <div className="flex gap-12 snap-x h-max print:block" style={{ zoom: `${zoom}%` }}>
@@ -1130,7 +1221,8 @@ const Sheet = forwardRef((props, ref) => {
                                     }
                                     
                                     let cellBgClass = 'hover:bg-sky-50 print:bg-transparent';
-                                    if (isPlayingNow) cellBgClass = 'bg-emerald-200 ring-2 ring-inset ring-emerald-500 z-20 print:bg-transparent print:ring-0 transform scale-[1.02] transition-transform';
+                                    // ⭐ ปรับเอฟเฟกต์สีเขียว: ขยายขนาดขึ้น (scale-105), ใส่เงาเรืองแสง (shadow), และปรับขอบให้หนาขึ้น
+                                    if (isPlayingNow) cellBgClass = 'bg-emerald-200 ring-[2.5px] ring-inset ring-emerald-400 z-20 print:bg-transparent print:ring-0 transform scale-[1.05] shadow-[0_0_10px_rgba(52,211,153,0.4)]';
                                     else if (isInRange) cellBgClass = 'bg-sky-200 print:bg-transparent';
                                     else if (isCursorExact) cellBgClass = 'bg-yellow-100 ring-2 ring-inset ring-blue-400 z-10 print:bg-transparent print:ring-0';
                                     if (isCursorExact && isInRange && !isPlayingNow) cellBgClass = 'bg-sky-300 ring-2 ring-inset ring-blue-500 z-10 print:bg-transparent print:ring-0';
@@ -1154,13 +1246,15 @@ const Sheet = forwardRef((props, ref) => {
                                         
                                         onMouseEnter={() => updateSelection(rIndex, mIndex, cIndex)}
                                         onContextMenu={(e) => handleRightClick(e, rIndex, mIndex, cIndex)}
-                                        className={`flex items-center justify-center cursor-crosshair transition-all min-h-0 overflow-hidden ${cellBgClass}`} 
+                                        // ⭐ เพิ่ม transition-all, duration-[250ms], และ ease-out เพื่อให้มันเฟดเข้า-ออกแบบสมูทๆ
+                                        className={`flex items-center justify-center cursor-crosshair transition-all duration-[250ms] ease-out min-h-0 overflow-hidden ${cellBgClass}`} 
                                         style={{ 
                                           fontSize: `${cellFontSize}px`, fontFamily: cellCustomStyle.noteFontFamily || noteFontFamily,
                                           borderRight: (cIndex < measure.length - 1 && layoutConfig.innerBorderWidth > 0) ? `${layoutConfig.innerBorderWidth}px solid ${layoutConfig.borderColor}66` : 'none' 
                                         }}
                                         title={isReadOnly ? undefined : 'ดับเบิลคลิกเพื่อแก้ไขโน้ตแบบหลายตัวในช่องเดียว'}
                                       >
+                                    
                                         {isEditingToken ? (
                                           <input
                                             id={`token-editor-${rIndex}-${mIndex}-${cIndex}`}

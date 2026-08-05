@@ -8,9 +8,11 @@ const Keyboard = () => {
     addRow, removeRow, addDoubleRow,
     addMeasure, removeMeasure, addNoteColumn, removeNoteColumn,
     copySelection, pasteSelection, clipboardData, addPageBreak,
-    isOctaveMode, setIsOctaveMode,
+    // ⭐ เปลี่ยนจาก isOctaveMode เป็น intervalMode
+    intervalMode, setIntervalMode,
     isReduceMode, setIsReduceMode, shiftNoteObject,
     isShowPlayMode, setIsShowPlayMode,
+    isAutoScroll, setIsAutoScroll,
     appendNoteToCurrentCell, trimCurrentCellToken, moveSelectionNext, moveSelectionPrev,
     convertMeasureToText
   } = useContext(MusicContext);
@@ -22,9 +24,6 @@ const Keyboard = () => {
 
   const [isMinimized, setIsMinimized] = useState(false);
   const [isInstMenuOpen, setIsInstMenuOpen] = useState(false);
-
-  const isOctaveInstrument = currentInstrument.keys.length >= 8;
-  const maxValidIdx = currentInstrument.keys.length - 8; 
 
   const getFormattedStr = (eng, thai) => {
     const octave = parseInt(eng.replace(/\D/g, ''));
@@ -62,9 +61,13 @@ const Keyboard = () => {
     return () => window.removeEventListener('tme-note-played', handleNotePlayed);
   }, [currentInstrument]);
 
+  // ⭐ คำนวณระยะห่างตามโหมดคู่เสียงที่เลือก
+  const isIntervalActive = intervalMode !== 'off';
+  const intervalDist = isIntervalActive ? parseInt(intervalMode, 10) - 1 : 0;
+
   const handleKeyClick = (idx, e) => {
     if (!inputNote || !appendNoteToCurrentCell) return;
-    if (isOctaveMode && isOctaveInstrument && idx > maxValidIdx) return;
+    if (isIntervalActive && idx < intervalDist) return; // บล็อกแป้นถ้าไม่มีพื้นที่ให้มือซ้ายลง
 
     const kOriginal = currentInstrument.keys[idx];
     const k = isReduceMode ? shiftNoteObject(kOriginal, 1) : kOriginal;
@@ -133,7 +136,7 @@ const Keyboard = () => {
   const iconClass = 'w-4 h-4';
 
   return (
-    <div className={`relative flex flex-col z-10 w-full font-sans transition-colors duration-300 ${isOctaveMode && !isMinimized ? 'bg-[#fffdf0]' : 'bg-[#eaf4fc]'}`}>
+    <div className={`relative flex flex-col z-10 w-full font-sans transition-colors duration-300 ${isIntervalActive && !isMinimized ? 'bg-[#fffdf0]' : 'bg-[#eaf4fc]'}`}>
       
       <style>
         {`
@@ -174,7 +177,7 @@ const Keyboard = () => {
         </button>
       </div>
 
-      <div className={`border-t transition-all duration-500 ease-in-out flex flex-col w-full relative ${isMinimized ? 'max-h-0 opacity-0 border-transparent' : `opacity-100 ${isOctaveMode ? 'border-amber-200' : 'border-sky-200'}`}`}>
+      <div className={`border-t transition-all duration-500 ease-in-out flex flex-col w-full relative ${isMinimized ? 'max-h-0 opacity-0 border-transparent overflow-hidden' : `opacity-100 overflow-visible ${isIntervalActive ? 'border-amber-200' : 'border-sky-200'}`}`}>
         
         <div className="relative z-[120] w-full overflow-visible border-b border-slate-200/70 bg-[#f8f8fb]/95 p-2 shadow-[0_2px_10px_rgba(0,0,0,0.02)] backdrop-blur-sm flex items-center gap-3">
           
@@ -211,7 +214,6 @@ const Keyboard = () => {
                 )}
               </div>
 
-              {/* ⭐ เปลี่ยนเป็น onPointerDown เพื่อให้กดสับสวิตช์ได้ทันทีตอนเล่นเพลง */}
               <div 
                 onPointerDown={() => setIsShowPlayMode(prev => !prev)} 
                 className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-500 cursor-pointer shadow-sm select-none"
@@ -232,17 +234,35 @@ const Keyboard = () => {
                 </div>
               </div>
 
-              {isOctaveInstrument && (
-                <div 
-                  onPointerDown={() => setIsOctaveMode(prev => !prev)} 
-                  className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-500 cursor-pointer shadow-sm select-none"
+              {/* ⭐ UI ใหม่: เมนูแบบ Dropdown สำหรับเลือกโหมดคู่เสียง */}
+              <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-bold text-slate-500 shadow-sm select-none">
+                <span className="whitespace-nowrap">โหมดคู่เสียง</span>
+                <select 
+                   value={intervalMode}
+                   onChange={(e) => setIntervalMode(e.target.value)}
+                   className="bg-amber-50 border border-amber-200 text-amber-700 rounded-md px-1 py-0.5 outline-none focus:ring-1 focus:ring-amber-400 font-black cursor-pointer text-center"
                 >
-                  <span className="whitespace-nowrap">โหมด คู่ 8</span>
-                  <div className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${isOctaveMode ? 'bg-amber-400' : 'bg-slate-300'}`}>
-                    <div className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white transition-transform ${isOctaveMode ? 'translate-x-4' : ''}`}></div>
-                  </div>
+                   <option value="off">ปิด</option>
+                   <option value="8">คู่ 8</option>
+                   <option value="7">คู่ 7</option>
+                   <option value="6">คู่ 6</option>
+                   <option value="5">คู่ 5</option>
+                   <option value="4">คู่ 4</option>
+                   <option value="3">คู่ 3</option>
+                   <option value="2">คู่ 2</option>
+                </select>
+              </div>
+
+              <div 
+                onPointerDown={() => setIsAutoScroll(prev => !prev)} 
+                className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-500 cursor-pointer shadow-sm select-none"
+              >
+                <span className="whitespace-nowrap">เลื่อนตามโน้ต</span>
+                <div className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${isAutoScroll ? 'bg-indigo-500' : 'bg-slate-300'}`}>
+                  <div className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white transition-transform ${isAutoScroll ? 'translate-x-4' : ''}`}></div>
                 </div>
-              )}
+              </div>
+              
             </ToolbarSection>
           </div>
 
@@ -251,7 +271,7 @@ const Keyboard = () => {
               <ToolButton onClick={() => handleSpecialKey('-')} bgClass="bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V4a2 2 0 10-4 0v1.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>} label="พักเสียง" title="ใส่ขีดพักเสียง" />
               <ToolButton onClick={() => handleSpecialKey('PREV_CELL')} bgClass="bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>} label="ย้อนช่อง" title="ย้ายไปช่องก่อนหน้า" />
               <ToolButton onClick={() => handleSpecialKey('NEXT_CELL')} bgClass="bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>} label="จบช่อง" title="ยืนยันช่องนี้แล้วไปช่องถัดไป" />
-              <ToolButton onClick={() => handleSpecialKey('TRIM_LAST')} bgClass="bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H8m0 0l4 4m-4-4l4-4M4 6h7M4 18h7" /></svg>} label="ลบตัวท้าย" title="ลบตัวโน้ตตัวสุดท้ายในช่องปัจจุบัน" />
+              {/* ⭐ ลบปุ่ม "ลบตัวท้าย" ออกจากตรงนี้แล้ว */}
               <ToolButton onClick={copySelection} bgClass="bg-emerald-50 text-emerald-600 border-emerald-200 hover:bg-emerald-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>} label="คัดลอก" title="คัดลอกโน้ต" />
               <ToolButton onClick={pasteSelection} disabled={clipboardData.length === 0} bgClass="bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>} label="วาง" title="วางโน้ต" />
             </ToolbarSection>
@@ -269,6 +289,10 @@ const Keyboard = () => {
 
             <ToolbarSection wrapperClass="ml-auto" bodyClass="bg-red-50 border border-red-100">
               <ToolButton onClick={() => handleSpecialKey('BACKSPACE')} bgClass="bg-white text-red-600 border-red-200 hover:bg-red-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2M3 12l6.414 6.414a2 2 0 001.414.586H19a2 2 0 002-2V7a2 2 0 00-2-2h-8.172a2 2 0 00-1.414.586L3 12z" /></svg>} label="ลบโน้ต" title="ลบโน้ต (Backspace)" />
+              
+              {/* ⭐ ย้ายปุ่ม "ลบตัวท้าย" มาไว้ตรงนี้ พร้อมเปลี่ยนสีเป็นสีแดงให้เข้าพวก */}
+              <ToolButton onClick={() => handleSpecialKey('TRIM_LAST')} bgClass="bg-white text-red-600 border-red-200 hover:bg-red-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H8m0 0l4 4m-4-4l4-4M4 6h7M4 18h7" /></svg>} label="ลบตัวท้าย" title="ลบตัวโน้ตตัวสุดท้ายในช่องปัจจุบัน" />
+              
               <ToolButton onClick={removeNoteColumn} bgClass="bg-white text-red-600 border-red-200 hover:bg-red-100" icon={<span className="text-lg leading-none">−</span>} label="ลบจังหวะ" title="ลบคอลัมน์โน้ต" />
               <ToolButton onClick={removeMeasure} bgClass="bg-white text-red-600 border-red-200 hover:bg-red-100" icon={<span className="text-lg leading-none">−</span>} label="ลบห้อง" title="ลบห้องเพลง" />
               <ToolButton onClick={removeRow} bgClass="bg-white text-red-600 border-red-200 hover:bg-red-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 7h12M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-7 0l1 12h6l1-12" /></svg>} label="ลบบรรทัด" title="ลบบรรทัดปัจจุบัน" />
@@ -286,19 +310,20 @@ const Keyboard = () => {
               {currentInstrument.keys.map((kOriginal, i) => {
                 
                 const k = isReduceMode ? shiftNoteObject(kOriginal, 1) : kOriginal;
-                const isBlocked = isOctaveMode && isOctaveInstrument && i > maxValidIdx;
                 
-                const isHovered = hoveredIdx === i || (isOctaveMode && isOctaveInstrument && hoveredIdx !== null && i === hoveredIdx + 7);
-                const isActive = activeIdx === i || (isOctaveMode && isOctaveInstrument && activeIdx !== null && i === activeIdx + 7);
+                // ⭐ คำนวณการบล็อกแป้น และไฮไลต์คู่เสียง
+                const isBlocked = isIntervalActive && i < intervalDist;
+                const isHovered = hoveredIdx === i || (isIntervalActive && hoveredIdx !== null && i === hoveredIdx - intervalDist);
+                const isActive = activeIdx === i || (isIntervalActive && activeIdx !== null && i === activeIdx - intervalDist);
 
                 let btnClass = 'w-14 h-[100px] shrink-0 border-b-[5px] rounded-b-md flex flex-col items-center justify-end pb-5 transition-all shadow-sm group select-none relative ';
 
                 if (isActive) {
-                  btnClass += isOctaveMode ? 'bg-amber-300 border-amber-300 border-b-0 translate-y-1 text-amber-900 ' : 'bg-sky-200 border-sky-200 border-b-0 translate-y-1 text-sky-900 ';
+                  btnClass += isIntervalActive ? 'bg-amber-300 border-amber-300 border-b-0 translate-y-1 text-amber-900 ' : 'bg-sky-200 border-sky-200 border-b-0 translate-y-1 text-sky-900 ';
                 } else if (isHovered) {
-                  btnClass += isOctaveMode ? 'bg-amber-100 border-amber-400 text-amber-700 ' : 'bg-sky-50 border-sky-400 text-sky-600 ';
+                  btnClass += isIntervalActive ? 'bg-amber-100 border-amber-400 text-amber-700 ' : 'bg-sky-50 border-sky-400 text-sky-600 ';
                 } else if (isBlocked) {
-                  btnClass += 'bg-white border-slate-300 text-slate-700 cursor-not-allowed ';
+                  btnClass += 'bg-slate-200 border-slate-300 text-slate-400 cursor-not-allowed opacity-60 ';
                 } else {
                   btnClass += 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50 ';
                 }

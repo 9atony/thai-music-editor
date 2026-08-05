@@ -52,7 +52,6 @@ const splitThaiNoteToken = (token) => {
   }, []);
 };
 
-// ⭐ อัปเดต: รองรับ Accent และ Custom Velocities
 const parseCellToken = (token, sabatStyle = 'crescendo', customVels = []) => {
   const notes = splitThaiNoteToken(token);
   if (notes.length === 0) return [];
@@ -60,25 +59,16 @@ const parseCellToken = (token, sabatStyle = 'crescendo', customVels = []) => {
 
   return notes.map((note, index) => {
     let emp = 1;
-    
     if (sabatStyle === 'custom' && customVels.length === notes.length) {
-       // ถ้าใช้แบบ Custom ให้ดึงจากสไลเดอร์ (หาร 100 ให้เป็นทศนิยม)
        emp = customVels[index] / 100;
     } else if (sabatStyle === 'flat') {
        emp = 1;
     } else if (sabatStyle === 'accent') {
-       // เบา-ดัง-ดัง (ตัวแรกเบา 50%, ตัวที่เหลือ 100%)
        emp = index === 0 ? 0.5 : 1;
     } else {
-       // Crescendo เดิม
        emp = index === notes.length - 1 ? 1 : Math.max(0.55, 0.88 - (index * 0.08));
     }
-
-    return {
-      note,
-      ratio: index / notes.length,
-      emphasis: emp,
-    };
+    return { note, ratio: index / notes.length, emphasis: emp };
   });
 };
 
@@ -90,42 +80,29 @@ const formatInstrumentNote = (key) => {
   return key.thai;
 };
 
-const getNoteMeta = (instrument, noteStr) => {
-  if (!instrument?.keys || !noteStr) return null;
-  return instrument.keys
-    .map((key) => ({
-      formatted: formatInstrumentNote(key),
-      pitch: key.eng.replace(/\d/g, ''),
-      octave: parseInt(key.eng.replace(/\D/g, ''), 10),
-    }))
-    .find((key) => key.formatted === noteStr) || null;
-};
-
-const getPreferredOctaveDirection = (instrument, noteStr) => {
-  const meta = getNoteMeta(instrument, noteStr);
-  if (!meta) return 'up';
-  if (meta.octave >= 4) return 'down';
-  if (meta.octave === 3 && ['G', 'A', 'B'].includes(meta.pitch)) return 'down';
-  return 'up';
-};
-
-const getOctavePairNote = (instrument, noteStr, preferredDirection = 'up') => {
-  if (!instrument?.keys || !noteStr) return null;
-  const keys = instrument.keys.map((key) => ({
-    formatted: formatInstrumentNote(key),
-    pitch: key.eng.replace(/\d/g, ''),
-    octave: parseInt(key.eng.replace(/\D/g, ''), 10),
-  }));
-  const current = keys.find((key) => key.formatted === noteStr);
-  if (!current) return null;
-  const directions = preferredDirection === 'down' ? [-1, 1] : [1, -1];
-  for (const step of directions) {
-    const pair = keys.find(
-      (key) => key.pitch === current.pitch && key.octave === current.octave + step
-    );
-    if (pair) return pair.formatted;
+// ⭐ ระบบหาคู่เสียงอัจฉริยะแบบเลือกได้ (แก้บั๊กคู่เสียงสวนทาง 100%)
+const getIntervalPair = (instrument, noteStr, intervalModeVal) => {
+  if (!instrument?.keys || !noteStr || noteStr === '-' || intervalModeVal === 'off') {
+    return { left: noteStr, right: noteStr };
   }
-  return null;
+
+  // คำนวณระยะห่างตามจำนวนคู่เสียง (คู่ 8 ห่าง 7 แป้น, คู่ 4 ห่าง 3 แป้น)
+  const dist = parseInt(intervalModeVal, 10) - 1;
+  const idx = instrument.keys.findIndex(k => formatInstrumentNote(k) === noteStr);
+  
+  if (idx === -1) return { left: noteStr, right: noteStr };
+
+  // ⭐ ยึดโน้ตที่กด (idx) เป็น "มือขวา (เสียงสูง)" เสมอ! แล้วนับถอยหลังหามือซ้าย
+  let rightIdx = idx;
+  let leftIdx = idx - dist;
+
+  // กันตกขอบ (ปุ่มจริงจะโดนบล็อกสีเทากดไม่ได้อยู่แล้ว อันนี้ใส่เซฟตี้เฉยๆ)
+  if (leftIdx < 0) leftIdx = 0; 
+
+  return {
+    left: formatInstrumentNote(instrument.keys[leftIdx]),
+    right: formatInstrumentNote(instrument.keys[rightIdx])
+  };
 };
 
 export const shiftNoteObject = (keyObj, steps) => {
@@ -196,9 +173,11 @@ export const MusicProvider = ({ children }) => {
   const [symbols, setSymbols] = useState([]); 
   const [selectedSymbolId, setSelectedSymbolId] = useState(null);
   
-  const [isOctaveMode, setIsOctaveMode] = useState(false);
+  // ⭐ อัปเดต: เปลี่ยนเป็น intervalMode (ค่าเริ่มต้นเป็น 'off', '8', '7', '6'...)
+  const [intervalMode, setIntervalMode] = useState('off');
   const [isReduceMode, setIsReduceMode] = useState(false);
   const [isShowPlayMode, setIsShowPlayMode] = useState(false);
+  const [isAutoScroll, setIsAutoScroll] = useState(true);
   const [toolbarMode, setToolbarMode] = useState('default');
 
   const [playbackSequence, setPlaybackSequence] = useState([]); 
@@ -269,18 +248,13 @@ export const MusicProvider = ({ children }) => {
   const effectTimersRef = useRef([]);
   const mutedCellsRef = useRef(new Set());
   
-  // ⭐ อัปเดต: เพิ่มการตั้งค่าเริ่มต้นแบบ Global สำหรับลูกสะบัดและลูกกรอ
   const [layoutConfig, setLayoutConfig] = useState({
     fontSize: 30, isBold: false, isItalic: false, measureHeight: 48,
     rowGap: 32, songNameSize: 48, authorSize: 16, detailsAlign: 'between',
     borderWidth: 2, innerBorderWidth: 1, borderColor: '#1e293b', borderRadius: 0,
     bpm: 80, volume: 100, 
-    
-    // === ตั้งค่าเริ่มต้น ลูกสะบัด ===
     sabatColor: '#1e293b', sabatStrokeWidth: 2.5, sabatCurve: 20, sabatOffset: 4, sabatStyle: 'crescendo',
-    // === ตั้งค่าเริ่มต้น ลูกกรอ ===
     kroColor: '#3b82f6', kroStrokeWidth: 2.5, kroOffset: 30, kroSpeed: 65, kroStartHand: 'right',
-    
     activeSymbol: 'sabat', symbolColor: '#1e293b', symbolStrokeWidth: 2.5, symbolHeight: 20, 
     marginTop: 48, marginBottom: 48, marginLeft: 48, marginRight: 48,
     marginUnit: 'px', textLineHeight: 1.5, textFontSize: 16
@@ -291,25 +265,25 @@ export const MusicProvider = ({ children }) => {
   const sheetDataRef = useRef(sheetData);
   const rowTypesRef = useRef(rowTypes);
   const symbolsRef = useRef(symbols);
-  const isOctaveModeRef = useRef(isOctaveMode); 
+  const intervalModeRef = useRef(intervalMode); 
   const isReduceModeRef = useRef(isReduceMode); 
   const isShowPlayModeRef = useRef(isShowPlayMode);
   const sectionLabelsRef = useRef(sectionLabels);
   const playbackSequenceRef = useRef(playbackSequence);
   const activeSequenceIdxRef = useRef(0);
   const activeLoopRef = useRef(1);
- const isLoopAllRef = useRef(isLoopAll); 
+  const isLoopAllRef = useRef(isLoopAll); 
   const isLoopOneRef = useRef(isLoopOne); 
   const sheetMapRef = useRef([]);
   const isImportingRef = useRef(false);
-  const currentInstrumentRef = useRef(currentInstrument); // ⭐ 1. เพิ่มตัวนี้
+  const currentInstrumentRef = useRef(currentInstrument); 
 
   useEffect(() => { layoutConfigRef.current = layoutConfig; }, [layoutConfig]);
-  useEffect(() => { currentInstrumentRef.current = currentInstrument; }, [currentInstrument]); // ⭐ 2. เพิ่มตัวนี้
+  useEffect(() => { currentInstrumentRef.current = currentInstrument; }, [currentInstrument]); 
   useEffect(() => { sheetDataRef.current = sheetData; }, [sheetData]);
   useEffect(() => { rowTypesRef.current = rowTypes; }, [rowTypes]);
   useEffect(() => { symbolsRef.current = symbols; }, [symbols]); 
-  useEffect(() => { isOctaveModeRef.current = isOctaveMode; }, [isOctaveMode]); 
+  useEffect(() => { intervalModeRef.current = intervalMode; }, [intervalMode]); 
   useEffect(() => { isReduceModeRef.current = isReduceMode; }, [isReduceMode]);
   useEffect(() => { isShowPlayModeRef.current = isShowPlayMode; }, [isShowPlayMode]);
   useEffect(() => { sectionLabelsRef.current = sectionLabels; }, [sectionLabels]);
@@ -317,34 +291,26 @@ export const MusicProvider = ({ children }) => {
   useEffect(() => { isLoopAllRef.current = isLoopAll; }, [isLoopAll]);
   useEffect(() => { isLoopOneRef.current = isLoopOne; }, [isLoopOne]);
 
+  // ⭐ อัปเดต: การเล่นเสียงจะแยกซ้ายขวาอย่างถูกต้องตามโหมดคู่เสียง
   const playResolvedInstrumentNote = (noteStr, vol, options = {}) => {
     if (!noteStr || noteStr === '-') return;
 
     const { bypassOctaveLayer = false, hand = 'single' } = options;
     const actualNoteToPlay = isReduceModeRef.current ? shiftNoteString(noteStr, -1) : noteStr;
-    const inst = currentInstrumentRef.current; // ⭐ ดึงเครื่องดนตรีล่าสุดจาก Ref
+    const inst = currentInstrumentRef.current; 
     
     playNote(inst.id, actualNoteToPlay, vol);
 
-    if (!bypassOctaveLayer && isOctaveModeRef.current) {
-      const preferredDirection = getPreferredOctaveDirection(inst, actualNoteToPlay);
-      const octavePairNote = getOctavePairNote(inst, actualNoteToPlay, preferredDirection);
+    if (!bypassOctaveLayer && intervalModeRef.current !== 'off') {
+      const { left, right } = getIntervalPair(inst, actualNoteToPlay, intervalModeRef.current);
       
-      if (octavePairNote && octavePairNote !== actualNoteToPlay) {
-        playNote(inst.id, octavePairNote, vol);
+      if (left && right && left !== right) {
+        playNote(inst.id, left, vol);
+        playNote(inst.id, right, vol);
         
         if (isShowPlayModeRef.current) {
-            const getOctaveNum = (str) => str.includes('\u0E4D') ? 5 : str.includes('\u0E3A\u200B') ? 2 : str.includes('\u0E3A') ? 3 : 4;
-            const mainOct = getOctaveNum(actualNoteToPlay);
-            const pairOct = getOctaveNum(octavePairNote);
-
-            if (mainOct < pairOct) {
-                window.dispatchEvent(new CustomEvent('tme-note-played', { detail: { note: actualNoteToPlay, hand: 'left' } }));
-                window.dispatchEvent(new CustomEvent('tme-note-played', { detail: { note: octavePairNote, hand: 'right' } }));
-            } else {
-                window.dispatchEvent(new CustomEvent('tme-note-played', { detail: { note: actualNoteToPlay, hand: 'right' } }));
-                window.dispatchEvent(new CustomEvent('tme-note-played', { detail: { note: octavePairNote, hand: 'left' } }));
-            }
+            window.dispatchEvent(new CustomEvent('tme-note-played', { detail: { note: left, hand: 'left' } }));
+            window.dispatchEvent(new CustomEvent('tme-note-played', { detail: { note: right, hand: 'right' } }));
         }
         return; 
       }
@@ -356,7 +322,6 @@ export const MusicProvider = ({ children }) => {
   };
 
   const previewCellToken = (token, baseVolume = layoutConfigRef.current.volume ?? 100, previewGapMs = 90) => {
-    // ⭐ ใช้ค่าสไตล์เริ่มต้นในการพรีวิว
     const sabatStyle = layoutConfigRef.current.sabatStyle ?? 'crescendo';
     const events = parseCellToken(token, sabatStyle);
     if (events.length === 0) return;
@@ -377,24 +342,30 @@ export const MusicProvider = ({ children }) => {
 
     const normalizedToken = normalizeCellToken(token);
     const newData = sheetData.map((rowData) => rowData.map((measure) => [...measure]));
-    newData[row][meas][cell] = normalizedToken;
 
-    if (isOctaveModeRef.current && rowTypes[row].startsWith('double')) {
-        const pairRow = rowTypes[row] === 'double-right' ? row + 1 : row - 1;
-        if (pairRow >= 0 && pairRow < newData.length) {
-            if (normalizedToken === '-') {
-                newData[pairRow][meas][cell] = '-';
-            } else {
-                const parts = splitThaiNoteToken(normalizedToken);
-                const pairedParts = parts.map(n => {
-                    const actualNote = isReduceModeRef.current ? shiftNoteString(n, -1) : n;
-                    const prefDir = getPreferredOctaveDirection(currentInstrument, actualNote);
-                    const pairNoteBase = getOctavePairNote(currentInstrument, actualNote, prefDir) || actualNote;
-                    return isReduceModeRef.current ? shiftNoteString(pairNoteBase, 1) : pairNoteBase;
-                });
-                newData[pairRow][meas][cell] = pairedParts.join('');
-            }
+    if (intervalModeRef.current !== 'off' && rowTypes[row].startsWith('double')) {
+        const isRightRow = rowTypes[row] === 'double-right';
+        const rightRowIdx = isRightRow ? row : row - 1; 
+        const leftRowIdx = isRightRow ? row + 1 : row;  
+
+        if (normalizedToken === '-') {
+            newData[rightRowIdx][meas][cell] = '-';
+            newData[leftRowIdx][meas][cell] = '-';
+        } else {
+            const parts = splitThaiNoteToken(normalizedToken);
+            const leftParts = [];
+            const rightParts = [];
+            parts.forEach(n => {
+                const actualNote = isReduceModeRef.current ? shiftNoteString(n, -1) : n;
+                const { left, right } = getIntervalPair(currentInstrument, actualNote, intervalModeRef.current);
+                leftParts.push(isReduceModeRef.current ? shiftNoteString(left, 1) : left);
+                rightParts.push(isReduceModeRef.current ? shiftNoteString(right, 1) : right);
+            });
+            newData[leftRowIdx][meas][cell] = leftParts.join('');
+            newData[rightRowIdx][meas][cell] = rightParts.join('');
         }
+    } else {
+        newData[row][meas][cell] = normalizedToken;
     }
 
     commitChange(newData);
@@ -452,23 +423,24 @@ export const MusicProvider = ({ children }) => {
     const currentParts = currentToken === '-' ? [] : splitThaiNoteToken(currentToken);
     const mergedToken = normalizeCellToken([...currentParts, ...incomingParts].join(''));
 
-    newData[row][meas][cell] = mergedToken;
+    if (intervalModeRef.current !== 'off' && rowTypes[row].startsWith('double')) {
+        const isRightRow = rowTypes[row] === 'double-right';
+        const rightRowIdx = isRightRow ? row : row - 1;
+        const leftRowIdx = isRightRow ? row + 1 : row;
 
-    if (isOctaveModeRef.current && rowTypes[row].startsWith('double')) {
-        const pairRow = rowTypes[row] === 'double-right' ? row + 1 : row - 1;
-        if (pairRow >= 0 && pairRow < newData.length) {
-            const incomingStr = incomingParts.join('');
-            const actualIncoming = isReduceModeRef.current ? shiftNoteString(incomingStr, -1) : incomingStr;
-            const prefDir = getPreferredOctaveDirection(currentInstrument, actualIncoming);
-            const pairBase = getOctavePairNote(currentInstrument, actualIncoming, prefDir) || actualIncoming;
-            const incomingPair = isReduceModeRef.current ? shiftNoteString(pairBase, 1) : pairBase;
-            
-            const pairCurrentToken = normalizeCellToken(newData[pairRow][meas][cell]);
-            const pairCurrentParts = pairCurrentToken === '-' ? [] : splitThaiNoteToken(pairCurrentToken);
-            const pairMergedToken = normalizeCellToken([...pairCurrentParts, incomingPair].join(''));
-            
-            newData[pairRow][meas][cell] = pairMergedToken;
-        }
+        const parts = splitThaiNoteToken(mergedToken);
+        const leftParts = [];
+        const rightParts = [];
+        parts.forEach(n => {
+            const actualNote = isReduceModeRef.current ? shiftNoteString(n, -1) : n;
+            const { left, right } = getIntervalPair(currentInstrument, actualNote, intervalModeRef.current);
+            leftParts.push(isReduceModeRef.current ? shiftNoteString(left, 1) : left);
+            rightParts.push(isReduceModeRef.current ? shiftNoteString(right, 1) : right);
+        });
+        newData[leftRowIdx][meas][cell] = leftParts.join('');
+        newData[rightRowIdx][meas][cell] = rightParts.join('');
+    } else {
+        newData[row][meas][cell] = mergedToken;
     }
 
     commitChange(newData);
@@ -492,18 +464,30 @@ export const MusicProvider = ({ children }) => {
     const nextToken = currentParts.length <= 1 ? '-' : currentParts.slice(0, -1).join('');
 
     const newData = sheetData.map((rowData) => rowData.map((measure) => [...measure]));
-    newData[row][meas][cell] = nextToken;
 
-    if (isOctaveModeRef.current && rowTypes[row].startsWith('double')) {
-        const pairRow = rowTypes[row] === 'double-right' ? row + 1 : row - 1;
-        if (pairRow >= 0 && pairRow < newData.length) {
-            const pairCurrentToken = normalizeCellToken(newData[pairRow][meas][cell]);
-            if (pairCurrentToken !== '-') {
-                const pairCurrentParts = splitThaiNoteToken(pairCurrentToken);
-                const pairNextToken = pairCurrentParts.length <= 1 ? '-' : pairCurrentParts.slice(0, -1).join('');
-                newData[pairRow][meas][cell] = pairNextToken;
-            }
+    if (intervalModeRef.current !== 'off' && rowTypes[row].startsWith('double')) {
+        const isRightRow = rowTypes[row] === 'double-right';
+        const rightRowIdx = isRightRow ? row : row - 1;
+        const leftRowIdx = isRightRow ? row + 1 : row;
+
+        if (nextToken === '-') {
+            newData[leftRowIdx][meas][cell] = '-';
+            newData[rightRowIdx][meas][cell] = '-';
+        } else {
+            const parts = splitThaiNoteToken(nextToken);
+            const leftParts = [];
+            const rightParts = [];
+            parts.forEach(n => {
+                const actualNote = isReduceModeRef.current ? shiftNoteString(n, -1) : n;
+                const { left, right } = getIntervalPair(currentInstrument, actualNote, intervalModeRef.current);
+                leftParts.push(isReduceModeRef.current ? shiftNoteString(left, 1) : left);
+                rightParts.push(isReduceModeRef.current ? shiftNoteString(right, 1) : right);
+            });
+            newData[leftRowIdx][meas][cell] = leftParts.join('');
+            newData[rightRowIdx][meas][cell] = rightParts.join('');
         }
+    } else {
+        newData[row][meas][cell] = nextToken;
     }
 
     commitChange(newData);
@@ -519,7 +503,7 @@ export const MusicProvider = ({ children }) => {
   useEffect(() => {
     if (currentInstrument && currentInstrument.id) {
       preloadSounds(currentInstrument.id);
-      if (currentInstrument.id !== 'ranat-ek') setIsOctaveMode(false);
+      if (currentInstrument.id !== 'ranat-ek') setIntervalMode('off');
     }
   }, [currentInstrument]);
 
@@ -661,7 +645,6 @@ export const MusicProvider = ({ children }) => {
       const standardMsPerCell = 15000 / currentBpm;
       const msPerCell = Math.floor(standardMsPerCell * (4 / cellCountInMeasure));
 
-      // ⭐ ส่งค่าสไตล์ของลูกสะบัดเข้าไปคำนวณน้ำหนักเสียง
       const scheduleTokenPlayback = (tokenStr, vol, cellDurationMs = msPerCell, baseDelayMs = 0, options = {}) => {
         const sabatStyle = layoutConfigRef.current.sabatStyle ?? 'crescendo';
         const tokenEvents = parseCellToken(tokenStr, sabatStyle);
@@ -753,24 +736,23 @@ export const MusicProvider = ({ children }) => {
                   const noteA = startNotes.length > 0 ? startNotes[0] : null;
                   if (noteA) {
                       const actualA = isReduceModeRef.current ? shiftNoteString(noteA, -1) : noteA;
-                      
-                      // ⭐ แก้ให้ดึง currentInstrumentRef.current แทน currentInstrument เปล่าๆ
                       const inst = currentInstrumentRef.current;
-                      const preferredDirection = getPreferredOctaveDirection(inst, actualA);
-                      const pairBase = getOctavePairNote(inst, actualA, preferredDirection) || getOctavePairNote(inst, actualA, preferredDirection === 'down' ? 'up' : 'down') || actualA;
-                      const noteB = isReduceModeRef.current ? shiftNoteString(pairBase, 1) : pairBase;
+                      
+                      const intervalVal = intervalModeRef.current !== 'off' ? intervalModeRef.current : '8';
+                      const { left, right } = getIntervalPair(inst, actualA, intervalVal);
+                      const finalLeft = isReduceModeRef.current ? shiftNoteString(left, 1) : left;
+                      const finalRight = isReduceModeRef.current ? shiftNoteString(right, 1) : right;
                       
                       const kroSpeed = sym.speed ?? layoutConfigRef.current.kroSpeed ?? 65;
                       const startHand = sym.startHand ?? layoutConfigRef.current.kroStartHand ?? 'right';
                      
                       let isNoteA = true;
                       window.kroInterval = setInterval(() => {
-                          // ⭐ อัปเดต: สลับมือซ้าย/ขวาตามลำดับที่เลือกไว้
                           const currentHand = isNoteA 
                               ? (startHand === 'left' ? 'left' : 'right') 
                               : (startHand === 'left' ? 'right' : 'left');
                               
-                          playResolvedInstrumentNote(isNoteA ? noteA : noteB, layoutConfigRef.current.volume ?? 100, { bypassOctaveLayer: true, hand: currentHand });
+                          playResolvedInstrumentNote(isNoteA ? finalLeft : finalRight, layoutConfigRef.current.volume ?? 100, { bypassOctaveLayer: true, hand: currentHand });
                           isNoteA = !isNoteA;
                       }, kroSpeed);
                       effectTimersRef.current.push(setTimeout(() => { clearInterval(window.kroInterval); window.kroInterval = null; }, timeUntilEnd));
@@ -796,26 +778,20 @@ export const MusicProvider = ({ children }) => {
                       sequenceOfChords[0].forEach(n => scheduleTokenPlayback(n, vol, msPerCell, totalDurationMs, { hand: 'single' }));
                   } else if (stepCount > 1) {
                       const intervalMs = totalDurationMs / (stepCount - 1);
-                      const sabatStyle = sym.style ?? layoutConfigRef.current.sabatStyle ?? 'crescendo';
-                      const customVels = sym.customvelocities || sym.customVelocities || []; // ⭐ ดึงค่าน้ำหนักจากสไลเดอร์
+                      const customVels = sym.customvelocities || sym.customVelocities || []; 
 
                       sequenceOfChords.forEach((chord, stepIdx) => {
                           const playTime = stepIdx * intervalMs;
                           const revIdx = (stepCount - 1) - stepIdx; 
                           let vol = layoutConfigRef.current.volume ?? 100;
                           
-                          // ⭐ ลอจิกปรับความดังตามที่คุณเลื่อนสไลเดอร์หรือเลือก Preset
                           if (sabatStyle === 'custom' && customVels.length === stepCount) {
-                              // ถ้าปรับแต่งเอง (Custom) ให้คูณตามค่าสไลเดอร์ของโน้ตตัวนั้นๆ ตรงๆ เลย
                               vol = Math.round(vol * (customVels[stepIdx] / 100));
                           } else if (sabatStyle === 'accent') {
-                              // เบอดังดัง (ตัวแรก 50%, ที่เหลือ 100%)
                               vol = stepIdx === 0 ? Math.round(vol * 0.5) : vol;
                           } else if (sabatStyle === 'flat') {
-                              // เท่ากันหมด
                               vol = layoutConfigRef.current.volume ?? 100;
                           } else if (sabatStyle === 'crescendo' && revIdx > 0) {
-                              // เน้นตก (ค่อยๆ ดังขึ้น)
                               vol = Math.max(0, vol * (1 - (revIdx * 0.15)));
                           }
                           
@@ -829,8 +805,8 @@ export const MusicProvider = ({ children }) => {
       if (currentRowTypes[r] === 'double-right') {
         const rightCellId = getCellId(r, m, c);
         const leftCellId = getCellId(r + 1, m, c);
-        if (!mutedCellsRef.current.has(rightCellId)) scheduleTokenPlayback(currentSheetData[r][m][c], layoutConfigRef.current.volume ?? 100, msPerCell, 0, { hand: 'right' });
-        if (!mutedCellsRef.current.has(leftCellId)) scheduleTokenPlayback(currentSheetData[r + 1] ? currentSheetData[r + 1][m][c] : '-', layoutConfigRef.current.volume ?? 100, msPerCell, 0, { hand: 'left' });
+        if (!mutedCellsRef.current.has(rightCellId)) scheduleTokenPlayback(currentSheetData[r][m][c], layoutConfigRef.current.volume ?? 100, msPerCell, 0, { hand: 'right', bypassOctaveLayer: true });
+        if (!mutedCellsRef.current.has(leftCellId)) scheduleTokenPlayback(currentSheetData[r + 1] ? currentSheetData[r + 1][m][c] : '-', layoutConfigRef.current.volume ?? 100, msPerCell, 0, { hand: 'left', bypassOctaveLayer: true });
       } else {
         if (!mutedCellsRef.current.has(getCellId(r, m, c))) scheduleTokenPlayback(currentSheetData[r][m][c], layoutConfigRef.current.volume ?? 100, msPerCell, 0, { hand: 'single' });
       }
@@ -1122,6 +1098,7 @@ export const MusicProvider = ({ children }) => {
     setSelectionRange(null); 
   };
 
+  // ⭐ อัปเดต: บันทึกโน้ตเข้าบรรทัดคู่ ให้ซ้ายเสียงต่ำ ขวาเสียงสูงเสมอ
   const inputNote = (note) => {
     if (isReadOnlyRef.current) return; 
     const newData = sheetData.map(row => row.map(meas => [...meas]));
@@ -1146,20 +1123,23 @@ export const MusicProvider = ({ children }) => {
             if (rowTypes[r].startsWith('double') && m === 0) continue;
             for (let c = 0; c < sheetData[r][m].length; c++) {
               if (currentCol >= minCol && currentCol <= maxCol) {
-                  newData[r][m][c] = normalizedToken;
                   
-                  if (isOctaveModeRef.current && rowTypes[r].startsWith('double')) {
-                      const pairRow = rowTypes[r] === 'double-right' ? r + 1 : r - 1;
-                      if (pairRow >= 0 && pairRow < newData.length) {
-                          if (normalizedToken === '-') {
-                              newData[pairRow][m][c] = '-';
-                          } else {
-                              const actualNote = isReduceModeRef.current ? shiftNoteString(normalizedToken, -1) : normalizedToken;
-                              const prefDir = getPreferredOctaveDirection(currentInstrument, actualNote);
-                              const pairBase = getOctavePairNote(currentInstrument, actualNote, prefDir) || actualNote;
-                              newData[pairRow][m][c] = isReduceModeRef.current ? shiftNoteString(pairBase, 1) : pairBase;
-                          }
+                  if (intervalModeRef.current !== 'off' && rowTypes[r].startsWith('double')) {
+                      const isRightRow = rowTypes[r] === 'double-right';
+                      const rightRowIdx = isRightRow ? r : r - 1; // ขวาเสียงสูง
+                      const leftRowIdx = isRightRow ? r + 1 : r;  // ซ้ายเสียงต่ำ
+
+                      if (normalizedToken === '-') {
+                          newData[rightRowIdx][m][c] = '-';
+                          newData[leftRowIdx][m][c] = '-';
+                      } else {
+                          const actualNote = isReduceModeRef.current ? shiftNoteString(normalizedToken, -1) : normalizedToken;
+                          const { left, right } = getIntervalPair(currentInstrument, actualNote, intervalModeRef.current);
+                          newData[leftRowIdx][m][c] = isReduceModeRef.current ? shiftNoteString(left, 1) : left;
+                          newData[rightRowIdx][m][c] = isReduceModeRef.current ? shiftNoteString(right, 1) : right;
                       }
+                  } else {
+                      newData[r][m][c] = normalizedToken;
                   }
               }
               currentCol++;
@@ -1176,11 +1156,14 @@ export const MusicProvider = ({ children }) => {
     if (rowTypes[row] === 'page-break' || rowTypes[row] === 'text' || (rowTypes[row].startsWith('double') && meas === 0)) return;
 
     if (note === 'BACKSPACE') {
-      newData[row][meas][cell] = '-';
-      
-      if (isOctaveModeRef.current && rowTypes[row].startsWith('double')) {
-          const pairRow = rowTypes[row] === 'double-right' ? row + 1 : row - 1;
-          if (pairRow >= 0 && pairRow < newData.length) newData[pairRow][meas][cell] = '-';
+      if (intervalModeRef.current !== 'off' && rowTypes[row].startsWith('double')) {
+          const isRightRow = rowTypes[row] === 'double-right';
+          const rightRowIdx = isRightRow ? row : row - 1;
+          const leftRowIdx = isRightRow ? row + 1 : row;
+          newData[rightRowIdx][meas][cell] = '-';
+          newData[leftRowIdx][meas][cell] = '-';
+      } else {
+          newData[row][meas][cell] = '-';
       }
 
       commitChange(newData);
@@ -1196,16 +1179,19 @@ export const MusicProvider = ({ children }) => {
       }
     } else {
       const normalizedToken = normalizeCellToken(note);
-      newData[row][meas][cell] = normalizedToken;
       
-      if (isOctaveModeRef.current && rowTypes[row].startsWith('double')) {
-          const pairRow = rowTypes[row] === 'double-right' ? row + 1 : row - 1;
-          if (pairRow >= 0 && pairRow < newData.length) {
-              const actualNote = isReduceModeRef.current ? shiftNoteString(normalizedToken, -1) : normalizedToken;
-              const prefDir = getPreferredOctaveDirection(currentInstrument, actualNote);
-              const pairBase = getOctavePairNote(currentInstrument, actualNote, prefDir) || actualNote;
-              newData[pairRow][meas][cell] = isReduceModeRef.current ? shiftNoteString(pairBase, 1) : pairBase;
-          }
+      if (intervalModeRef.current !== 'off' && rowTypes[row].startsWith('double')) {
+          const isRightRow = rowTypes[row] === 'double-right';
+          const rightRowIdx = isRightRow ? row : row - 1;
+          const leftRowIdx = isRightRow ? row + 1 : row;
+          
+          const actualNote = isReduceModeRef.current ? shiftNoteString(normalizedToken, -1) : normalizedToken;
+          const { left, right } = getIntervalPair(currentInstrument, actualNote, intervalModeRef.current);
+          
+          newData[leftRowIdx][meas][cell] = isReduceModeRef.current ? shiftNoteString(left, 1) : left;
+          newData[rightRowIdx][meas][cell] = isReduceModeRef.current ? shiftNoteString(right, 1) : right;
+      } else {
+          newData[row][meas][cell] = normalizedToken;
       }
 
       if (normalizedToken !== '-') previewCellToken(normalizedToken, layoutConfig.volume ?? 100);
@@ -1225,13 +1211,19 @@ export const MusicProvider = ({ children }) => {
     setSelectionRange(null); 
     
     const [rIdx, mIdx] = selectedCell;
-    const currentMeasureCount = sheetData[rIdx]?.length || 8;
-    const isFirstHalf = typeof insertAtTop === 'boolean' ? insertAtTop : (mIdx < Math.ceil(currentMeasureCount / 2));
-    
-    let insertIdx = isFirstHalf ? rIdx : rIdx + 1;
+    let insertIdx;
+    let isFirstHalf = false;
 
-    if (isFirstHalf && rowTypes[insertIdx] === 'double-left' && rowTypes[insertIdx - 1] === 'double-right') insertIdx -= 1; 
-    else if (!isFirstHalf && rowTypes[insertIdx - 1] === 'double-right' && rowTypes[insertIdx] === 'double-left') insertIdx += 1; 
+    if (rowTypes[rIdx] === 'page-break') {
+      insertIdx = rIdx + 1; 
+    } else {
+      const currentMeasureCount = sheetData[rIdx]?.length || 8;
+      isFirstHalf = typeof insertAtTop === 'boolean' ? insertAtTop : (mIdx < Math.ceil(currentMeasureCount / 2));
+      insertIdx = isFirstHalf ? rIdx : rIdx + 1;
+
+      if (isFirstHalf && rowTypes[insertIdx] === 'double-left' && rowTypes[insertIdx - 1] === 'double-right') insertIdx -= 1; 
+      else if (!isFirstHalf && rowTypes[insertIdx - 1] === 'double-right' && rowTypes[insertIdx] === 'double-left') insertIdx += 1; 
+    }
 
     let targetVisualIndex = 0;
     for (let i = 0; i < insertIdx; i++) if (rowTypes[i] === 'single' || rowTypes[i] === 'double-right') targetVisualIndex++;
@@ -1255,7 +1247,9 @@ export const MusicProvider = ({ children }) => {
     }));
 
     commitChange(newData, newRowTypes, newSectionLabels, newSymbols, newRowMargins);
-    if (isFirstHalf) setSelectedCell([insertIdx + 1, 0, 0]); 
+    
+    if (rowTypes[rIdx] === 'page-break') setSelectedCell([insertIdx, 0, 0]);
+    else if (isFirstHalf) setSelectedCell([insertIdx + 1, 0, 0]); 
   };
 
   const addDoubleRow = (insertAtTop = null) => {
@@ -1264,13 +1258,19 @@ export const MusicProvider = ({ children }) => {
     setSelectionRange(null); 
     
     const [rIdx, mIdx] = selectedCell;
-    const isDouble = rowTypes[rIdx]?.startsWith('double');
-    const isFirstHalf = typeof insertAtTop === 'boolean' ? insertAtTop : (isDouble ? mIdx < 5 : mIdx < 4);
-    
-    let insertIdx = isFirstHalf ? rIdx : rIdx + 1;
-    
-    if (isFirstHalf && rowTypes[insertIdx] === 'double-left' && rowTypes[insertIdx - 1] === 'double-right') insertIdx -= 1;
-    else if (!isFirstHalf && rowTypes[insertIdx - 1] === 'double-right' && rowTypes[insertIdx] === 'double-left') insertIdx += 1;
+    let insertIdx;
+    let isFirstHalf = false;
+
+    if (rowTypes[rIdx] === 'page-break') {
+      insertIdx = rIdx + 1;
+    } else {
+      const isDouble = rowTypes[rIdx]?.startsWith('double');
+      isFirstHalf = typeof insertAtTop === 'boolean' ? insertAtTop : (isDouble ? mIdx < 5 : mIdx < 4);
+      insertIdx = isFirstHalf ? rIdx : rIdx + 1;
+      
+      if (isFirstHalf && rowTypes[insertIdx] === 'double-left' && rowTypes[insertIdx - 1] === 'double-right') insertIdx -= 1;
+      else if (!isFirstHalf && rowTypes[insertIdx - 1] === 'double-right' && rowTypes[insertIdx] === 'double-left') insertIdx += 1;
+    }
 
     let targetVisualIndex = 0;
     for (let i = 0; i < insertIdx; i++) if (rowTypes[i] === 'single' || rowTypes[i] === 'double-right') targetVisualIndex++;
@@ -1294,7 +1294,9 @@ export const MusicProvider = ({ children }) => {
     }));
 
     commitChange(newData, newRowTypes, newSectionLabels, newSymbols, newRowMargins);
-    if (insertAtTop) setSelectedCell([insertIdx + 2, 0, 0]);
+    
+    if (rowTypes[rIdx] === 'page-break') setSelectedCell([insertIdx, 0, 0]);
+    else if (insertAtTop) setSelectedCell([insertIdx + 2, 0, 0]);
   };
 
   const addPageBreak = (insertAtTop = null) => {
@@ -1303,13 +1305,18 @@ export const MusicProvider = ({ children }) => {
     setSelectionRange(null);
     
     const [rIdx, mIdx] = selectedCell;
-    const isDouble = rowTypes[rIdx]?.startsWith('double');
-    const isFirstHalf = typeof insertAtTop === 'boolean' ? insertAtTop : (isDouble ? mIdx < 5 : mIdx < 4);
-    
-    let insertIdx = isFirstHalf ? rIdx : rIdx + 1;
-    
-    if (isFirstHalf && rowTypes[insertIdx] === 'double-left' && rowTypes[insertIdx - 1] === 'double-right') insertIdx -= 1;
-    else if (!isFirstHalf && rowTypes[insertIdx - 1] === 'double-right' && rowTypes[insertIdx] === 'double-left') insertIdx += 1;
+    let insertIdx;
+
+    if (rowTypes[rIdx] === 'page-break') {
+      insertIdx = rIdx + 1;
+    } else {
+      const isDouble = rowTypes[rIdx]?.startsWith('double');
+      const isFirstHalf = typeof insertAtTop === 'boolean' ? insertAtTop : (isDouble ? mIdx < 5 : mIdx < 4);
+      insertIdx = isFirstHalf ? rIdx : rIdx + 1;
+      
+      if (isFirstHalf && rowTypes[insertIdx] === 'double-left' && rowTypes[insertIdx - 1] === 'double-right') insertIdx -= 1;
+      else if (!isFirstHalf && rowTypes[insertIdx - 1] === 'double-right' && rowTypes[insertIdx] === 'double-left') insertIdx += 1;
+    }
 
     const newData = [...sheetData], newRowTypes = [...rowTypes], newRowMargins = [...rowMargins];
     newData.splice(insertIdx, 0, Array(8).fill().map(() => Array(4).fill('-')));
@@ -1331,13 +1338,18 @@ export const MusicProvider = ({ children }) => {
     setSelectionRange(null);
     
     const [rIdx,  mIdx] = selectedCell;
-    const isDouble = rowTypes[rIdx]?.startsWith('double');
-    const isFirstHalf = typeof insertAtTop === 'boolean' ? insertAtTop : (isDouble ? mIdx < 5 : mIdx < 4);
-    
-    let insertIdx = isFirstHalf ? rIdx : rIdx + 1;
-    
-    if (isFirstHalf && rowTypes[insertIdx] === 'double-left' && rowTypes[insertIdx - 1] === 'double-right') insertIdx -= 1;
-    else if (!isFirstHalf && rowTypes[insertIdx - 1] === 'double-right' && rowTypes[insertIdx] === 'double-left') insertIdx += 1;
+    let insertIdx;
+
+    if (rowTypes[rIdx] === 'page-break') {
+      insertIdx = rIdx + 1;
+    } else {
+      const isDouble = rowTypes[rIdx]?.startsWith('double');
+      const isFirstHalf = typeof insertAtTop === 'boolean' ? insertAtTop : (isDouble ? mIdx < 5 : mIdx < 4);
+      insertIdx = isFirstHalf ? rIdx : rIdx + 1;
+      
+      if (isFirstHalf && rowTypes[insertIdx] === 'double-left' && rowTypes[insertIdx - 1] === 'double-right') insertIdx -= 1;
+      else if (!isFirstHalf && rowTypes[insertIdx - 1] === 'double-right' && rowTypes[insertIdx] === 'double-left') insertIdx += 1;
+    }
 
     const newData = [...sheetData], newRowTypes = [...rowTypes], newRowMargins = [...rowMargins];
     newData.splice(insertIdx, 0, [[""]]); 
@@ -1516,7 +1528,7 @@ export const MusicProvider = ({ children }) => {
       playbackSequence,
       isLoopAll,
       isLoopOne,
-      isOctaveMode,
+      intervalMode, // ⭐ บันทึกโหมดการใช้งานคู่เสียง
       isReduceMode,
       isShowPlayMode 
     };
@@ -1555,7 +1567,16 @@ export const MusicProvider = ({ children }) => {
         if (data.playbackSequence) setPlaybackSequence(data.playbackSequence);
         if (data.isLoopAll !== undefined) setIsLoopAll(data.isLoopAll);
         if (data.isLoopOne !== undefined) setIsLoopOne(data.isLoopOne);
-        if (data.isOctaveMode !== undefined) setIsOctaveMode(data.isOctaveMode);
+        
+        // ⭐ โหลดโหมดการใช้งานคู่เสียง พร้อมรองรับไฟล์เก่าที่เป็น isOctaveMode
+        if (data.intervalMode !== undefined) {
+          setIntervalMode(data.intervalMode);
+        } else if (data.isOctaveMode !== undefined) {
+          setIntervalMode(data.isOctaveMode ? '8' : 'off');
+        } else {
+          setIntervalMode('off');
+        }
+
         if (data.isReduceMode !== undefined) setIsReduceMode(data.isReduceMode);
         if (data.isShowPlayMode !== undefined) setIsShowPlayMode(data.isShowPlayMode);
         
@@ -1574,7 +1595,7 @@ export const MusicProvider = ({ children }) => {
              headerDetails: data.headerDetails || headerDetails, currentInstrument: data.currentInstrument || currentInstrument?.id || 'ranat-ek', 
              rowMargins: loadedMargins, playbackSequence: data.playbackSequence || playbackSequence,
              isLoopAll: data.isLoopAll || false, isLoopOne: data.isLoopOne || false, 
-             isOctaveMode: data.isOctaveMode || false, isReduceMode: data.isReduceMode || false,
+             intervalMode: data.intervalMode || (data.isOctaveMode ? '8' : 'off'), isReduceMode: data.isReduceMode || false,
              isShowPlayMode: data.isShowPlayMode || false
            };
            
@@ -1830,7 +1851,13 @@ export const MusicProvider = ({ children }) => {
         
         if (data.isLoopAll !== undefined) setIsLoopAll(data.isLoopAll);
         if (data.isLoopOne !== undefined) setIsLoopOne(data.isLoopOne);
-        if (data.isOctaveMode !== undefined) setIsOctaveMode(data.isOctaveMode);
+        
+        if (data.intervalMode !== undefined) {
+          setIntervalMode(data.intervalMode);
+        } else if (data.isOctaveMode !== undefined) {
+          setIntervalMode(data.isOctaveMode ? '8' : 'off');
+        }
+
         if (data.isReduceMode !== undefined) setIsReduceMode(data.isReduceMode);
         if (data.isShowPlayMode !== undefined) setIsShowPlayMode(data.isShowPlayMode); 
 
@@ -1853,7 +1880,7 @@ export const MusicProvider = ({ children }) => {
       name: projectName, songName, sheetData, rowTypes, sectionLabels, 
       symbols, layoutConfig, headerDetails, currentInstrument: currentInstrument.id, 
       rowMargins, playbackSequence,
-      isLoopAll, isLoopOne, isOctaveMode, isReduceMode, isShowPlayMode 
+      isLoopAll, isLoopOne, intervalMode, isReduceMode, isShowPlayMode 
     };
     
     localStorage.setItem('thaiMusicEditorAutoSave', JSON.stringify(projectData));
@@ -1861,7 +1888,7 @@ export const MusicProvider = ({ children }) => {
     if (!isFreshProject) {
       autoSaveToFirebase(projectData);
     }
-  }, [isLoaded, projectName, songName, sheetData, rowTypes, sectionLabels, symbols, layoutConfig, headerDetails, currentInstrument, rowMargins, playbackSequence, isLoopAll, isLoopOne, isOctaveMode, isReduceMode, isShowPlayMode, projectId, historyIndex, isReadOnly]);
+  }, [isLoaded, projectName, songName, sheetData, rowTypes, sectionLabels, symbols, layoutConfig, headerDetails, currentInstrument, rowMargins, playbackSequence, isLoopAll, isLoopOne, intervalMode, isReduceMode, isShowPlayMode, projectId, historyIndex, isReadOnly]);
 
   const updateRowMarginsList = (arg1, arg2, arg3) => {
     if (isReadOnlyRef.current) return;
@@ -1913,7 +1940,13 @@ export const MusicProvider = ({ children }) => {
       if (projectData.playbackSequence) setPlaybackSequence(projectData.playbackSequence);
       if (projectData.isLoopAll !== undefined) setIsLoopAll(projectData.isLoopAll);
       if (projectData.isLoopOne !== undefined) setIsLoopOne(projectData.isLoopOne);
-      if (projectData.isOctaveMode !== undefined) setIsOctaveMode(projectData.isOctaveMode);
+      
+      if (projectData.intervalMode !== undefined) {
+          setIntervalMode(projectData.intervalMode);
+      } else if (projectData.isOctaveMode !== undefined) {
+          setIntervalMode(projectData.isOctaveMode ? '8' : 'off');
+      }
+
       if (projectData.isReduceMode !== undefined) setIsReduceMode(projectData.isReduceMode);
       if (projectData.isShowPlayMode !== undefined) setIsShowPlayMode(projectData.isShowPlayMode);
 
@@ -2137,9 +2170,10 @@ export const MusicProvider = ({ children }) => {
       isPlaying, playbackCursor, startPlayback, stopPlayback, togglePlay,
       symbols, addSymbol, updateSymbol, removeSymbol, removeSymbolByCell,
       selectedSymbolId, setSelectedSymbolId,
-      isOctaveMode, setIsOctaveMode,
+      intervalMode, setIntervalMode,
       isReduceMode, setIsReduceMode, 
-      isShowPlayMode, setIsShowPlayMode, 
+      isShowPlayMode, setIsShowPlayMode,
+      isAutoScroll, setIsAutoScroll, 
       shiftNoteObject, shiftNoteString,
       addTextRow, updateTextRow,
       rowMargins, updateRowMarginsList,
