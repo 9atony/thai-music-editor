@@ -72,6 +72,8 @@ const Sheet = forwardRef((props, ref) => {
   const [editingLabelId, setEditingLabelId] = useState(null);
   const [editingTokenCell, setEditingTokenCell] = useState(null);
   const [editingTokenValue, setEditingTokenValue] = useState('');
+  
+  const [paginateTrigger, setPaginateTrigger] = useState(0);
 
   const editLabelRef = useRef("");
   const initialSongNameRef = useRef("");
@@ -367,7 +369,7 @@ const Sheet = forwardRef((props, ref) => {
         const baseLineHeight = Math.max(20, (layoutConfig.textFontSize || 16) * textLineHeight);
         const textRowHeight = (baseLineHeight * totalLines) + rMarginTop + rMarginBot; 
         
-        if ((currentUsedHeight + textRowHeight + headerSpace + PAGE_PADDING + FOOTER_SPACE > A4_HEIGHT_PX) && currentRows.length > 0) {
+        if ((currentUsedHeight + textRowHeight + 120 + headerSpace + PAGE_PADDING + FOOTER_SPACE > A4_HEIGHT_PX) && currentRows.length > 0) {
           calculatedPages.push({ rows: currentRows, startIndex: i - currentRows.length });
           currentRows = [row]; currentUsedHeight = textRowHeight; isFirstPage = false;
         } else {
@@ -408,7 +410,7 @@ const Sheet = forwardRef((props, ref) => {
       calculatedPages.push({ rows: currentRows, startIndex: sheetData.length - currentRows.length });
     }
     return calculatedPages;
-  }, [sheetData, layoutConfig, headerDetails, rowTypes, sectionLabels, rowMargins]);
+  }, [sheetData, layoutConfig, headerDetails, rowTypes, sectionLabels, rowMargins, paginateTrigger]);
 
   // ==========================================
   // 5. Symbol & SVG Calculations
@@ -420,11 +422,16 @@ const Sheet = forwardRef((props, ref) => {
     symbols.forEach(sym => {
       const isKro = sym.type === 'kro';
 
-      // 🛠️ บังคับดึงค่าจาก Global Layout Config เป็นหลักทันที ถ้าสัญลักษณ์นั้นไม่มีค่าเฉพาะตัว
-      const color = sym.color || (isKro ? (layoutConfig.kroColor || '#3b82f6') : (layoutConfig.symbolColor || '#1e293b'));
-      const strokeW = sym.strokeWidth ?? (isKro ? (layoutConfig.kroStrokeWidth || 2.5) : (layoutConfig.symbolStrokeWidth || 2.5));
-      const offset = sym.offset ?? (isKro ? (layoutConfig.kroOffset || 30) : (layoutConfig.sabatOffset || 4));
-      const curve = sym.curve ?? layoutConfig.sabatCurve ?? 20;
+      // ⭐ แก้ไขการดึงค่า (ดึงจาก sym โดยตรง โดยใช้ชื่อ key แบบพิมพ์เล็ก)
+      // ถ้าไม่มีค่าเฉพาะตัว ค่อยไปดึงค่า Global มาใช้
+      const color = sym.color || (isKro ? (layoutConfig.kroColor || '#3b82f6') : (layoutConfig.sabatColor || '#1e293b'));
+      
+      // ⭐ แก้ไขปัญหาความหนา (Stroke Width) ไม่อัปเดต
+      const strokeW = sym.strokewidth !== undefined ? sym.strokewidth : (isKro ? (layoutConfig.kroStrokeWidth || 2.5) : (layoutConfig.sabatStrokeWidth || 2.5));
+      
+      // ⭐ แก้ไขปัญหาความนูน/โค้ง (Curve) ไม่อัปเดต
+      const offset = sym.offset !== undefined ? sym.offset : (isKro ? (layoutConfig.kroOffset || 30) : (layoutConfig.sabatOffset || 4));
+      const curve = sym.curve !== undefined ? sym.curve : (layoutConfig.sabatCurve ?? 20);
 
       if (isKro && sym.start[0] !== sym.end[0]) {
         // กรณีลูกกรอข้ามบรรทัด (ยังคงเหมือนเดิม)
@@ -441,8 +448,16 @@ const Sheet = forwardRef((props, ref) => {
           if (startEl && endEl) {
             const pageEl = document.getElementById(`page-${pageIndex}`);
             const pRect = pageEl.getBoundingClientRect();
-            const sRect = startEl.getBoundingClientRect();
-            const eRect = endEl.getBoundingClientRect();
+            // หาโค้ดเดิมที่เขียนว่า const sRect = startEl.getBoundingClientRect(); แล้วเปลี่ยนเป็นแบบนี้ครับ 👇
+            let sRect = startEl.getBoundingClientRect();
+            const startParts = startEl.querySelectorAll('.tme-note-part');
+            // ⭐ สั่งให้ลากเส้นออกจากโน้ต "ตัวแรก" ในช่องนั้น
+            if (startParts.length > 0) sRect = startParts[0].getBoundingClientRect(); 
+
+            let eRect = endEl.getBoundingClientRect();
+            const endParts = endEl.querySelectorAll('.tme-note-part');
+            // ⭐ สั่งให้ปลายเส้นไปชี้ที่โน้ต "ตัวสุดท้าย" ในช่องนั้น!
+            if (endParts.length > 0) eRect = endParts[endParts.length - 1].getBoundingClientRect();
 
             const x1 = (sRect.left - pRect.left + (sRect.width / 2)) / scale;
             const y1 = (sRect.top - pRect.top) / scale + offset; 
@@ -562,13 +577,15 @@ const Sheet = forwardRef((props, ref) => {
     const isBold = customStyle.isBold !== undefined ? customStyle.isBold : layoutConfig.isBold;
     const isItalic = customStyle.isItalic !== undefined ? customStyle.isItalic : layoutConfig.isItalic;
     const cellFontFamily = customStyle.noteFontFamily || noteFontFamily;
+    const cellColor = customStyle.color || 'inherit'; 
+
     const tokenParts = splitThaiNoteToken(note);
     const isGroupedToken = tokenParts.length > 1;
 
     return (
       <span 
         className={`leading-none inline-flex items-center justify-center ${isBold ? 'font-bold' : 'font-normal'} ${isItalic ? 'italic' : ''}`} 
-        style={{ fontFamily: cellFontFamily, paddingTop: '0.1em', paddingBottom: '0.1em' }}
+        style={{ fontFamily: cellFontFamily, paddingTop: '0.1em', paddingBottom: '0.1em', color: cellColor }}
       >
         {isGroupedToken ? (
           <span
@@ -576,28 +593,31 @@ const Sheet = forwardRef((props, ref) => {
             style={{ gap: tokenParts.length >= 3 ? '0.08em' : '0.14em', fontSize: tokenParts.length >= 3 ? '0.82em' : '0.9em' }}
           >
             {tokenParts.map((part, index) => (
-              <span key={`${rIndex}-${mIndex}-${cIndex}-${index}`} className="inline-block leading-none">
+              <span key={`${rIndex}-${mIndex}-${cIndex}-${index}`} className="tme-note-part inline-block leading-none">
                 {part}
               </span>
             ))}
           </span>
-        ) : note}
+        ) : (
+          <span className="tme-note-part inline-block leading-none">{note}</span>
+        )}
       </span>
     );
   };
 
-  const renderSectionLabels = (visualIndex, rowType) => {
+  const renderSectionLabels = (visualIndex, rowType, actualRowIndex) => { 
     const labels = sectionLabels[visualIndex];
     if (!labels || labels.length === 0) return null;
     
     return labels.map((label) => {
-      if (!label.text && editingLabelId !== label.id) return null;
+      if (!label.text) return null;
       if (rowType === 'double-right' && label.position.includes('bottom')) return null;
       if (rowType === 'double-left' && label.position.includes('top')) return null;
 
       let positionStyle = { 
-        position: 'absolute', fontSize: `${label.fontSize}px`, color: '#0f172a', 
-        whiteSpace: 'nowrap', zIndex: 20, lineHeight: 1, fontFamily: noteFontFamily 
+        position: 'absolute', color: '#0f172a', 
+        whiteSpace: 'nowrap', zIndex: 20, lineHeight: 1 
+        // ❌ เอา fontSize, fontFamily ออก เพราะข้อมูลจะถูกควบคุมโดยโค้ด HTML (span) ในข้อความแล้ว
       };
       const labelOffset = label.offsetY !== undefined ? label.offsetY : 6;
       
@@ -610,49 +630,22 @@ const Sheet = forwardRef((props, ref) => {
       if (label.position.includes('left')) positionStyle.left = '0'; 
       else if (label.position.includes('center')) { positionStyle.left = '50%'; positionStyle.transform = 'translateX(-50%)'; } 
       else if (label.position.includes('right')) positionStyle.right = '0'; 
-      
-      const isEditing = editingLabelId === label.id;
-
-      return (
+return (
         <div key={label.id} style={positionStyle} className="tracking-wide">
-          {isEditing ? (
-            <div
-              contentEditable
-              suppressContentEditableWarning
-              autoFocus
-              onMouseDown={(e) => e.stopPropagation()} 
-              onFocus={(e) => {
-                editLabelRef.current = e.target.innerHTML;
-                const range = document.createRange();
-                const sel = window.getSelection();
-                range.selectNodeContents(e.target);
-                range.collapse(false);
-                sel.removeAllRanges();
-                sel.addRange(range);
-              }}
-              onInput={(e) => { editLabelRef.current = e.target.innerHTML; }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); }
-                if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') { e.preventDefault(); document.execCommand('bold', false, null); editLabelRef.current = e.target.innerHTML; }
-                if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'i') { e.preventDefault(); document.execCommand('italic', false, null); editLabelRef.current = e.target.innerHTML; }
-              }}
-              dangerouslySetInnerHTML={{ __html: label.text }}
-              className="outline-none border-b border-sky-400 bg-white/80 px-1 min-w-[40px] rounded shadow-sm"
-              style={{ fontSize: 'inherit', fontFamily: 'inherit' }}
-            />
-          ) : (
-            <div
-              onDoubleClick={(e) => { 
-                e.stopPropagation(); 
-                if (setToolbarMode) setToolbarMode('text');
-                setEditingLabelId(label.id); 
-              }}
-              onMouseDown={(e) => e.stopPropagation()}
-              dangerouslySetInnerHTML={{ __html: label.text || 'ป้ายกำกับ' }}
-              className="cursor-text hover:bg-slate-100/50 rounded px-1 transition-colors print:hover:bg-transparent min-w-[20px]"
-              title="ดับเบิลคลิกเพื่อแก้ไขป้ายกำกับ"
-            />
-          )}
+          <div
+            onMouseDown={(e) => {
+                e.stopPropagation();
+                // ⭐ 2. เปลี่ยนจาก visualIndex เป็น actualRowIndex ระบบจะได้ไม่สับสน!
+                setSelectedCell([actualRowIndex, 0, 0]); 
+            }}
+            onClick={(e) => {
+                e.stopPropagation();
+                window.dispatchEvent(new CustomEvent('tme-open-labels-tab'));
+            }}
+            dangerouslySetInnerHTML={{ __html: label.text || 'ป้ายกำกับ' }}
+            className="cursor-pointer hover:ring-2 hover:ring-indigo-300 hover:bg-indigo-50/50 rounded px-1 transition-all print:hover:bg-transparent print:hover:ring-0 min-w-[20px]"
+            title="คลิกเพื่อแก้ไขในแถบเครื่องมือ"
+          />
         </div>
       );
     });
@@ -991,6 +984,7 @@ const Sheet = forwardRef((props, ref) => {
                             if (sheetData[rIndex] && sheetData[rIndex][0]) {
                               sheetData[rIndex][0][0] = e.target.innerHTML;
                             }
+                            setPaginateTrigger(prev => prev + 1); 
                           }}
                           // ❌ ลบ onKeyUp ทิ้งไปแล้ว ❌
 
@@ -1029,6 +1023,7 @@ const Sheet = forwardRef((props, ref) => {
                               if (sheetData[rIndex] && sheetData[rIndex][0]) {
                                 sheetData[rIndex][0][0] = e.target.innerHTML;
                               }
+                              setPaginateTrigger(prev => prev + 1);
                               return;
                             }
 
@@ -1135,7 +1130,7 @@ const Sheet = forwardRef((props, ref) => {
                           />
                         )}
 
-                        {visualIndex !== null && renderSectionLabels(visualIndex, rType)}
+                        {visualIndex !== null && renderSectionLabels(visualIndex, rType, rIndex)}
 
                         <div 
                           className="grid w-full" 

@@ -7,6 +7,14 @@ import openIcon from '../../assets/icons/open.png';
 import pdfIcon from '../../assets/icons/pdf.png';
 import saveIcon from '../../assets/icons/save.png';
 
+// ⭐ ฟังก์ชันสำหรับล้างแท็ก HTML ให้เหลือแต่ข้อความล้วน
+const getPlainText = (html) => {
+  if (!html) return '';
+  const tmp = document.createElement('div');
+  tmp.innerHTML = html;
+  return tmp.textContent || tmp.innerText || '';
+};
+
 const Navbar = ({ onPrint, onOpenSettings, onBack }) => {
   const { 
     saveProject, loadProject, newProject, undo, redo, 
@@ -41,8 +49,10 @@ const Navbar = ({ onPrint, onOpenSettings, onBack }) => {
 
           <div className="hidden sm:flex items-center">
             <input 
-              // 👇 เปลี่ยน value และ onChange ให้ไปคุม songName แทน
-              type="text" value={songName || projectName || ''} onChange={(e) => setSongName(e.target.value)}
+              // ⭐ ครอบ getPlainText() เพื่อกรองแท็ก HTML ทิ้งก่อนแสดงผล
+              type="text" 
+              value={getPlainText(songName) || projectName || ''} 
+              onChange={(e) => setSongName(e.target.value)}
               placeholder="โปรเจกต์ไม่มีชื่อ"
               className="text-lg font-bold text-slate-700 bg-transparent border-b-2 border-transparent hover:border-slate-200 focus:border-sky-500 focus:outline-none focus:ring-0 placeholder:text-slate-300 w-40 md:w-64 truncate transition-colors px-1 py-0.5"
               title="คลิกเพื่อเปลี่ยนชื่อเพลง"

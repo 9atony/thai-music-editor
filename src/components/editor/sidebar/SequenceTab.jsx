@@ -1,6 +1,14 @@
 import React, { useContext, useState } from 'react';
 import { MusicContext } from '../../../contexts/MusicContext';
 
+// ⭐ ฟังก์ชันสำหรับล้างแท็ก HTML ให้เหลือแต่ข้อความล้วน
+const getPlainText = (html) => {
+  if (!html) return '';
+  const tmp = document.createElement('div');
+  tmp.innerHTML = html;
+  return tmp.textContent || tmp.innerText || '';
+};
+
 const SequenceTab = () => {
   const { 
     playbackSequence, setPlaybackSequence,
@@ -46,8 +54,10 @@ const SequenceTab = () => {
     const sortedIndices = Object.keys(sectionLabels).map(Number).sort((a, b) => a - b);
     sortedIndices.forEach(vIdx => {
       sectionLabels[vIdx].forEach(lbl => {
-        if (!lbl.text.includes('กลับต้น')) {
-          newSeq.push({ id: Date.now() + Math.random(), label: lbl.text.trim(), loops: 1 });
+        // ⭐ ล้างแท็ก HTML ออกก่อนนำไปใช้งาน
+        const plainText = getPlainText(lbl.text).trim();
+        if (plainText && !plainText.includes('กลับต้น')) {
+          newSeq.push({ id: Date.now() + Math.random(), label: plainText, loops: 1 });
         }
       });
     });
@@ -90,7 +100,8 @@ const SequenceTab = () => {
                 <span className="text-[10px] text-slate-300 cursor-grab hover:text-slate-500">⠿</span>
                 <input
                   type="text"
-                  value={item.label}
+                  // ⭐ ล้างแท็ก HTML ออกจากข้อความที่แสดงในกล่อง input
+                  value={getPlainText(item.label)}
                   onChange={(e) => updateSeqItem(idx, 'label', e.target.value)}
                   className={`w-full bg-transparent outline-none font-bold text-xs truncate ${isCurrentlyPlaying ? 'text-sky-800' : 'text-slate-700'}`}
                 />

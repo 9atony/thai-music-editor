@@ -31,7 +31,7 @@ const PlaybackControls = () => {
     isLoopAll, setIsLoopAll,
     isLoopOne, setIsLoopOne,
     skipToPrev, skipToNext,
-    setSongName, updateDetail // 👈 ต้องมี 2 ตัวนี้เพิ่มเข้ามาตรงนี้ครับ
+    setSongName, updateDetail 
   } = useContext(MusicContext);
 
   const [textFontSize, setTextFontSize] = useState(16);
@@ -163,7 +163,6 @@ const PlaybackControls = () => {
       const editor = getActiveEditor();
       if (!editor) return;
 
-      // 1. บันทึกเนื้อเพลง (เก็บไว้เหมือนเดิม)
       if (isTextRow) {
         const rIndex = selectedCell[0];
         const el = document.getElementById(`text-row-${rIndex}`);
@@ -171,10 +170,6 @@ const PlaybackControls = () => {
           sheetData[rIndex][0][0] = el.innerHTML;
         }
       }
-      
-      // ⭐ 2. ลบคำสั่ง setSongName และ updateDetail ตรงนี้ออกไปเลย!
-      // เพื่อไม่ให้ React รีเฟรชหน้าจอจนกระตุก ปล่อยให้เบราว์เซอร์โชว์ฟอนต์ไปก่อน
-      // แล้วเดี๋ยวระบบ Watchdog จะเป็นคนบันทึกให้เองตอนที่คุณ "คลิกพื้นที่ว่าง"
     }, 10);
   };
 
@@ -185,7 +180,6 @@ const PlaybackControls = () => {
   };
 
   const handleUniversalFontSizeChange = (val, step = 0) => {
-    // ⭐ ใช้ความจำจาก savedSelection แทนการเช็กสดๆ ป้องกันการหลุดโฟกัส
     const hasTextSelection = savedSelection.current && savedSelection.current.toString().length > 0;
     const isTextSelecting = hasTextSelection && getActiveEditor();
     
@@ -196,10 +190,7 @@ const PlaybackControls = () => {
             setTextFontSize(finalVal);
             const editor = getActiveEditor();
             if (editor && savedSelection.current) {
-                
-                // ⭐ เพิ่มตรงนี้! ดึงโฟกัสกลับมาที่กล่องข้อความก่อนทำงานเสมอ
                 editor.focus(); 
-
                 const selection = window.getSelection();
                 selection.removeAllRanges();
                 selection.addRange(savedSelection.current);
@@ -215,7 +206,6 @@ const PlaybackControls = () => {
                 });
                 
                 if (selection.rangeCount > 0) savedSelection.current = selection.getRangeAt(0).cloneRange();
-                
                 editor.dispatchEvent(new Event('input', { bubbles: true }));
                 syncFormatToState();
             }
@@ -229,7 +219,6 @@ const PlaybackControls = () => {
     const editor = getActiveEditor();
     if (!editor || !savedSelection.current) return;
 
-    // ⭐ เพิ่มตรงนี้! ดึงโฟกัสกลับมาก่อนทำงาน
     editor.focus(); 
 
     const selection = window.getSelection();
@@ -239,7 +228,6 @@ const PlaybackControls = () => {
     document.execCommand("styleWithCSS", false, true);
     
     if (command === 'fontName') {
-       // ⭐ ใช้ตัวพิมพ์เล็ก dummyfont กันเบราว์เซอร์สับสน
        document.execCommand("fontName", false, "dummyfont");
        const elements = editor.querySelectorAll('font[face="dummyfont"], span[style*="dummyfont"]');
        elements.forEach(el => {
@@ -383,7 +371,6 @@ const PlaybackControls = () => {
                 >U</button>
               </div>
 
-              {/* เครื่องมือจัดหน้าข้อความ */}
               <div className="flex items-center gap-1 bg-white rounded-lg p-1 border border-slate-300 shadow-sm shrink-0 ml-1">
                 <button onMouseDown={(e) => { e.preventDefault(); formatText('justifyLeft'); }} className="w-7 h-7 flex items-center justify-center rounded-md transition-colors text-slate-600 hover:bg-slate-100"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h10M4 18h16" /></svg></button>
                 <button onMouseDown={(e) => { e.preventDefault(); formatText('justifyCenter'); }} className="w-7 h-7 flex items-center justify-center rounded-md transition-colors text-slate-600 hover:bg-slate-100"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M7 12h10M4 18h16" /></svg></button>
@@ -396,9 +383,38 @@ const PlaybackControls = () => {
                   <option value="kro">กรอ</option>
                 </select>
                 
+                {/* ⭐ จานสีอัจฉริยะ (เปลี่ยนได้ทั้ง โน้ต/สัญลักษณ์/ข้อความ) */}
                 <div className="p-0.5 bg-white border border-slate-300 rounded-lg shadow-sm hover:border-slate-400 transition-all flex items-center justify-center cursor-pointer">
-                  <input type="color" value={layoutConfig.symbolColor || '#1e293b'} onChange={(e) => handlePropChange('symbolColor', 'color', e.target.value)} className="w-7 h-7 rounded-md cursor-pointer border-none p-0 bg-transparent" title="สีสัญลักษณ์" />
+                  <input 
+                    type="color" 
+                    value={layoutConfig.symbolColor || '#1e293b'} 
+                    onChange={(e) => {
+                      const hasTextSelection = savedSelection.current && savedSelection.current.toString().length > 0;
+                      
+                      // 1. ถ้าอยู่ในโหมดข้อความ ให้เปลี่ยนสีตัวอักษร
+                      if (toolbarMode === 'text' || (hasTextSelection && getActiveEditor())) {
+                        formatText('foreColor', e.target.value);
+                      } else {
+                        // เช็กว่ามีการคลุมดำโน้ตอยู่หรือไม่
+                        const hasKlum = selectionRange && selectionRange.start && selectionRange.end &&
+                          (selectionRange.start[0] !== selectionRange.end[0] ||
+                           selectionRange.start[1] !== selectionRange.end[1] ||
+                           selectionRange.start[2] !== selectionRange.end[2]);
+                           
+                        // 2. ถ้าคลุมดำโน้ตอยู่ ให้เปลี่ยนสีโน้ต (ผ่าน handleNoteStyle)
+                        if (hasKlum) {
+                          handleNoteStyle('color', e.target.value);
+                        } else {
+                          // 3. ถ้าไม่ได้คลุมดำ ให้เปลี่ยนสีสัญลักษณ์ (ค่าดั้งเดิม)
+                          handlePropChange('symbolColor', 'color', e.target.value);
+                        }
+                      }
+                    }} 
+                    className="w-7 h-7 rounded-md cursor-pointer border-none p-0 bg-transparent" 
+                    title="เปลี่ยนสี (ตัวอักษร/โน้ต/สัญลักษณ์)" 
+                  />
                 </div>
+
               </div>
             </div>
             

@@ -93,13 +93,13 @@ const KroTab = () => {
                   onClick={() => handleUpdate('StartHand', 'right')} 
                   className={`py-1.5 text-[10px] font-bold rounded-md transition-all border ${getValue('StartHand') !== 'left' ? 'bg-blue-100 text-blue-700 border-blue-300' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-100'}`}
                 >
-                  🖐 ขวา (เสียงสูง)
+                   ขวา (เสียงสูง)
                 </button>
                 <button 
                   onClick={() => handleUpdate('StartHand', 'left')} 
                   className={`py-1.5 text-[10px] font-bold rounded-md transition-all border ${getValue('StartHand') === 'left' ? 'bg-blue-100 text-blue-700 border-blue-300' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-100'}`}
                 >
-                  ซ้าย (เสียงต่ำ) 🤚
+                  ซ้าย (เสียงต่ำ) 
                 </button>
               </div>
             </div>
