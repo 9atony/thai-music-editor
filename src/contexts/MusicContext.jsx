@@ -754,7 +754,46 @@ export const MusicProvider = ({ children }) => {
               const timeUntilEnd = dist * msPerCell; 
 
               if (sym.type === 'kro') {
-                 // ... (โค้ดลูกกรอเดิม ไม่มีการเปลี่ยนแปลง) ...
+                  if (window.kroInterval) clearInterval(window.kroInterval);
+                  
+                  let noteRightStr = null;
+                  let noteLeftStr = null;
+                  let firstColNotes = events[0] || [];
+                  
+                  if (firstColNotes.length >= 2) {
+                      noteRightStr = firstColNotes[0].note && firstColNotes[0].note !== '-' ? firstColNotes[0].note : null;
+                      noteLeftStr = firstColNotes[1].note && firstColNotes[1].note !== '-' ? firstColNotes[1].note : null;
+                      if (!noteRightStr && noteLeftStr) noteRightStr = noteLeftStr;
+                      if (!noteLeftStr && noteRightStr) noteLeftStr = noteRightStr;
+                  } else if (firstColNotes.length === 1) {
+                      const noteA = firstColNotes[0].note && firstColNotes[0].note !== '-' ? firstColNotes[0].note : null;
+                      if (noteA) {
+                          const actualA = isReduceModeRef.current ? shiftNoteString(noteA, -1) : noteA;
+                          const inst = currentInstrumentRef.current;
+                          const intervalVal = intervalModeRef.current !== 'off' ? intervalModeRef.current : '8';
+                          const { left, right } = getIntervalPair(inst, actualA, intervalVal);
+                          noteLeftStr = isReduceModeRef.current ? shiftNoteString(left, 1) : left;
+                          noteRightStr = isReduceModeRef.current ? shiftNoteString(right, 1) : right;
+                      }
+                  }
+
+                  if (noteRightStr && noteLeftStr) {
+                      const kroSpeed = sym.speed ?? layoutConfigRef.current.kroSpeed ?? 65;
+                      const startHand = sym.starthand ?? layoutConfigRef.current.kroStartHand ?? 'right';
+                     
+                      let isFirstBeat = true;
+                      window.kroInterval = setInterval(() => {
+                          const currentHand = isFirstBeat 
+                              ? (startHand === 'left' ? 'left' : 'right') 
+                              : (startHand === 'left' ? 'right' : 'left');
+                          const noteToPlay = currentHand === 'right' ? noteRightStr : noteLeftStr;
+                              
+                          playResolvedInstrumentNote(noteToPlay, layoutConfigRef.current.volume ?? 100, { bypassOctaveLayer: true, hand: currentHand });
+                          isFirstBeat = !isFirstBeat;
+                      }, kroSpeed);
+                      
+                      effectTimersRef.current.push(setTimeout(() => { clearInterval(window.kroInterval); window.kroInterval = null; }, timeUntilEnd));
+                  }
               } else {
                   // ⭐ 4. ลูกสะบัดตีรัวแบบใหม่ ยิงความดังรายตัวได้เป๊ะ
                   const totalDurationMs = dist > 0 ? (dist * msPerCell) : (msPerCell * 0.8);
