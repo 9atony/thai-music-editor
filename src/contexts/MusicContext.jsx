@@ -511,26 +511,7 @@ export const MusicProvider = ({ children }) => {
     return Array.from(labels);
   }, [sectionLabels]);
 
-  useEffect(() => {
-    if (!isLoaded) return;
-    const sheetLabelsSet = new Set(availableSections);
-    
-    setPlaybackSequence(prev => {
-      let changed = false;
-      let nextSeq = [...prev];
-      const filteredSeq = nextSeq.filter(item => sheetLabelsSet.has(item.label.trim()));
-      if (filteredSeq.length !== nextSeq.length) changed = true;
-      nextSeq = filteredSeq;
-      const seqLabelsSet = new Set(nextSeq.map(item => item.label.trim()));
-      sheetLabelsSet.forEach(label => {
-        if (!seqLabelsSet.has(label)) {
-          nextSeq.push({ id: Date.now() + Math.random(), label: label, loops: 1 });
-          changed = true;
-        }
-      });
-      return changed ? nextSeq : prev;
-    });
-  }, [availableSections, isLoaded]);
+
 
   const getCellId = (r, m, c) => r * 100000 + m * 1000 + c;
 
