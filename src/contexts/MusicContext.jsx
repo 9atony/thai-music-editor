@@ -1,6 +1,6 @@
 import React, { createContext, useState, useMemo, useEffect, useRef } from 'react';
 import { INSTRUMENT_CONFIG } from '../utils/instrumentConfig';
-import { preloadSounds, playNote, initAudioContext } from '../utils/audioEngine'; 
+import { preloadSounds, preloadAllSounds, playNote, scheduleNote, initAudioContext, getAudioCurrentTime, stopAllScheduledNotes } from '../utils/audioEngine'; 
 import { auth, saveProjectToDB } from '../utils/firebase';
 
 export const MusicContext = createContext();
@@ -240,8 +240,16 @@ export const MusicProvider = ({ children }) => {
   const seekOffsetRef = useRef(0);
   
   const playbackTimerRef = useRef(null);
+  const schedulerIntervalRef = useRef(null);
+  const schedulerStateRef = useRef(null);
+  const nextNoteTimeRef = useRef(0);
+  const runAudioSchedulerRef = useRef(null);
+  const isPageHiddenRef = useRef(typeof document !== 'undefined' ? document.hidden : false);
   const effectTimersRef = useRef([]);
   const mutedCellsRef = useRef(new Set());
+  const playbackCursorRef = useRef(null);
+  const pendingPlaybackCursorRef = useRef(null);
+  const playbackCursorRafRef = useRef(null);
   
   const [layoutConfig, setLayoutConfig] = useState({
     fontSize: 30, isBold: false, isItalic: false, measureHeight: 48,
@@ -286,34 +294,84 @@ export const MusicProvider = ({ children }) => {
   useEffect(() => { playbackSequenceRef.current = playbackSequence; }, [playbackSequence]);
   useEffect(() => { isLoopAllRef.current = isLoopAll; }, [isLoopAll]);
   useEffect(() => { isLoopOneRef.current = isLoopOne; }, [isLoopOne]);
+  useEffect(() => { playbackCursorRef.current = playbackCursor; }, [playbackCursor]);
 
-  const playResolvedInstrumentNote = (noteStr, vol, options = {}) => {
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      isPageHiddenRef.current = document.hidden;
+      if (!document.hidden && isPlayingRef.current && initAudioContext) {
+        initAudioContext().catch(() => {});
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, []);
+
+  const schedulePlaybackCursorUpdate = (nextCursor) => {
+    pendingPlaybackCursorRef.current = nextCursor;
+    if (playbackCursorRafRef.current) return;
+
+    playbackCursorRafRef.current = requestAnimationFrame(() => {
+      playbackCursorRafRef.current = null;
+      const pending = pendingPlaybackCursorRef.current;
+      if (!pending) return;
+
+      const prev = playbackCursorRef.current;
+      if (!prev || prev[0] !== pending[0] || prev[1] !== pending[1] || prev[2] !== pending[2]) {
+        playbackCursorRef.current = pending;
+        setPlaybackCursor(pending);
+      }
+    });
+  };
+
+  const queuePlayModeEvent = (note, hand, whenSec = null) => {
+    if (!isShowPlayModeRef.current || !note) return;
+
+    const nowSec = getAudioCurrentTime ? getAudioCurrentTime() : 0;
+    const delayMs = whenSec == null ? 0 : Math.max(0, Math.round((whenSec - nowSec) * 1000));
+    const dispatchEvent = () => window.dispatchEvent(new CustomEvent('tme-note-played', { detail: { note, hand } }));
+
+    if (delayMs <= 0) {
+      dispatchEvent();
+    } else {
+      effectTimersRef.current.push(setTimeout(dispatchEvent, delayMs));
+    }
+  };
+
+  const scheduleResolvedInstrumentNote = (noteStr, vol, whenSec, options = {}) => {
     if (!noteStr || noteStr === '-') return;
 
     const { bypassOctaveLayer = false, hand = 'single' } = options;
     const actualNoteToPlay = isReduceModeRef.current ? shiftNoteString(noteStr, -1) : noteStr;
-    const inst = currentInstrumentRef.current; 
-    
-    playNote(inst.id, actualNoteToPlay, vol);
+    const inst = currentInstrumentRef.current;
+    const safeWhen = Math.max((getAudioCurrentTime ? getAudioCurrentTime() : 0) + 0.015, whenSec ?? 0);
 
     if (!bypassOctaveLayer && intervalModeRef.current !== 'off') {
       const { left, right } = getIntervalPair(inst, actualNoteToPlay, intervalModeRef.current);
-      
-      if (left && right && left !== right) {
-        playNote(inst.id, left, vol);
-        playNote(inst.id, right, vol);
-        
-        if (isShowPlayModeRef.current) {
-            window.dispatchEvent(new CustomEvent('tme-note-played', { detail: { note: left, hand: 'left' } }));
-            window.dispatchEvent(new CustomEvent('tme-note-played', { detail: { note: right, hand: 'right' } }));
+
+      if (left && right) {
+        if (left === right) {
+          scheduleNote(inst.id, left, safeWhen, vol);
+          queuePlayModeEvent(left, hand, safeWhen);
+        } else {
+          scheduleNote(inst.id, left, safeWhen, vol);
+          scheduleNote(inst.id, right, safeWhen, vol);
+          queuePlayModeEvent(left, 'left', safeWhen);
+          queuePlayModeEvent(right, 'right', safeWhen);
         }
-        return; 
+        return;
       }
     }
 
-    if (isShowPlayModeRef.current) {
-        window.dispatchEvent(new CustomEvent('tme-note-played', { detail: { note: actualNoteToPlay, hand } }));
-    }
+    scheduleNote(inst.id, actualNoteToPlay, safeWhen, vol);
+    queuePlayModeEvent(actualNoteToPlay, hand, safeWhen);
+  };
+
+  const playResolvedInstrumentNote = (noteStr, vol, options = {}) => {
+    if (!noteStr || noteStr === '-') return;
+    const nowSec = getAudioCurrentTime ? getAudioCurrentTime() : 0;
+    scheduleResolvedInstrumentNote(noteStr, vol, nowSec + 0.02, options);
   };
 
   const previewCellToken = (token, baseVolume = layoutConfigRef.current.volume ?? 100, previewGapMs = 90) => {
@@ -494,10 +552,10 @@ export const MusicProvider = ({ children }) => {
     { id: 4, label: "ผู้บันทึก", value: "9atony" }
   ]);
 
+  // preload เสียงของเครื่องดนตรีที่เลือกไว้ล่วงหน้า โดยไม่บังคับเปิดคู่ 8 อัตโนมัติ
   useEffect(() => {
     if (currentInstrument && currentInstrument.id) {
       preloadSounds(currentInstrument.id);
-      if (currentInstrument.id !== 'ranat-ek') setIntervalMode('off');
     }
   }, [currentInstrument]);
 
@@ -516,8 +574,16 @@ export const MusicProvider = ({ children }) => {
   const getCellId = (r, m, c) => r * 100000 + m * 1000 + c;
 
   const startPlayback = async () => {
-    if (isPlaying) return;
+    if (isPlayingRef.current) return;
     if (initAudioContext) await initAudioContext();
+
+    const currentInstId = currentInstrumentRef.current?.id;
+    if (currentInstId) {
+      preloadSounds(currentInstId).catch(() => {});
+    }
+    if (preloadAllSounds) {
+      preloadAllSounds().catch(() => {});
+    }
 
     setIsPlaying(true);
     isPlayingRef.current = true;
@@ -527,21 +593,21 @@ export const MusicProvider = ({ children }) => {
     const currentSectionLabels = sectionLabelsRef.current;
     const sheetSections = [];
     let lastValidRow = 0;
-    let lastProcessedVIdx = -1; 
+    let lastProcessedVIdx = -1;
 
     for (let r = 0; r < currentSheetData.length; r++) {
-        if (currentRowTypes[r] === 'page-break' || currentRowTypes[r] === 'text') continue;
-        const vIdx = getVisualIndex(r, currentRowTypes);
-        const labels = currentSectionLabels[vIdx] || [];
-        const validLabels = labels.filter(l => l.text && l.text.trim() !== '');
+      if (currentRowTypes[r] === 'page-break' || currentRowTypes[r] === 'text') continue;
+      const vIdx = getVisualIndex(r, currentRowTypes);
+      const labels = currentSectionLabels[vIdx] || [];
+      const validLabels = labels.filter(l => l.text && l.text.trim() !== '');
 
-        if (validLabels.length > 0 && vIdx !== lastProcessedVIdx) {
-            if (sheetSections.length > 0) sheetSections[sheetSections.length - 1].endRow = lastValidRow;
-            sheetSections.push({ label: validLabels[0].text.trim(), startRow: r, endRow: currentSheetData.length - 1 });
-            lastProcessedVIdx = vIdx; 
-        }
-        lastValidRow = r;
-        if (currentRowTypes[r] === 'double-right') lastValidRow = r + 1; 
+      if (validLabels.length > 0 && vIdx !== lastProcessedVIdx) {
+        if (sheetSections.length > 0) sheetSections[sheetSections.length - 1].endRow = lastValidRow;
+        sheetSections.push({ label: validLabels[0].text.trim(), startRow: r, endRow: currentSheetData.length - 1 });
+        lastProcessedVIdx = vIdx;
+      }
+      lastValidRow = r;
+      if (currentRowTypes[r] === 'double-right') lastValidRow = r + 1;
     }
     if (sheetSections.length > 0) sheetSections[sheetSections.length - 1].endRow = lastValidRow;
     sheetMapRef.current = sheetSections;
@@ -557,14 +623,13 @@ export const MusicProvider = ({ children }) => {
           for (let m = 0; m < currentSheetData[r].length; m++) {
             if (currentRowTypes[r].startsWith('double') && m === 0) continue;
             const cellCount = currentSheetData[r][m].length;
-            if (cellCount > 0) {
-              sectionMs += (15000 / currentBpm) * 4; 
-            }
+            if (cellCount > 0) sectionMs += (15000 / currentBpm) * 4;
           }
         }
         calcTotalMs += (sectionMs * seqItem.loops);
       }
     });
+
     const totalSeconds = Math.floor(calcTotalMs / 1000);
     setTotalTime(totalSeconds);
     setCurrentTime(Math.floor(seekOffsetRef.current));
@@ -574,24 +639,29 @@ export const MusicProvider = ({ children }) => {
     uiTimerRef.current = setInterval(() => {
       const elapsed = Math.floor((performance.now() - playbackStartTimeRef.current) / 1000);
       setCurrentTime(Math.min(elapsed, totalSeconds));
-    }, 1000);
+    }, 250);
 
+    if (playbackTimerRef.current) clearTimeout(playbackTimerRef.current);
+    if (schedulerIntervalRef.current) clearInterval(schedulerIntervalRef.current);
     effectTimersRef.current.forEach(t => clearTimeout(t));
     effectTimersRef.current = [];
     mutedCellsRef.current.clear();
+    schedulerStateRef.current = null;
+    nextNoteTimeRef.current = 0;
+    runAudioSchedulerRef.current = null;
+    stopAllScheduledNotes?.();
 
-    // ⭐ 2. เปลี่ยนมาอ่านค่าจาก Ref โดยตรง เพื่อให้ได้พิกัดล่าสุดที่เพิ่งโดนวาร์ปมา
-    let currentCursor = [...selectedCellRef.current]; 
+    let currentCursor = [...selectedCellRef.current];
     let startR = currentCursor[0];
 
     if (currentRowTypes[startR] === 'double-left') { startR -= 1; currentCursor[0] = startR; }
-    if (currentRowTypes[startR].startsWith('double') && currentCursor[1] === 0) currentCursor[1] = 1; 
+    if (currentRowTypes[startR]?.startsWith('double') && currentCursor[1] === 0) currentCursor[1] = 1;
 
     let startSeqIdx = 0;
     const currentMappedSection = sheetSections.find(s => startR >= s.startRow && startR <= s.endRow);
     if (currentMappedSection) {
-         const foundIdx = playbackSequenceRef.current.findIndex(seq => seq.label.trim() === currentMappedSection.label);
-         if (foundIdx !== -1) startSeqIdx = foundIdx;
+      const foundIdx = playbackSequenceRef.current.findIndex(seq => seq.label.trim() === currentMappedSection.label);
+      if (foundIdx !== -1) startSeqIdx = foundIdx;
     }
 
     if (seekOffsetRef.current > 0) {
@@ -604,330 +674,417 @@ export const MusicProvider = ({ children }) => {
       setActiveLoop(1);
     }
 
-    let expectedNextTick;
+    const scheduleUiChange = (cb, whenSec) => {
+      const nowSec = getAudioCurrentTime ? getAudioCurrentTime() : 0;
+      const delayMs = Math.max(0, Math.round((whenSec - nowSec) * 1000));
+      effectTimersRef.current.push(setTimeout(() => {
+        if (isPlayingRef.current) cb();
+      }, delayMs));
+    };
 
-    // ⭐ เอาฟังก์ชัน getCellVolume รับ subIdx เข้ามาคำนวณ
     const getCellVolume = (r, m, c, subIdx, baseVol) => {
       const customStyles = layoutConfigRef.current.customStyles || {};
       const cellStyle = customStyles[`${r}_${m}_${c}_${subIdx}`] || customStyles[`${r}_${m}_${c}`];
       if (cellStyle && cellStyle.velocity !== undefined) {
-          return Math.round(baseVol * (cellStyle.velocity / 100));
+        return Math.round(baseVol * (cellStyle.velocity / 100));
       }
       return baseVol;
     };
 
-    const playNextStep = (r, m, c) => {
-      if (!isPlayingRef.current) return; 
-      if (currentRowTypes[r] === 'page-break' || currentRowTypes[r] === 'text') {
-          let nextR = r + 1;
-          if (nextR >= currentSheetData.length) { playbackTimerRef.current = setTimeout(() => stopPlayback(), 500); return; }
-          let nextM = currentRowTypes[nextR] && currentRowTypes[nextR].startsWith('double') ? 1 : 0;
-          playbackTimerRef.current = setTimeout(() => playNextStep(nextR, nextM, 0), 0);
-          return;
+    const scheduleTokenPlayback = (tokenStr, baseVol, cellDurationMs, baseDelayMs = 0, options = {}, targetR, targetM, targetC, cellStartSec) => {
+      const tokenEvents = parseCellToken(tokenStr, 'flat');
+      if (tokenEvents.length === 0) return;
+
+      tokenEvents.forEach((event, subIdx) => {
+        const eventDelayMs = Math.max(0, Math.floor(baseDelayMs + (cellDurationMs * (event.ratio ?? 0))));
+        const eventVolume = getCellVolume(targetR, targetM, targetC, subIdx, baseVol);
+        if (eventVolume > 0) {
+          scheduleResolvedInstrumentNote(event.note, eventVolume, cellStartSec + (eventDelayMs / 1000), options);
+        }
+      });
+    };
+
+    const scheduleSymbolPlayback = (sym, events, timeUntilEnd, cellStartSec) => {
+      if (sym.type === 'kro') {
+        let noteRightStr = null;
+        let noteLeftStr = null;
+        const firstColNotes = events[0] || [];
+
+        if (firstColNotes.length >= 2) {
+          noteRightStr = firstColNotes[0].note && firstColNotes[0].note !== '-' ? firstColNotes[0].note : null;
+          noteLeftStr = firstColNotes[1].note && firstColNotes[1].note !== '-' ? firstColNotes[1].note : null;
+          if (!noteRightStr && noteLeftStr) noteRightStr = noteLeftStr;
+          if (!noteLeftStr && noteRightStr) noteLeftStr = noteRightStr;
+        } else if (firstColNotes.length === 1) {
+          const noteA = firstColNotes[0].note && firstColNotes[0].note !== '-' ? firstColNotes[0].note : null;
+          if (noteA) {
+            const actualA = isReduceModeRef.current ? shiftNoteString(noteA, -1) : noteA;
+            const inst = currentInstrumentRef.current;
+            const intervalVal = intervalModeRef.current !== 'off' ? intervalModeRef.current : '8';
+            const { left, right } = getIntervalPair(inst, actualA, intervalVal);
+            noteLeftStr = isReduceModeRef.current ? shiftNoteString(left, 1) : left;
+            noteRightStr = isReduceModeRef.current ? shiftNoteString(right, 1) : right;
+          }
+        }
+
+        if (noteRightStr && noteLeftStr) {
+          const kroSpeed = Math.max(20, sym.speed ?? layoutConfigRef.current.kroSpeed ?? 65);
+          const startHand = sym.starthand ?? layoutConfigRef.current.kroStartHand ?? 'right';
+          for (let offsetMs = 0, beatIdx = 0; offsetMs <= timeUntilEnd; offsetMs += kroSpeed, beatIdx++) {
+            const currentHand = beatIdx % 2 === 0
+              ? (startHand === 'left' ? 'left' : 'right')
+              : (startHand === 'left' ? 'right' : 'left');
+            const noteToPlay = currentHand === 'right' ? noteRightStr : noteLeftStr;
+            scheduleResolvedInstrumentNote(noteToPlay, layoutConfigRef.current.volume ?? 100, cellStartSec + (offsetMs / 1000), { bypassOctaveLayer: true, hand: currentHand });
+          }
+        }
+        return;
       }
-      
-      const currentBpm = layoutConfigRef.current.bpm || 80;
-      const cellCountInMeasure = currentSheetData[r][m].length;
-      const standardMsPerCell = 15000 / currentBpm;
-      const msPerCell = Math.floor(standardMsPerCell * (4 / cellCountInMeasure));
 
-      // ส่งพิกัด r, m, c เข้ามาใน scheduleTokenPlayback ด้วย
-      const scheduleTokenPlayback = (tokenStr, baseVol, cellDurationMs = msPerCell, baseDelayMs = 0, options = {}, targetR, targetM, targetC) => {
-        const tokenEvents = parseCellToken(tokenStr, 'flat'); 
-        if (tokenEvents.length === 0) return;
+      const totalDurationMs = timeUntilEnd > 0 ? timeUntilEnd : 1;
+      const stepCount = events.length;
 
-        tokenEvents.forEach((event, subIdx) => {
-          const eventDelay = Math.max(0, Math.floor(baseDelayMs + (cellDurationMs * (event.ratio ?? 0))));
-          // ⭐ ดึงความดังรายซับโน้ตมาใช้
-          const eventVolume = getCellVolume(targetR, targetM, targetC, subIdx, baseVol);
-
-          if (eventVolume > 0) {
-            const playEvent = () => playResolvedInstrumentNote(event.note, eventVolume, options);
-            if (eventDelay <= 0) playEvent();
-            else effectTimersRef.current.push(setTimeout(playEvent, eventDelay));
+      if (stepCount === 1) {
+        events[0].forEach(nData => {
+          const vol = getCellVolume(nData.r, nData.m, nData.c, nData.subIdx, layoutConfigRef.current.volume ?? 100);
+          if (vol > 0) {
+            scheduleResolvedInstrumentNote(nData.note, vol, cellStartSec, { hand: 'single' });
           }
         });
-      };
+      } else if (stepCount > 1) {
+        const intervalMs = totalDurationMs / (stepCount - 1);
+        events.forEach((chord, stepIdx) => {
+          const playTimeMs = stepIdx * intervalMs;
+          chord.forEach(nData => {
+            const vol = getCellVolume(nData.r, nData.m, nData.c, nData.subIdx, layoutConfigRef.current.volume ?? 100);
+            if (vol > 0) {
+              scheduleResolvedInstrumentNote(nData.note, vol, cellStartSec + (playTimeMs / 1000), { hand: 'single' });
+            }
+          });
+        });
+      }
+    };
 
-      setPlaybackCursor([r, m, c]);
-      let cellsToCheck = [[r, m, c]];
+    const scheduleCell = (r, m, c, cellStartSec) => {
+      if (currentRowTypes[r] === 'page-break' || currentRowTypes[r] === 'text') return 0;
+
+      const cellCountInMeasure = currentSheetData[r][m].length;
+      const standardMsPerCell = 15000 / (layoutConfigRef.current.bpm || 80);
+      const msPerCell = Math.floor(standardMsPerCell * (4 / cellCountInMeasure));
+
+      scheduleUiChange(() => schedulePlaybackCursorUpdate([r, m, c]), cellStartSec);
+
+      const cellsToCheck = [[r, m, c]];
       if (currentRowTypes[r] === 'double-right') cellsToCheck.push([r + 1, m, c]);
       else if (currentRowTypes[r] === 'double-left') cellsToCheck.push([r - 1, m, c]);
 
-      let processedSymbols = new Set();
-      const currentSymbols = symbolsRef.current; 
+      const processedSymbols = new Set();
+      const currentSymbols = symbolsRef.current;
 
       cellsToCheck.forEach(cell => {
-          const [cr, cm, cc] = cell;
-          const startingSymbols = currentSymbols.filter(s => {
-              let sStart = [...s.start]; let sEnd = [...s.end];
-              if (currentRowTypes[sStart[0]] === 'double-left') sStart[0] -= 1;
-              if (currentRowTypes[sEnd[0]] === 'double-left') sEnd[0] -= 1;
-              const startIdx = sStart[0] * 1000 + sStart[1] * 10 + sStart[2];
-              const endIdx = sEnd[0] * 1000 + sEnd[1] * 10 + sEnd[2];
-              let normalizedCr = cr;
-              if (currentRowTypes[cr] === 'double-left') normalizedCr -= 1;
-              const currentIdx = normalizedCr * 1000 + cm * 10 + cc;
-              return currentIdx === Math.min(startIdx, endIdx);
-          });
+        const [cr, cm, cc] = cell;
+        const startingSymbols = currentSymbols.filter(s => {
+          let sStart = [...s.start];
+          let sEnd = [...s.end];
+          if (currentRowTypes[sStart[0]] === 'double-left') sStart[0] -= 1;
+          if (currentRowTypes[sEnd[0]] === 'double-left') sEnd[0] -= 1;
+          const startIdx = sStart[0] * 1000 + sStart[1] * 10 + sStart[2];
+          const endIdx = sEnd[0] * 1000 + sEnd[1] * 10 + sEnd[2];
+          let normalizedCr = cr;
+          if (currentRowTypes[cr] === 'double-left') normalizedCr -= 1;
+          const currentIdx = normalizedCr * 1000 + cm * 10 + cc;
+          return currentIdx === Math.min(startIdx, endIdx);
+        });
 
-          startingSymbols.forEach(sym => {
-              if (processedSymbols.has(sym.id)) return;
-              processedSymbols.add(sym.id);
-              let startPos = [...sym.start]; let endPos = [...sym.end];
-              if (currentRowTypes[startPos[0]] === 'double-left') startPos[0] -= 1;
-              if (currentRowTypes[endPos[0]] === 'double-left') endPos[0] -= 1;
-              const startAbs = startPos[0] * 1000 + startPos[1] * 10 + startPos[2];
-              const endAbs = endPos[0] * 1000 + endPos[1] * 10 + endPos[2];
-              if (startAbs > endAbs) { let temp = startPos; startPos = endPos; endPos = temp; }
-              let currR = startPos[0], currM = startPos[1], currC = startPos[2];
-              const endR = endPos[0], endM = endPos[1], endC = endPos[2];
-              
-              let events = [], cellIds = [], dist = 0, failSafe = 0;
+        startingSymbols.forEach(sym => {
+          if (processedSymbols.has(sym.id)) return;
+          processedSymbols.add(sym.id);
 
-              while (failSafe < 500) {
-                  const stepRowType = currentRowTypes[currR];
-                  let colNotesData = [];
-                  if (stepRowType && stepRowType.startsWith('double')) {
-                      const stepTop = stepRowType === 'double-left' ? currR - 1 : currR;
-                      const stepBot = stepTop + 1;
-                      const noteTop = currentSheetData[stepTop]?.[currM]?.[currC];
-                      const noteBot = currentSheetData[stepBot]?.[currM]?.[currC];
-                      
-                      let topParts = splitThaiNoteToken(noteTop || '-');
-                      let botParts = splitThaiNoteToken(noteBot || '-');
-                      const maxParts = Math.max(topParts.length, botParts.length);
+          let startPos = [...sym.start];
+          let endPos = [...sym.end];
+          if (currentRowTypes[startPos[0]] === 'double-left') startPos[0] -= 1;
+          if (currentRowTypes[endPos[0]] === 'double-left') endPos[0] -= 1;
+          const startAbs = startPos[0] * 1000 + startPos[1] * 10 + startPos[2];
+          const endAbs = endPos[0] * 1000 + endPos[1] * 10 + endPos[2];
+          if (startAbs > endAbs) {
+            const temp = startPos;
+            startPos = endPos;
+            endPos = temp;
+          }
 
-                      for (let s = 0; s < maxParts; s++) {
-                          let currentChord = [];
-                          if (topParts[s] && topParts[s] !== '-') currentChord.push({ note: topParts[s], r: stepTop, m: currM, c: currC, subIdx: s });
-                          if (botParts[s] && botParts[s] !== '-') currentChord.push({ note: botParts[s], r: stepBot, m: currM, c: currC, subIdx: s });
-                          if (currentChord.length > 0) colNotesData.push(currentChord);
-                      }
-                      cellIds.push(getCellId(stepTop, currM, currC));
-                      cellIds.push(getCellId(stepBot, currM, currC));
-                  } else {
-                      const note = currentSheetData[currR]?.[currM]?.[currC];
-                      const parts = splitThaiNoteToken(note || '-');
-                      parts.forEach((p, s) => {
-                          if (p && p !== '-') colNotesData.push([{ note: p, r: currR, m: currM, c: currC, subIdx: s }]);
-                      });
-                      cellIds.push(getCellId(currR, currM, currC));
-                  }
-                  
-                  if (colNotesData.length > 0) events.push(...colNotesData);
-                  
-                  if (currR === endR && currM === endM && currC === endC) break;
-                  dist++; currC++;
-                  const currentMeasureLength = currentSheetData[currR]?.[currM]?.length ?? 0;
-                  if (currC >= currentMeasureLength) {
-                      currC = 0; currM++;
-                      if (currM >= (currentSheetData[currR]?.length ?? 0)) {
-                          let tempR = currR + 1;
-                          while (tempR < currentSheetData.length && (currentRowTypes[tempR] === 'page-break' || currentRowTypes[tempR] === 'text' || currentRowTypes[tempR] === 'double-left')) tempR++;
-                          if (tempR >= currentSheetData.length) break;
-                          currR = tempR; currM = currentRowTypes[currR]?.startsWith('double') ? 1 : 0;
-                      }
-                  }
-                  failSafe++;
+          let currR = startPos[0];
+          let currM = startPos[1];
+          let currC = startPos[2];
+          const endR = endPos[0];
+          const endM = endPos[1];
+          const endC = endPos[2];
+
+          let events = [];
+          let cellIds = [];
+          let dist = 0;
+          let failSafe = 0;
+
+          while (failSafe < 500) {
+            const stepRowType = currentRowTypes[currR];
+            let colNotesData = [];
+            if (stepRowType && stepRowType.startsWith('double')) {
+              const stepTop = stepRowType === 'double-left' ? currR - 1 : currR;
+              const stepBot = stepTop + 1;
+              const noteTop = currentSheetData[stepTop]?.[currM]?.[currC];
+              const noteBot = currentSheetData[stepBot]?.[currM]?.[currC];
+
+              const topParts = splitThaiNoteToken(noteTop || '-');
+              const botParts = splitThaiNoteToken(noteBot || '-');
+              const maxParts = Math.max(topParts.length, botParts.length);
+
+              for (let s = 0; s < maxParts; s++) {
+                const currentChord = [];
+                if (topParts[s] && topParts[s] !== '-') currentChord.push({ note: topParts[s], r: stepTop, m: currM, c: currC, subIdx: s });
+                if (botParts[s] && botParts[s] !== '-') currentChord.push({ note: botParts[s], r: stepBot, m: currM, c: currC, subIdx: s });
+                if (currentChord.length > 0) colNotesData.push(currentChord);
               }
-              
-              cellIds.forEach(id => mutedCellsRef.current.add(id));
-              const timeUntilEnd = dist * msPerCell; 
+              cellIds.push(getCellId(stepTop, currM, currC));
+              cellIds.push(getCellId(stepBot, currM, currC));
+            } else {
+              const note = currentSheetData[currR]?.[currM]?.[currC];
+              const parts = splitThaiNoteToken(note || '-');
+              parts.forEach((p, s) => {
+                if (p && p !== '-') colNotesData.push([{ note: p, r: currR, m: currM, c: currC, subIdx: s }]);
+              });
+              cellIds.push(getCellId(currR, currM, currC));
+            }
 
-              if (sym.type === 'kro') {
-                  if (window.kroInterval) clearInterval(window.kroInterval);
-                  
-                  let noteRightStr = null;
-                  let noteLeftStr = null;
-                  let firstColNotes = events[0] || [];
-                  
-                  if (firstColNotes.length >= 2) {
-                      noteRightStr = firstColNotes[0].note && firstColNotes[0].note !== '-' ? firstColNotes[0].note : null;
-                      noteLeftStr = firstColNotes[1].note && firstColNotes[1].note !== '-' ? firstColNotes[1].note : null;
-                      if (!noteRightStr && noteLeftStr) noteRightStr = noteLeftStr;
-                      if (!noteLeftStr && noteRightStr) noteLeftStr = noteRightStr;
-                  } else if (firstColNotes.length === 1) {
-                      const noteA = firstColNotes[0].note && firstColNotes[0].note !== '-' ? firstColNotes[0].note : null;
-                      if (noteA) {
-                          const actualA = isReduceModeRef.current ? shiftNoteString(noteA, -1) : noteA;
-                          const inst = currentInstrumentRef.current;
-                          const intervalVal = intervalModeRef.current !== 'off' ? intervalModeRef.current : '8';
-                          const { left, right } = getIntervalPair(inst, actualA, intervalVal);
-                          noteLeftStr = isReduceModeRef.current ? shiftNoteString(left, 1) : left;
-                          noteRightStr = isReduceModeRef.current ? shiftNoteString(right, 1) : right;
-                      }
-                  }
+            if (colNotesData.length > 0) events.push(...colNotesData);
 
-                  if (noteRightStr && noteLeftStr) {
-                      const kroSpeed = sym.speed ?? layoutConfigRef.current.kroSpeed ?? 65;
-                      const startHand = sym.starthand ?? layoutConfigRef.current.kroStartHand ?? 'right';
-                     
-                      let isFirstBeat = true;
-                      window.kroInterval = setInterval(() => {
-                          const currentHand = isFirstBeat 
-                              ? (startHand === 'left' ? 'left' : 'right') 
-                              : (startHand === 'left' ? 'right' : 'left');
-                          const noteToPlay = currentHand === 'right' ? noteRightStr : noteLeftStr;
-                              
-                          playResolvedInstrumentNote(noteToPlay, layoutConfigRef.current.volume ?? 100, { bypassOctaveLayer: true, hand: currentHand });
-                          isFirstBeat = !isFirstBeat;
-                      }, kroSpeed);
-                      
-                      effectTimersRef.current.push(setTimeout(() => { clearInterval(window.kroInterval); window.kroInterval = null; }, timeUntilEnd));
-                  }
-              } else {
-                  // ⭐ 4. ลูกสะบัดตีรัวแบบใหม่ ยิงความดังรายตัวได้เป๊ะ
-                  const totalDurationMs = dist > 0 ? (dist * msPerCell) : (msPerCell * 0.8);
-                  const stepCount = events.length;
-
-                  if (stepCount === 1) {
-                      events[0].forEach(nData => {
-                          let vol = getCellVolume(nData.r, nData.m, nData.c, nData.subIdx, layoutConfigRef.current.volume ?? 100);
-                          if (vol > 0) playResolvedInstrumentNote(nData.note, vol, { hand: 'single' });
-                      });
-                  } else if (stepCount > 1) {
-                      const intervalMs = totalDurationMs / (stepCount - 1);
-                      events.forEach((chord, stepIdx) => {
-                          const playTime = stepIdx * intervalMs;
-                          chord.forEach(nData => {
-                              let vol = getCellVolume(nData.r, nData.m, nData.c, nData.subIdx, layoutConfigRef.current.volume ?? 100);
-                              if (vol > 0) {
-                                  const playEvent = () => playResolvedInstrumentNote(nData.note, vol, { hand: 'single' });
-                                  if (playTime <= 0) playEvent();
-                                  else effectTimersRef.current.push(setTimeout(playEvent, playTime));
-                              }
-                          });
-                      });
-                  }
+            if (currR === endR && currM === endM && currC === endC) break;
+            dist += 1;
+            currC += 1;
+            const currentMeasureLength = currentSheetData[currR]?.[currM]?.length ?? 0;
+            if (currC >= currentMeasureLength) {
+              currC = 0;
+              currM += 1;
+              if (currM >= (currentSheetData[currR]?.length ?? 0)) {
+                let tempR = currR + 1;
+                while (tempR < currentSheetData.length && (currentRowTypes[tempR] === 'page-break' || currentRowTypes[tempR] === 'text' || currentRowTypes[tempR] === 'double-left')) tempR++;
+                if (tempR >= currentSheetData.length) break;
+                currR = tempR;
+                currM = currentRowTypes[currR]?.startsWith('double') ? 1 : 0;
               }
-          });
+            }
+            failSafe += 1;
+          }
+
+          cellIds.forEach(id => mutedCellsRef.current.add(id));
+          const timeUntilEnd = dist * msPerCell;
+          if (events.length > 0) {
+            scheduleSymbolPlayback(sym, events, timeUntilEnd, cellStartSec);
+          }
+        });
       });
 
-      // ⭐ 5. เล่นโน้ตปกติ พร้อมแนบพิกัด (r, m, c) ไปด้วย
       if (currentRowTypes[r] === 'double-right') {
         const rightToken = currentSheetData[r][m][c];
         const leftToken = currentSheetData[r + 1] ? currentSheetData[r + 1][m][c] : '-';
         const rightCellId = getCellId(r, m, c);
         const leftCellId = getCellId(r + 1, m, c);
-        
+
         if (!mutedCellsRef.current.has(rightCellId)) {
-           scheduleTokenPlayback(rightToken, layoutConfigRef.current.volume ?? 100, msPerCell, 0, { hand: 'right', bypassOctaveLayer: true }, r, m, c);
+          scheduleTokenPlayback(rightToken, layoutConfigRef.current.volume ?? 100, msPerCell, 0, { hand: 'right', bypassOctaveLayer: true }, r, m, c, cellStartSec);
         }
         if (!mutedCellsRef.current.has(leftCellId)) {
-           scheduleTokenPlayback(leftToken, layoutConfigRef.current.volume ?? 100, msPerCell, 0, { hand: 'left', bypassOctaveLayer: true }, r + 1, m, c);
+          scheduleTokenPlayback(leftToken, layoutConfigRef.current.volume ?? 100, msPerCell, 0, { hand: 'left', bypassOctaveLayer: true }, r + 1, m, c, cellStartSec);
         }
-      } else {
-        if (!mutedCellsRef.current.has(getCellId(r, m, c))) {
-           scheduleTokenPlayback(currentSheetData[r][m][c], layoutConfigRef.current.volume ?? 100, msPerCell, 0, { hand: 'single' }, r, m, c);
-        }
+      } else if (!mutedCellsRef.current.has(getCellId(r, m, c))) {
+        scheduleTokenPlayback(currentSheetData[r][m][c], layoutConfigRef.current.volume ?? 100, msPerCell, 0, { hand: 'single' }, r, m, c, cellStartSec);
       }
 
+      return msPerCell;
+    };
+
+    const advanceCursor = (r, m, c, scheduledAtSec) => {
       let nextC = c + 1;
       let nextM = m;
-      let nextR = r; 
+      let nextR = r;
 
       if (nextC >= currentSheetData[r][m].length) {
-        nextC = 0; nextM++;
+        nextC = 0;
+        nextM += 1;
+
         if (nextM >= currentSheetData[r].length) {
-          nextM = 0; 
+          nextM = 0;
           const seq = playbackSequenceRef.current;
           const currSeqIdx = activeSequenceIdxRef.current;
           const map = sheetMapRef.current;
-          let isEndOfSection = false, currentItem = null, currentMappedSection = null;
+          let isEndOfSection = false;
+          let currentItem = null;
+          let currentMappedSectionForAdvance = null;
 
           if (seq && seq.length > 0 && currSeqIdx < seq.length) {
-              currentItem = seq[currSeqIdx];
-              currentMappedSection = map.find(s => s.label === currentItem.label.trim());
-              const rowCoverage = currentRowTypes[r] === 'double-right' ? r + 1 : r;
-              if (currentMappedSection && rowCoverage >= currentMappedSection.endRow) isEndOfSection = true;
+            currentItem = seq[currSeqIdx];
+            currentMappedSectionForAdvance = map.find(s => s.label === currentItem.label.trim());
+            const rowCoverage = currentRowTypes[r] === 'double-right' ? r + 1 : r;
+            if (currentMappedSectionForAdvance && rowCoverage >= currentMappedSectionForAdvance.endRow) isEndOfSection = true;
           }
 
-          if (isEndOfSection && currentItem && currentMappedSection) {
-              if (isLoopOneRef.current) {
-                  nextR = currentMappedSection.startRow;
-                  nextM = currentRowTypes[nextR] && currentRowTypes[nextR].startsWith('double') ? 1 : 0;
-                  nextC = 0;
-                  let sectionMs = 0;
-                  for (let sr = currentMappedSection.startRow; sr <= currentMappedSection.endRow; sr++) {
-                      if (currentRowTypes[sr] === 'page-break' || currentRowTypes[sr] === 'text' || currentRowTypes[sr] === 'double-left') continue;
-                      for (let sm = 0; sm < currentSheetData[sr].length; sm++) {
-                          if (currentRowTypes[sr].startsWith('double') && sm === 0) continue;
-                          const cellCount = currentSheetData[sr][sm].length;
-                          if (cellCount > 0) sectionMs += (15000 / currentBpm) * 4;
-                      }
-                  }
-                  playbackStartTimeRef.current += sectionMs;
-              } 
-              else if (activeLoopRef.current < currentItem.loops) {
-                  activeLoopRef.current += 1;
-                  setActiveLoop(activeLoopRef.current);
-                  nextR = currentMappedSection.startRow;
-                  nextM = currentRowTypes[nextR] && currentRowTypes[nextR].startsWith('double') ? 1 : 0;
-                  nextC = 0;
-              } else {
-                  const nextSeqIdx = currSeqIdx + 1;
-                  if (nextSeqIdx < seq.length) {
-                      activeSequenceIdxRef.current = nextSeqIdx;
-                      setActiveSequenceIdx(nextSeqIdx);
-                      activeLoopRef.current = 1;
-                      setActiveLoop(1);
-                      const nextMappedSection = map.find(s => s.label === seq[nextSeqIdx].label.trim());
-                      if (nextMappedSection) {
-                          nextR = nextMappedSection.startRow;
-                          nextM = currentRowTypes[nextR] && currentRowTypes[nextR].startsWith('double') ? 1 : 0;
-                          nextC = 0;
-                      } else { stopPlayback(); return; }
-                  } else if (isLoopAllRef.current && seq.length > 0) {
-                      activeSequenceIdxRef.current = 0;
-                      setActiveSequenceIdx(0);
-                      activeLoopRef.current = 1;
-                      setActiveLoop(1);
-                      const firstMappedSection = map.find(s => s.label === seq[0].label.trim());
-                      if (firstMappedSection) {
-                          nextR = firstMappedSection.startRow;
-                          nextM = currentRowTypes[nextR] && currentRowTypes[nextR].startsWith('double') ? 1 : 0;
-                          nextC = 0;
-                          seekOffsetRef.current = 0;
-                          playbackStartTimeRef.current = performance.now();
-                      } else { stopPlayback(); return; }
-                  } else { 
-                      stopPlayback(); return; 
-                  }
-              }
-          } else {
-              nextR = currentRowTypes[r] === 'double-right' ? r + 2 : r + 1;
-              if (nextR >= currentSheetData.length) { playbackTimerRef.current = setTimeout(() => stopPlayback(), 500); return; }
+          if (isEndOfSection && currentItem && currentMappedSectionForAdvance) {
+            if (isLoopOneRef.current) {
+              nextR = currentMappedSectionForAdvance.startRow;
               nextM = currentRowTypes[nextR] && currentRowTypes[nextR].startsWith('double') ? 1 : 0;
+              nextC = 0;
+
+              let sectionMs = 0;
+              for (let sr = currentMappedSectionForAdvance.startRow; sr <= currentMappedSectionForAdvance.endRow; sr++) {
+                if (currentRowTypes[sr] === 'page-break' || currentRowTypes[sr] === 'text' || currentRowTypes[sr] === 'double-left') continue;
+                for (let sm = 0; sm < currentSheetData[sr].length; sm++) {
+                  if (currentRowTypes[sr].startsWith('double') && sm === 0) continue;
+                  const cellCount = currentSheetData[sr][sm].length;
+                  if (cellCount > 0) sectionMs += (15000 / currentBpm) * 4;
+                }
+              }
+              playbackStartTimeRef.current += sectionMs;
+            } else if (activeLoopRef.current < currentItem.loops) {
+              const nextLoop = activeLoopRef.current + 1;
+              scheduleUiChange(() => {
+                activeLoopRef.current = nextLoop;
+                setActiveLoop(nextLoop);
+              }, scheduledAtSec);
+              nextR = currentMappedSectionForAdvance.startRow;
+              nextM = currentRowTypes[nextR] && currentRowTypes[nextR].startsWith('double') ? 1 : 0;
+              nextC = 0;
+            } else {
+              const nextSeqIdx = currSeqIdx + 1;
+              if (nextSeqIdx < seq.length) {
+                scheduleUiChange(() => {
+                  activeSequenceIdxRef.current = nextSeqIdx;
+                  setActiveSequenceIdx(nextSeqIdx);
+                  activeLoopRef.current = 1;
+                  setActiveLoop(1);
+                }, scheduledAtSec);
+                const nextMappedSection = map.find(s => s.label === seq[nextSeqIdx].label.trim());
+                if (nextMappedSection) {
+                  nextR = nextMappedSection.startRow;
+                  nextM = currentRowTypes[nextR] && currentRowTypes[nextR].startsWith('double') ? 1 : 0;
+                  nextC = 0;
+                } else {
+                  return null;
+                }
+              } else if (isLoopAllRef.current && seq.length > 0) {
+                scheduleUiChange(() => {
+                  activeSequenceIdxRef.current = 0;
+                  setActiveSequenceIdx(0);
+                  activeLoopRef.current = 1;
+                  setActiveLoop(1);
+                }, scheduledAtSec);
+                const firstMappedSection = map.find(s => s.label === seq[0].label.trim());
+                if (firstMappedSection) {
+                  nextR = firstMappedSection.startRow;
+                  nextM = currentRowTypes[nextR] && currentRowTypes[nextR].startsWith('double') ? 1 : 0;
+                  nextC = 0;
+                  seekOffsetRef.current = 0;
+                  playbackStartTimeRef.current = performance.now();
+                } else {
+                  return null;
+                }
+              } else {
+                return null;
+              }
+            }
+          } else {
+            nextR = currentRowTypes[r] === 'double-right' ? r + 2 : r + 1;
+            if (nextR >= currentSheetData.length) return null;
+            nextM = currentRowTypes[nextR] && currentRowTypes[nextR].startsWith('double') ? 1 : 0;
           }
         }
       }
 
-      expectedNextTick += msPerCell;
-      let delay = expectedNextTick - performance.now();
-      playbackTimerRef.current = setTimeout(() => playNextStep(nextR, nextM, nextC), delay < 0 ? 0 : delay);
+      return { r: nextR, m: nextM, c: nextC };
     };
 
-    expectedNextTick = performance.now();
-    playNextStep(currentCursor[0], currentCursor[1], currentCursor[2]);
+    const audioStartSec = (getAudioCurrentTime ? getAudioCurrentTime() : 0) + 0.08;
+    schedulerStateRef.current = { r: currentCursor[0], m: currentCursor[1], c: currentCursor[2] };
+    nextNoteTimeRef.current = audioStartSec;
+
+    runAudioSchedulerRef.current = () => {
+      if (!isPlayingRef.current) return;
+
+      const scheduleAheadSec = isPageHiddenRef.current ? 8 : 1.5;
+      const schedulingHorizon = (getAudioCurrentTime ? getAudioCurrentTime() : 0) + scheduleAheadSec;
+
+      while (schedulerStateRef.current && nextNoteTimeRef.current < schedulingHorizon) {
+        const { r, m, c } = schedulerStateRef.current;
+        const msPerCell = scheduleCell(r, m, c, nextNoteTimeRef.current);
+        const scheduledAtSec = nextNoteTimeRef.current + ((msPerCell || 0) / 1000);
+        const nextState = advanceCursor(r, m, c, scheduledAtSec);
+        nextNoteTimeRef.current = scheduledAtSec;
+        schedulerStateRef.current = nextState;
+
+        if (!nextState) {
+          const stopDelayMs = Math.max(0, Math.round((nextNoteTimeRef.current - (getAudioCurrentTime ? getAudioCurrentTime() : 0)) * 1000) + 120);
+          if (playbackTimerRef.current) clearTimeout(playbackTimerRef.current);
+          playbackTimerRef.current = setTimeout(() => stopPlayback({ clearScheduled: false }), stopDelayMs);
+          break;
+        }
+      }
+    };
+
+    schedulerIntervalRef.current = setInterval(() => {
+      if (runAudioSchedulerRef.current) runAudioSchedulerRef.current();
+    }, 100);
+
+    runAudioSchedulerRef.current();
   };
 
-  const stopPlayback = () => {
+  const stopPlayback = (options = {}) => {
+    const { preserveSeek = false, clearScheduled = true } = options;
+
     setIsPlaying(false);
     isPlayingRef.current = false;
+    pendingPlaybackCursorRef.current = null;
+
+    if (playbackCursorRafRef.current) {
+      cancelAnimationFrame(playbackCursorRafRef.current);
+      playbackCursorRafRef.current = null;
+    }
+
+    playbackCursorRef.current = null;
     setPlaybackCursor(null);
-    if (playbackTimerRef.current) clearTimeout(playbackTimerRef.current);
+
+    if (playbackTimerRef.current) {
+      clearTimeout(playbackTimerRef.current);
+      playbackTimerRef.current = null;
+    }
+
+    if (schedulerIntervalRef.current) {
+      clearInterval(schedulerIntervalRef.current);
+      schedulerIntervalRef.current = null;
+    }
+
+    runAudioSchedulerRef.current = null;
+    schedulerStateRef.current = null;
+    nextNoteTimeRef.current = 0;
+
     effectTimersRef.current.forEach(t => clearTimeout(t));
     effectTimersRef.current = [];
     mutedCellsRef.current.clear();
-    if (window.kroInterval) { clearInterval(window.kroInterval); window.kroInterval = null; }
-    
-    if (uiTimerRef.current) {
-        clearInterval(uiTimerRef.current);
-        uiTimerRef.current = null;
+
+    if (window.kroInterval) {
+      clearInterval(window.kroInterval);
+      window.kroInterval = null;
     }
-    seekOffsetRef.current = 0;
-    setCurrentTime(0);
+
+    if (uiTimerRef.current) {
+      clearInterval(uiTimerRef.current);
+      uiTimerRef.current = null;
+    }
+
+    if (clearScheduled) {
+      stopAllScheduledNotes?.();
+    }
+
+    if (!preserveSeek) {
+      seekOffsetRef.current = 0;
+      setCurrentTime(0);
+    }
   };
 
   const startSelection = (r, m, c) => { setIsDragging(true); setDragStart([r, m, c]); setSelectionRange({ start: [r, m, c], end: [r, m, c] }); setSelectedCell([r, m, c]); };
@@ -1581,6 +1738,14 @@ export const MusicProvider = ({ children }) => {
         if (data.headerDetails) setHeaderDetails(data.headerDetails);
         if (data.currentInstrument && INSTRUMENT_CONFIG[data.currentInstrument]) setCurrentInstrument(INSTRUMENT_CONFIG[data.currentInstrument]);
 
+        // ⭐ 1. อัปเดตลำดับการเล่นให้อัตโนมัติทันทีที่โหลดโปรเจกต์
+        if (data.playbackSequence) {
+          setPlaybackSequence(data.playbackSequence);
+        } else {
+          setPlaybackSequence([]); // ถ้าโปรเจกต์เก่าไม่มี ให้เคลียร์เป็นค่าว่าง
+        }
+
+        if (data.isLoopAll !== undefined) setIsLoopAll(data.isLoopAll);
         if (data.playbackSequence) setPlaybackSequence(data.playbackSequence);
         if (data.isLoopAll !== undefined) setIsLoopAll(data.isLoopAll);
         if (data.isLoopOne !== undefined) setIsLoopOne(data.isLoopOne);
@@ -1638,6 +1803,10 @@ export const MusicProvider = ({ children }) => {
     setProjectName("โปรเจกต์ไม่มีชื่อ"); 
     setProjectId(null); 
     setSheetData(initSheet); setRowTypes(initType); setRowMargins(initMar); setSectionLabels({}); setSymbols([]);
+    
+    // ⭐ 3. สั่งเคลียร์ลำดับการเล่นให้เป็นค่าว่าง เมื่อสร้างโปรเจกต์ใหม่
+    setPlaybackSequence([]); 
+
     setHeaderDetails([{ id: 1, label: "อัตราจังหวะ", value: "๒ ชั้น" }, { id: 2, label: "หน้าทับ", value: "สองไม้" }, { id: 3, label: "บันไดเสียง", value: "ทางเพียงออ" }, { id: 4, label: "ผู้บันทึก", value: "9atony" }]);
     setSelectedCell([0, 0, 0]); setSelectionRange(null); setHistoryIndex(-1); setHistory([]); localStorage.removeItem('thaiMusicEditorAutoSave');
     commitChange(initSheet, initType, {}, [], initMar);
@@ -1720,9 +1889,9 @@ export const MusicProvider = ({ children }) => {
       activeLoopRef.current = foundCell.loop;
     }
     if (wasPlaying) {
-      stopPlayback();
+      stopPlayback({ preserveSeek: true });
       seekOffsetRef.current = foundCell ? foundCell.elapsedMs / 1000 : targetSeconds;
-      setTimeout(() => startPlayback(), 100);
+      setTimeout(() => startPlayback(), 50);
     } else {
       setCurrentTime(targetSeconds);
     }
@@ -1960,6 +2129,15 @@ export const MusicProvider = ({ children }) => {
       if (projectData.headerDetails) setHeaderDetails(projectData.headerDetails);
       
       if (projectData.currentInstrument && INSTRUMENT_CONFIG[projectData.currentInstrument]) setCurrentInstrument(INSTRUMENT_CONFIG[projectData.currentInstrument]);
+      
+      // ⭐ 2. อัปเดตลำดับการเล่นจากฐานข้อมูล Firebase ทันที
+      if (projectData.playbackSequence) {
+          setPlaybackSequence(projectData.playbackSequence);
+      } else {
+          setPlaybackSequence([]);
+      }
+
+      if (projectData.isLoopAll !== undefined) setIsLoopAll(projectData.isLoopAll);
       if (projectData.playbackSequence) setPlaybackSequence(projectData.playbackSequence);
       if (projectData.isLoopAll !== undefined) setIsLoopAll(projectData.isLoopAll);
       if (projectData.isLoopOne !== undefined) setIsLoopOne(projectData.isLoopOne);

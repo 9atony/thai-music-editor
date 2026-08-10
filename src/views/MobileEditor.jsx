@@ -2,6 +2,14 @@ import React, { useContext, useEffect, useRef, useState } from 'react';
 import { MusicContext } from '../contexts/MusicContext';
 import Sheet from '../components/editor/Sheet'; 
 
+// ⭐ ฟังก์ชันสำหรับล้างแท็ก HTML ให้เหลือแต่ข้อความล้วน
+const getPlainText = (html) => {
+  if (!html) return '';
+  const tmp = document.createElement('div');
+  tmp.innerHTML = html;
+  return tmp.textContent || tmp.innerText || '';
+};
+
 const MobileEditor = ({ onBack }) => {
   const { 
     projectName,
@@ -137,7 +145,8 @@ const MobileEditor = ({ onBack }) => {
         
         <div className="flex-1 text-center px-2 overflow-hidden flex flex-col justify-center">
           <span className="font-bold text-slate-800 text-sm truncate w-full">
-            {songName || projectName || "โปรเจกต์ไม่มีชื่อ"}
+            {/* ⭐ ใช้ getPlainText เพื่อกรองเอาเฉพาะตัวอักษร */}
+            {getPlainText(songName) || getPlainText(projectName) || "โปรเจกต์ไม่มีชื่อ"}
           </span>
           <div className="flex items-center justify-center gap-1.5 mt-0.5">
             <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md font-semibold tracking-wide border border-slate-200">
@@ -304,7 +313,8 @@ const MobileEditor = ({ onBack }) => {
                           <span className={`w-8 h-8 flex items-center justify-center rounded-xl text-xs font-black shadow-sm ${isActive ? 'bg-sky-500 text-white shadow-sky-500/20' : 'bg-slate-100 text-slate-400 border border-slate-200'}`}>
                             {index + 1}
                           </span>
-                          <span className={`font-bold text-sm ${isActive ? 'text-sky-700' : 'text-slate-700'}`}>{seq.label}</span>
+                          {/* ⭐ ใช้ getPlainText เพื่อซ่อนโค้ด HTML และแสดงผลเฉพาะข้อความชื่อท่อน */}
+                          <span className={`font-bold text-sm ${isActive ? 'text-sky-700' : 'text-slate-700'}`}>{getPlainText(seq.label)}</span>
                         </div>
                         
                         <div className="flex items-center bg-slate-50 rounded-lg border border-slate-200 shadow-sm overflow-hidden h-9">
