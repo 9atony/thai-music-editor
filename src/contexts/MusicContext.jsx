@@ -2233,7 +2233,7 @@ export const MusicProvider = ({ children }) => {
       
       isLoopAll, setIsLoopAll,
       isLoopOne, setIsLoopOne,
-      skipToNext, skipToPrev,
+      skipToNext, skipToPrev, jumpToSequence,
       availableSections, 
       applyTemplate,
       isReadOnly,

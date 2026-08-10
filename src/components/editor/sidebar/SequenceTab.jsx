@@ -15,7 +15,8 @@ const SequenceTab = () => {
     activeSequenceIdx, activeLoop,
     isPlaying, sectionLabels,
     setSelectedCell, rowTypes,
-    availableSections // ⭐ ดึงรายการท่อนทั้งหมดบนกระดาษมาใช้ทำ Dropdown
+    availableSections,
+    jumpToSequence, startPlayback
   } = useContext(MusicContext);
   
   const [draggedSeqIdx, setDraggedSeqIdx] = useState(null);
@@ -103,6 +104,17 @@ const SequenceTab = () => {
     }
   };
 
+  // ⭐ ฟังก์ชันสำหรับสั่งเล่นเพลงจากท่อนที่คลิก
+  const handlePlayFromSequence = (idx) => {
+    if (jumpToSequence) jumpToSequence(idx);
+    if (!isPlaying && startPlayback) {
+      // หน่วงเวลาเล็กน้อยให้ระบบตั้งค่าเวลาเสร็จก่อนเริ่มเล่น
+      setTimeout(() => {
+        startPlayback();
+      }, 50);
+    }
+  };
+
   return (
     <div className="flex flex-col h-full bg-slate-50/50 animate-fadeIn">
       <div className="p-3 bg-sky-50 border-b border-sky-100 flex justify-between items-center shrink-0">
@@ -133,6 +145,15 @@ const SequenceTab = () => {
             >
               <div className="flex items-center gap-1 flex-1 overflow-hidden">
                 <span className="text-[10px] text-slate-300 cursor-grab hover:text-slate-500 mr-1" title="ลากเพื่อสลับลำดับ">⠿</span>
+                
+                {/* ⭐ 1. ปุ่มเริ่มเล่นจากท่อนนี้ */}
+                <button 
+                  onClick={() => handlePlayFromSequence(idx)}
+                  className={`p-1 rounded transition-colors active:scale-95 shrink-0 ${isCurrentlyPlaying ? 'text-emerald-600 bg-emerald-100' : 'text-slate-400 hover:text-emerald-600 hover:bg-emerald-50'}`}
+                  title="เริ่มเล่นจากท่อนนี้"
+                >
+                  <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
+                </button>
                 
                 <button 
                   onClick={() => handleJumpToSection(item.label)}
