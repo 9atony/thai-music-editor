@@ -224,25 +224,17 @@ const Sheet = forwardRef((props, ref) => {
   }, [selectedSymbolId, setToolbarMode]);
 
 // ==========================================
-// ⭐ 1. ระบบล็อกหน้าจอ (ปิด Scrollbar 100% ห้ามผู้ใช้เลื่อนเอง)
+// ⭐ 1. ระบบล็อกหน้าจอ (ปลดล็อกให้เลื่อนสมูทได้ตลอด)
 // ==========================================
   useEffect(() => {
     const vContainer = document.querySelector('main');
     if (vContainer) {
-      if (isPlaying && isAutoScroll) {
-        // ซ่อน Scrollbar และล็อกการไถเมาส์อย่างเด็ดขาด (ผู้ใช้จะเลื่อนไม่ได้เลย)
-        vContainer.style.overflowY = 'hidden'; 
-      } else {
-        // คืนค่าให้ผู้ใช้เลื่อนหน้าจอได้อิสระ เมื่อปิดสวิตช์หรือหยุดเล่น
-        vContainer.style.overflowY = 'auto'; 
-      }
+      vContainer.style.overflowY = 'auto'; 
     }
-    // Cleanup คืนค่าเสมอเมื่อออกจากหน้าเว็บ
     return () => {
       if (vContainer) vContainer.style.overflowY = 'auto';
     };
   }, [isPlaying, isAutoScroll]);
-
 // ==========================================
 // ⭐ 2. ระบบติดตามเคอร์เซอร์ "ทีละบรรทัด" (Line-by-Line Tracking)
 // ==========================================
@@ -312,6 +304,70 @@ const Sheet = forwardRef((props, ref) => {
       }
     }
   }, [playbackCursor, isAutoScroll, isPlaying, zoom]);
+// ==========================================
+  // ⭐ 2.5 ระบบติดตามและเลื่อนหน้าจอตามเคอร์เซอร์แก้ไข (Edit Tracking)
+  // ==========================================
+  const lastEditRowRef = useRef(null);
+  const editPageRef = useRef(0);
+
+  useEffect(() => {
+    if (isPlaying) {
+      lastEditRowRef.current = null;
+      return; 
+    }
+
+    if (!selectedCell) return;
+    const [r, m, c] = selectedCell;
+    const targetEl = document.getElementById(`note-${r}-${m}-${c}`) || document.getElementById(`text-row-${r}`);
+    const hContainer = document.getElementById('sheet-scroll-container');
+    const page0 = document.getElementById('page-0');
+
+    if (targetEl && hContainer && page0) {
+      const pageEl = targetEl.closest('.print-page');
+
+      if (pageEl) {
+        const pageIndex = parseInt(pageEl.id.split('-')[1]);
+        const isPageChanged = editPageRef.current !== pageIndex;
+
+        // --- 1. เลื่อนแนวนอน (หน้ากระดาษ) ทันที ---
+        if (isPageChanged) {
+          const unzoomedDistance = pageEl.offsetLeft - page0.offsetLeft;
+          const targetLeft = unzoomedDistance * (zoom / 100);
+          hContainer.scrollTo({ left: targetLeft, behavior: 'smooth' });
+          editPageRef.current = pageIndex;
+        }
+
+        // --- 2. เลื่อนแนวตั้ง (จัดกึ่งกลางจอ) ทันที ---
+        const isRowChanged = lastEditRowRef.current !== r;
+
+        // บังคับเลื่อนเมื่อเปลี่ยนบรรทัด หรือ เปลี่ยนหน้ากระดาษ
+        if (isRowChanged || isPageChanged) {
+          
+          // หน่วงเวลา 50ms (แค่พริบตาเดียว) เพื่อให้ React เรนเดอร์ DOM เสร็จก่อนคำนวณระยะ
+          setTimeout(() => {
+            const el = document.getElementById(`note-${r}-${m}-${c}`) || document.getElementById(`text-row-${r}`);
+            if (!el) return;
+
+            const vContainer = document.querySelector('main') || window;
+            const rect = el.getBoundingClientRect();
+            
+            // ⭐ จุดที่ 3: ใช้สูตร scrollTo แบบ Absolute แม่นยำกว่าทุกเบราว์เซอร์
+            if (vContainer === window) {
+              const targetY = window.scrollY + rect.top - (window.innerHeight / 2) + (rect.height / 2);
+              window.scrollTo({ top: targetY, behavior: 'smooth' });
+            } else {
+              const parentRect = vContainer.getBoundingClientRect();
+              const topOffset = 60; // ปรับชดเชยความสูงของเมนูด้านบน
+              const targetY = vContainer.scrollTop + (rect.top - parentRect.top) - topOffset - (parentRect.height / 2) + (rect.height / 2);
+              vContainer.scrollTo({ top: targetY, behavior: 'smooth' });
+            }
+          }, 50);
+
+          lastEditRowRef.current = r;
+        }
+      }
+    }
+  }, [selectedCell, isPlaying, zoom]);
   // ==========================================
   // 4. Render Calculations (จัดหน้ากระดาษ)
   // ==========================================
@@ -938,7 +994,7 @@ return (
 
                   if (rType === 'page-break') {
                      return (
-                       <div key={rIndex} className="w-full flex flex-col items-center justify-center my-1">
+                       <div key={`pb-${rIndex}`} className="w-full flex flex-col items-center justify-center my-1">
                          <div
                            onMouseDown={(e) => {
                               e.stopPropagation(); 
@@ -958,7 +1014,7 @@ return (
                     let textValue = (row && row[0] && typeof row[0][0] === 'string') ? row[0][0] : '';
                     return (
                       <div 
-                        key={rIndex} 
+                        key={`text-${rIndex}`} 
                         className="w-full flex items-center my-1 relative group print:my-1"
                         style={{ 
                           marginTop: `${rMarginTop}px`, marginBottom: `${rMarginBot}px`, 
@@ -1033,8 +1089,10 @@ return (
                             }
                             
                             if (e.key === 'Backspace') {
-                              let isAtStart = false;
                               const sel = window.getSelection();
+                              if (sel && !sel.isCollapsed) return;
+                              
+                              let isAtStart = false;
                               if (sel.rangeCount > 0) {
                                  const range = sel.getRangeAt(0);
                                  const preCaretRange = range.cloneRange();
@@ -1052,11 +1110,13 @@ return (
                                   const isEmpty = e.target.textContent.trim() === '' && !htmlContent.includes('<img');
                                   
                                   if (isEmpty || htmlContent === '<br>') {
-                                      if (removeRow) removeRow();
+                                      // ⭐ 2.1 บังคับให้ส่ง rIndex ไปเจาะจง
+                                      if (removeRow) removeRow(rIndex);
                                   } else if (rIndex > 0 && rowTypes[rIndex - 1] === 'text') {
                                       const prevText = sheetData[rIndex - 1][0][0];
                                       sheetData[rIndex - 1][0][0] = prevText + htmlContent; 
-                                      if (removeRow) removeRow(); 
+                                      // ⭐ 2.2 บังคับให้ส่ง rIndex ไปเจาะจง
+                                      if (removeRow) removeRow(rIndex); 
                                       
                                       setTimeout(() => {
                                           setSelectedCell([rIndex - 1, 0, 0]);
@@ -1076,11 +1136,16 @@ return (
                               }
                             } else if (e.key === 'Delete') {
                               if (e.target.textContent.trim() === '' || e.target.innerHTML === '<br>') {
-                                 e.preventDefault(); if (removeRow) removeRow();
+                                 // ⭐ 2.3 บังคับให้ส่ง rIndex ไปเจาะจง
+                                 e.preventDefault(); if (removeRow) removeRow(rIndex);
                               }
                             }
                           }}
-                          dangerouslySetInnerHTML={{ __html: textValue }}
+                          ref={(el) => {
+                            if (el && document.activeElement !== el && el.innerHTML !== textValue) {
+                              el.innerHTML = textValue;
+                            }
+                          }}
                           className="w-full outline-none text-slate-800 cursor-text bg-transparent min-h-[24px]"
                           style={{ fontSize: `${layoutConfig.textFontSize || 16}px`, fontFamily: textFontFamily, lineHeight: layoutConfig.textLineHeight || 1.5 }}
                         />
@@ -1099,8 +1164,8 @@ return (
                   
                   return (
                     <div 
-                      key={rIndex} 
-                      className="flex flex-col w-full relative transition-colors" 
+                      key={`note-${rIndex}-${rType}`} 
+                      className="flex flex-col w-full relative transition-colors"
                       style={{ 
                         paddingBottom: `${pb}px`, marginTop: `${rMarginTop}px`, marginBottom: `${rMarginBot}px`,
                         paddingLeft: `calc(1rem + ${rIndent}px)`, paddingRight: '1rem',

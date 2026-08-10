@@ -1,7 +1,7 @@
 import React, { useContext, useState } from 'react';
 import { MusicContext } from '../../../contexts/MusicContext';
 
-// ⭐ ฟังก์ชันสำหรับล้างแท็ก HTML ให้เหลือแต่ข้อความล้วน
+// ⭐ ฟังก์ชันสำหรับล้างแท็ก HTML ให้เหลือแต่ข้อความล้วน (ใช้เฉพาะตอนโชว์หน้าจอ)
 const getPlainText = (html) => {
   if (!html) return '';
   const tmp = document.createElement('div');
@@ -13,7 +13,8 @@ const SequenceTab = () => {
   const { 
     playbackSequence, setPlaybackSequence,
     activeSequenceIdx, activeLoop,
-    isPlaying, sectionLabels 
+    isPlaying, sectionLabels,
+    setSelectedCell, rowTypes // ⭐ ดึง Context เพิ่มเติมสำหรับใช้ย้ายเคอร์เซอร์
   } = useContext(MusicContext);
   
   const [draggedSeqIdx, setDraggedSeqIdx] = useState(null);
@@ -36,35 +37,73 @@ const SequenceTab = () => {
     setPlaybackSequence(newSeq);
     setDraggedSeqIdx(null);
   };
+  
   const updateSeqItem = (index, key, value) => {
     const newSeq = [...playbackSequence];
     newSeq[index] = { ...newSeq[index], [key]: value };
     setPlaybackSequence(newSeq);
   };
+  
   const addSeqItem = () => {
     setPlaybackSequence([...playbackSequence, { id: Date.now(), label: 'ท่อนใหม่', loops: 1 }]);
   };
+  
   const removeSeqItem = (index) => {
     const newSeq = [...playbackSequence];
     newSeq.splice(index, 1);
     setPlaybackSequence(newSeq);
   };
+  
   const autoScanSections = () => {
     const newSeq = [];
     const sortedIndices = Object.keys(sectionLabels).map(Number).sort((a, b) => a - b);
     sortedIndices.forEach(vIdx => {
       sectionLabels[vIdx].forEach(lbl => {
-        // ⭐ ล้างแท็ก HTML ออกก่อนนำไปใช้งาน
-        const plainText = getPlainText(lbl.text).trim();
-        if (plainText && !plainText.includes('กลับต้น')) {
-          newSeq.push({ id: Date.now() + Math.random(), label: plainText, loops: 1 });
-        }
+          if (lbl.text) {
+           newSeq.push({ id: Date.now() + Math.random(), label: lbl.text, loops: 1 });
+          }
       });
     });
     if (newSeq.length > 0) {
       setPlaybackSequence(newSeq);
     } else {
       alert('ไม่พบป้ายกำกับบนกระดาษครับ กรุณาสร้างป้ายกำกับ (เช่น ท่อน 1) ก่อนกดสแกน');
+    }
+  };
+
+  // ⭐ ฟังก์ชันสำหรับค้นหาและกระโดดไปหาบรรทัดที่ต้องการ
+  const handleJumpToSection = (labelHtml) => {
+    let targetVisualIndex = -1;
+    
+    // 1. หาว่าป้ายกำกับนี้ อยู่ที่บรรทัดเชิงพื้นที่ (Visual Index) ที่เท่าไหร่
+    for (const [vIdx, labels] of Object.entries(sectionLabels)) {
+      if (labels.some(l => l.text === labelHtml)) {
+        targetVisualIndex = parseInt(vIdx, 10);
+        break;
+      }
+    }
+
+    if (targetVisualIndex !== -1) {
+      let currentVIdx = 0;
+      let targetRIdx = 0;
+      
+      // 2. แปลง Visual Index ให้กลายเป็นบรรทัดจริงบน Array (Row Index)
+      for (let i = 0; i < rowTypes.length; i++) {
+        if (rowTypes[i] === 'single' || rowTypes[i] === 'double-right') {
+          if (currentVIdx === targetVisualIndex) {
+            targetRIdx = i;
+            break;
+          }
+          currentVIdx++;
+        }
+      }
+      
+      // 3. ย้ายเคอร์เซอร์คลุมดำไปที่ช่องแรกของบรรทัดนั้น
+      // ⭐ จุดที่ 1: เช็กว่าเป็นบรรทัดคู่ไหม ถ้าใช่ให้เป้าหมายไปที่ช่อง 1 แทนช่อง 0 (เพราะช่อง 0 ไม่มีตัวโน้ต)
+      const targetM = rowTypes[targetRIdx].startsWith('double') ? 1 : 0;
+      setSelectedCell([targetRIdx, targetM, 0]);
+      // 4. สั่งเลื่อนหน้าจอ (Scroll) ให้บรรทัดนั้นเด้งมาอยู่กลางจอ
+  
     }
   };
 
@@ -96,11 +135,20 @@ const SequenceTab = () => {
                   : 'bg-white border-slate-200 text-slate-600 shadow-sm'
               }`}
             >
-              <div className="flex items-center gap-1.5 flex-1 overflow-hidden">
-                <span className="text-[10px] text-slate-300 cursor-grab hover:text-slate-500">⠿</span>
+              <div className="flex items-center gap-1 flex-1 overflow-hidden">
+                <span className="text-[10px] text-slate-300 cursor-grab hover:text-slate-500 mr-1" title="ลากเพื่อสลับลำดับ">⠿</span>
+                
+                {/* ⭐ ปุ่มกระโดดไปหาท่อน */}
+                <button 
+                  onClick={() => handleJumpToSection(item.label)}
+                  className="p-1 text-slate-400 hover:text-sky-600 hover:bg-sky-50 rounded transition-colors active:scale-95"
+                  title="คลิกเพื่อไปที่บรรทัดนี้"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 5l7 7-7 7M5 5l7 7-7 7" /></svg>
+                </button>
+
                 <input
                   type="text"
-                  // ⭐ ล้างแท็ก HTML ออกจากข้อความที่แสดงในกล่อง input
                   value={getPlainText(item.label)}
                   onChange={(e) => updateSeqItem(idx, 'label', e.target.value)}
                   className={`w-full bg-transparent outline-none font-bold text-xs truncate ${isCurrentlyPlaying ? 'text-sky-800' : 'text-slate-700'}`}

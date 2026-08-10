@@ -505,7 +505,7 @@ export const MusicProvider = ({ children }) => {
     const labels = new Set();
     Object.values(sectionLabels).forEach(arr => {
       arr.forEach(l => {
-        if (l.text && !l.text.includes('กลับต้น') && l.text.trim() !== '') labels.add(l.text.trim());
+       if (l.text && l.text.trim() !== '') labels.add(l.text.trim());
       });
     });
     return Array.from(labels);
@@ -552,7 +552,7 @@ export const MusicProvider = ({ children }) => {
         if (currentRowTypes[r] === 'page-break' || currentRowTypes[r] === 'text') continue;
         const vIdx = getVisualIndex(r, currentRowTypes);
         const labels = currentSectionLabels[vIdx] || [];
-        const validLabels = labels.filter(l => !l.text.includes('กลับต้น') && l.text.trim() !== '');
+        const validLabels = labels.filter(l => l.text && l.text.trim() !== '');
 
         if (validLabels.length > 0 && vIdx !== lastProcessedVIdx) {
             if (sheetSections.length > 0) sheetSections[sheetSections.length - 1].endRow = lastValidRow;
@@ -1398,11 +1398,15 @@ export const MusicProvider = ({ children }) => {
 
   const updateTextRow = (rIndex, text) => { if (isReadOnlyRef.current) return; const newData = [...sheetData]; newData[rIndex] = [[text]]; setSheetData(newData); };
 
-  const removeRow = () => {
+  // ⭐ เพิ่มให้รับค่า targetIdx ได้
+  const removeRow = (targetIdx = null) => {
     if (isReadOnlyRef.current) return;
     if (isPlayingRef.current) stopPlayback();
     setSelectionRange(null); 
-    const rowIdx = selectedCell[0];
+    
+    // ⭐ เช็กว่ามีการระบุบรรทัดมาตรงๆ ไหม ถ้ามีให้ยึดค่านี้ (ป้องกันลบผิดบรรทัด)
+    const rowIdx = typeof targetIdx === 'number' ? targetIdx : selectedCell[0];
+    
     let deleteCount = 1, startIndex = rowIdx;
 
     if (rowTypes[rowIdx] === 'double-right') deleteCount = 2;
@@ -1674,7 +1678,7 @@ export const MusicProvider = ({ children }) => {
             if (currentRowTypes[r] === 'page-break' || currentRowTypes[r] === 'text') continue;
             const vIdx = getVisualIndex(r, currentRowTypes);
             const labels = currentSectionLabels[vIdx] || [];
-            const validLabels = labels.filter(l => !l.text.includes('กลับต้น') && l.text.trim() !== '');
+            const validLabels = labels.filter(l => l.text && l.text.trim() !== '');
 
             if (validLabels.length > 0 && vIdx !== lastProcessedVIdx) {
                 sheetSections.forEach(sec => {
@@ -1759,7 +1763,7 @@ export const MusicProvider = ({ children }) => {
         if (currentRowTypes[r] === 'page-break' || currentRowTypes[r] === 'text') continue;
         const vIdx = getVisualIndex(r, currentRowTypes);
         const labels = currentSectionLabels[vIdx] || [];
-        const validLabels = labels.filter(l => !l.text.includes('กลับต้น') && l.text.trim() !== '');
+        const validLabels = labels.filter(l => l.text && l.text.trim() !== '');
         if (validLabels.length > 0 && vIdx !== lastProcessedVIdx) {
             if (sheetSections.length > 0) sheetSections[sheetSections.length - 1].endRow = lastValidRow;
             sheetSections.push({ label: validLabels[0].text.trim(), startRow: r, endRow: currentSheetData.length - 1 });
@@ -2049,6 +2053,26 @@ export const MusicProvider = ({ children }) => {
     let isCtrlCombination = false; 
 
     const handleKeyDown = (e) => {
+      // ⭐ 1. ดักจับ Spacebar เป็นอันดับแรกสุด!
+      if (e.code === 'Space') {
+        const tag = e.target?.tagName;
+        // ยกเว้นกรณีที่กำลังพิมพ์ชื่อเพลง หรือพิมพ์เนื้อร้องอยู่ (เราต้องอนุญาตให้เคาะวรรคได้)
+        const isEditable = e.target?.isContentEditable || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+        
+        if (!isEditable) {
+          e.preventDefault();   // กันหน้าจอเลื่อน
+          e.stopPropagation();  // ชิงตัดบท ไม่ให้คำสั่งทะลุไปกดปุ่มอื่นๆ
+          
+          // เคลียร์โฟกัสทิ้งทันที! เพื่อป้องกันปุ่มลั่นตอนจังหวะปล่อยนิ้ว (keyup)
+          if (document.activeElement && document.activeElement.tagName !== 'BODY') {
+            document.activeElement.blur();
+          }
+          
+          actionsRef.current.togglePlay(); // สั่งเล่น/หยุดเพลง
+          return;
+        }
+      }
+
       const tag = e.target?.tagName;
       const isEditable = e.target?.isContentEditable || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
       
@@ -2056,12 +2080,6 @@ export const MusicProvider = ({ children }) => {
 
       if (e.ctrlKey && e.key !== 'Control') {
         isCtrlCombination = true;
-      }
-
-      if (e.code === 'Space') {
-        e.preventDefault(); 
-        actionsRef.current.togglePlay();       
-        return;             
       }
 
       if (e.key === 'Backspace') {
@@ -2191,12 +2209,13 @@ export const MusicProvider = ({ children }) => {
       }
     };
     
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp); 
+   // ⭐ เติม true เข้าไปด้านหลัง
+    window.addEventListener('keydown', handleKeyDown, true);
+    window.addEventListener('keyup', handleKeyUp, true); 
     
     return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp); 
+      window.removeEventListener('keydown', handleKeyDown, true);
+      window.removeEventListener('keyup', handleKeyUp, true); 
     };
     
   }, []); 
