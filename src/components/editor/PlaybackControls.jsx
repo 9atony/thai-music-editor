@@ -325,7 +325,12 @@ const PlaybackControls = () => {
                 <button onMouseDown={(e) => { e.preventDefault(); handleUniversalFontSizeChange(null, -2); }} className="w-8 h-full text-slate-500 hover:bg-slate-100 font-black transition-colors">−</button>
                 <input 
                   type="number" min="10" max="150" 
-                  value={toolbarMode === 'text' || (savedSelection.current && savedSelection.current.toString().length > 0 && getActiveEditor()) ? textFontSize : (layoutConfig.fontSize || 30)} 
+                  // ⭐ เปลี่ยน value ให้อ่านค่าจากขนาดฟอนต์ของช่องที่คลุมดำอยู่ (ถ้ามี)
+                  value={toolbarMode === 'text' || (savedSelection.current && savedSelection.current.toString().length > 0 && getActiveEditor()) 
+                    ? textFontSize 
+                    : (selectedCell && layoutConfig.customStyles?.[`${selectedCell[0]}_${selectedCell[1]}_${selectedCell[2]}`]?.fontSize 
+                        ? layoutConfig.customStyles[`${selectedCell[0]}_${selectedCell[1]}_${selectedCell[2]}`].fontSize 
+                        : (layoutConfig.fontSize || 30))} 
                   onChange={(e) => handleUniversalFontSizeChange(parseInt(e.target.value) || 16)} 
                   className="w-10 text-center text-sm font-bold text-slate-700 bg-slate-50 border-none focus:ring-0 p-0 h-full" 
                 />

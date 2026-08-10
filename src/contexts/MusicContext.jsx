@@ -580,7 +580,8 @@ export const MusicProvider = ({ children }) => {
     effectTimersRef.current = [];
     mutedCellsRef.current.clear();
 
-    let currentCursor = [...selectedCell];
+    // ⭐ 2. เปลี่ยนมาอ่านค่าจาก Ref โดยตรง เพื่อให้ได้พิกัดล่าสุดที่เพิ่งโดนวาร์ปมา
+    let currentCursor = [...selectedCellRef.current]; 
     let startR = currentCursor[0];
 
     if (currentRowTypes[startR] === 'double-left') { startR -= 1; currentCursor[0] = startR; }
@@ -1712,10 +1713,12 @@ export const MusicProvider = ({ children }) => {
     seekOffsetRef.current = foundCell ? foundCell.elapsedMs / 1000 : targetSeconds;
 
     if (foundCell) {
-    setSelectedCell([foundCell.r, foundCell.m, 0]); 
-    activeSequenceIdxRef.current = foundCell.seqIdx;
-    activeLoopRef.current = foundCell.loop;
-}
+      const newCursor = [foundCell.r, foundCell.m, 0];
+      setSelectedCell(newCursor); 
+      selectedCellRef.current = newCursor; // ⭐ 1. บังคับอัปเดตตำแหน่งเคอร์เซอร์สดๆ ไม่ต้องรอ React
+      activeSequenceIdxRef.current = foundCell.seqIdx;
+      activeLoopRef.current = foundCell.loop;
+    }
     if (wasPlaying) {
       stopPlayback();
       seekOffsetRef.current = foundCell ? foundCell.elapsedMs / 1000 : targetSeconds;
@@ -2171,6 +2174,38 @@ export const MusicProvider = ({ children }) => {
         else if (e.code === 'KeyC') { e.preventDefault(); actionsRef.current.copySelection(); }
         else if (e.code === 'KeyV') { e.preventDefault(); if (!isReadOnlyRef.current) actionsRef.current.pasteSelection(); }
         else if (e.code === 'KeyX') { e.preventDefault(); if (!isReadOnlyRef.current) actionsRef.current.cutSelection(); }
+        // ⭐ เพิ่ม Ctrl+A สำหรับคลุมดำตัวโน้ตทั้งหมด
+        else if (e.code === 'KeyA') {
+          e.preventDefault(); // บล็อกไม่ให้เบราว์เซอร์คลุมดำทั้งหน้าเว็บ
+          
+          const sheet = sheetDataRef.current;
+          const rTypes = rowTypesRef.current;
+          let firstCell = null;
+          let lastCell = null;
+          
+          // วนลูปหาโน้ตตัวแรกสุด และตัวสุดท้ายสุดของกระดาษ
+          for (let r = 0; r < sheet.length; r++) {
+            if (rTypes[r] === 'page-break' || rTypes[r] === 'text') continue;
+            
+            // ข้ามคอลัมน์ 0 ถ้าเป็นบรรทัดคู่ (เพราะเป็นป้ายชื่อ มือซ้าย/ขวา)
+            const startM = rTypes[r].startsWith('double') ? 1 : 0;
+            
+            if (!firstCell && sheet[r] && sheet[r].length > startM) {
+               firstCell = [r, startM, 0];
+            }
+            if (sheet[r] && sheet[r].length > 0) {
+               const lastM = sheet[r].length - 1;
+               const lastC = sheet[r][lastM].length - 1;
+               lastCell = [r, lastM, lastC];
+            }
+          }
+          
+          // สั่งคลุมดำตั้งแต่ตัวแรกถึงตัวสุดท้าย
+          if (firstCell && lastCell) {
+             actionsRef.current.setSelectionRange({ start: firstCell, end: lastCell });
+             actionsRef.current.setSelectedCell(lastCell); // ย้ายเคอร์เซอร์ไปไว้ที่ตัวสุดท้าย
+          }
+        }
       }
     };
 

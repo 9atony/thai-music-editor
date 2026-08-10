@@ -1162,12 +1162,214 @@ return (
                   if (isDoubleLeft && rIndex > 0) visualRowNumber = displayRowNumbers[rIndex - 1]; 
                   const visualIndex = visualRowNumber !== '' && visualRowNumber != null ? visualRowNumber - 1 : null;                  
                   
+                  // ⭐ 1. สร้างแพ็กเกจสำหรับวาดช่องโน้ต (รองรับการหั่นบรรทัดเมื่อล้น 8 ห้อง)
+                  const renderMeasureBlock = (measure, actualMIndex, localMIdx, actualRIndex, actualRType, chunkLength) => {
+                      if (!measure || measure[0] === '@HIDDEN') return null;
+
+                      const isDoubleCurrent = actualRType.startsWith('double');
+                      const isDoubleRightCurrent = actualRType === 'double-right';
+                      const isDoubleLeftCurrent = actualRType === 'double-left';
+
+                      const isLabelMeasure = isDoubleCurrent && localMIdx === 0;
+                      const isTextMeasure = typeof measure[0] === 'string' && measure[0].startsWith('@TEXT_SPAN_');
+                      const spanCount = isTextMeasure ? parseInt(measure[0].split('_')[2], 10) || 1 : 1;
+
+                      const colsPerLine = isDoubleCurrent ? 9 : 8;
+                      const isFirstInLine = localMIdx % colsPerLine === 0;
+                      const isLastInLine = (localMIdx + spanCount - 1) % colsPerLine === colsPerLine - 1 || localMIdx === chunkLength - 1;
+
+                      return (
+                        <div 
+                          key={actualMIndex} 
+                          className="grid bg-white relative h-full w-full overflow-hidden" 
+                          style={{ 
+                            gridColumn: `span ${spanCount}`, 
+                            gridTemplateColumns: isLabelMeasure ? '1fr' : (isTextMeasure ? '1fr' : `repeat(${measure.length}, minmax(0, 1fr))`),
+                            height: `${layoutConfig.measureHeight}px`,
+                            borderTop: `${layoutConfig.outerBorderWidth ?? 1}px solid ${layoutConfig.borderColor || '#0f172a'}`,
+                            borderBottom: isDoubleRightCurrent ? 'none' : `${layoutConfig.outerBorderWidth ?? 1}px solid ${layoutConfig.borderColor || '#0f172a'}`,
+                            borderRight: `${layoutConfig.outerBorderWidth ?? 1}px solid ${layoutConfig.borderColor || '#0f172a'}`,
+                            borderLeft: isFirstInLine ? `${layoutConfig.outerBorderWidth ?? 1}px solid ${layoutConfig.borderColor || '#0f172a'}` : 'none',
+                            borderTopLeftRadius: (isFirstInLine && !isDoubleLeftCurrent) ? `${layoutConfig.borderRadius}px` : 0,
+                            borderBottomLeftRadius: (isFirstInLine && !isDoubleRightCurrent) ? `${layoutConfig.borderRadius}px` : 0,
+                            borderTopRightRadius: (isLastInLine && !isDoubleLeftCurrent) ? `${layoutConfig.borderRadius}px` : 0,
+                            borderBottomRightRadius: (isLastInLine && !isDoubleRightCurrent) ? `${layoutConfig.borderRadius}px` : 0,
+                            backgroundColor: isLabelMeasure ? '#f8fafc' : 'white',
+                          }}
+                        >
+                          {isLabelMeasure ? (
+                            <div className="flex items-center justify-center w-full h-full text-[13px] font-bold text-slate-700 tracking-wide select-none" style={{ fontFamily: noteFontFamily }}>
+                              {measure[0]}
+                            </div>
+                          ) : isTextMeasure ? (
+                            <div className="w-full h-full p-1 bg-amber-50/30 hover:bg-amber-100/30 transition-colors">
+                              <div
+                                contentEditable
+                                suppressContentEditableWarning
+                                className="w-full h-full outline-none text-center cursor-text overflow-hidden flex items-center justify-center break-words"
+                                style={{ fontFamily: textFontFamily, fontSize: `${layoutConfig.textFontSize || 16}px` }}
+                                onMouseDown={(e) => { e.stopPropagation(); setSelectedCell([actualRIndex, actualMIndex, 0]); }}
+                                onBlur={(e) => updateMeasureText(actualRIndex, actualMIndex, e.target.innerHTML)}
+                                onKeyDown={(e) => {
+                                    e.stopPropagation(); 
+                                    if (e.key === 'Enter') e.preventDefault(); 
+                                }}
+                                dangerouslySetInnerHTML={{ __html: measure[1] || '' }}
+                              />
+                            </div>
+                          ) : (                         
+                            measure.map((note, cIndex) => {
+                              let isInRange = false;
+                              let minR = -1, maxR = -1, minCol = -1, maxCol = -1;
+                              if (selectionRange && selectionRange.start && selectionRange.end) {
+                                minR = Math.min(selectionRange.start[0], selectionRange.end[0]); maxR = Math.max(selectionRange.start[0], selectionRange.end[0]);
+                                const startColVal = getFlattenedCol(sheetData[selectionRange.start[0]] || [], rowTypes[selectionRange.start[0]], selectionRange.start[1], selectionRange.start[2]);
+                                const endColVal = getFlattenedCol(sheetData[selectionRange.end[0]] || [], rowTypes[selectionRange.end[0]], selectionRange.end[1], selectionRange.end[2]);
+                                minCol = Math.min(startColVal, endColVal); maxCol = Math.max(startColVal, endColVal);
+                              }
+
+                              if (selectionRange && actualRIndex >= minR && actualRIndex <= maxR) {
+                                  const currentCol = getFlattenedCol(sheetData[actualRIndex], actualRType, actualMIndex, cIndex);
+                                  if (currentCol >= minCol && currentCol <= maxCol) isInRange = true;
+                              }
+
+                              const isCursorExact = selectedCell[0] === actualRIndex && selectedCell[1] === actualMIndex && selectedCell[2] === cIndex;
+                              let isPlayingNow = false;
+                              if (playbackCursor) {
+                                if (playbackCursor[0] === actualRIndex && playbackCursor[1] === actualMIndex && playbackCursor[2] === cIndex) isPlayingNow = true;
+                                if (rowTypes[playbackCursor[0]] === 'double-right' && actualRIndex === playbackCursor[0] + 1 && playbackCursor[1] === actualMIndex && playbackCursor[2] === cIndex) isPlayingNow = true;
+                              }
+                              
+                              let cellBgClass = 'hover:bg-sky-50 print:bg-transparent';
+                              if (isPlayingNow) cellBgClass = 'bg-emerald-200 ring-[2.5px] ring-inset ring-emerald-400 z-20 print:bg-transparent print:ring-0 transform scale-[1.05] shadow-[0_0_10px_rgba(52,211,153,0.4)]';
+                              else if (isInRange) cellBgClass = 'bg-sky-200 print:bg-transparent';
+                              else if (isCursorExact) cellBgClass = 'bg-yellow-100 ring-2 ring-inset ring-blue-400 z-10 print:bg-transparent print:ring-0';
+                              if (isCursorExact && isInRange && !isPlayingNow) cellBgClass = 'bg-sky-300 ring-2 ring-inset ring-blue-500 z-10 print:bg-transparent print:ring-0';
+
+                              const cellCustomStyle = layoutConfig.customStyles?.[`${actualRIndex}_${actualMIndex}_${cIndex}`] || {};
+                              const cellFontSize = cellCustomStyle.fontSize || layoutConfig.fontSize || 30;
+                              const isEditingToken = editingTokenCell?.r === actualRIndex && editingTokenCell?.m === actualMIndex && editingTokenCell?.c === cIndex;
+
+                              return (
+                                <div 
+                                  id={`note-${actualRIndex}-${actualMIndex}-${cIndex}`}
+                                  key={cIndex} 
+                                  onMouseDown={(e) => {
+                                    e.stopPropagation(); 
+                                    if (setSelectedSymbolId) setSelectedSymbolId(null);
+                                    if (!isEditingToken && e.button !== 2) startSelection(actualRIndex, actualMIndex, cIndex);
+                                    if (setToolbarMode) setToolbarMode('default');
+                                  }}
+                                  onClick={(e) => e.stopPropagation()}
+                                  onMouseEnter={() => updateSelection(actualRIndex, actualMIndex, cIndex)}
+                                  onContextMenu={(e) => handleRightClick(e, actualRIndex, actualMIndex, cIndex)}
+                                  className={`flex items-center justify-center cursor-crosshair transition-all duration-[250ms] ease-out min-h-0 overflow-hidden ${cellBgClass}`} 
+                                  style={{ 
+                                    fontSize: `${cellFontSize}px`, fontFamily: cellCustomStyle.noteFontFamily || noteFontFamily,
+                                    borderRight: (cIndex < measure.length - 1 && layoutConfig.innerBorderWidth > 0) ? `${layoutConfig.innerBorderWidth}px solid ${layoutConfig.borderColor}66` : 'none' 
+                                  }}
+                                  title={isReadOnly ? undefined : 'ดับเบิลคลิกเพื่อแก้ไขโน้ตแบบหลายตัวในช่องเดียว'}
+                                >
+                                  {isEditingToken ? (
+                                    <input
+                                      id={`token-editor-${actualRIndex}-${actualMIndex}-${cIndex}`}
+                                      type="text"
+                                      value={editingTokenValue}
+                                      autoFocus
+                                      spellCheck={false}
+                                      maxLength={8}
+                                      onMouseDown={(e) => e.stopPropagation()}
+                                      onClick={(e) => e.stopPropagation()}
+                                      onChange={(e) => setEditingTokenValue(e.target.value.replace(/\s+/g, ''))}
+                                      onBlur={() => commitTokenEdit()}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                          e.preventDefault();
+                                          commitTokenEdit(); 
+                                          if (moveSelectionNext) moveSelectionNext(); 
+                                        } else if (e.key === 'Escape') {
+                                          e.preventDefault();
+                                          cancelTokenEdit();
+                                        }
+                                      }}
+                                      className="w-full h-full bg-white text-center outline-none px-1 text-slate-900"
+                                      style={{ fontSize: `${Math.max(cellFontSize - 2, 18)}px`, fontFamily: cellCustomStyle.noteFontFamily || noteFontFamily }}
+                                      placeholder="-"
+                                    />
+                                  ) : (
+                                    renderSheetNote(note, actualRIndex, actualMIndex, cIndex)
+                                  )}
+                                </div>
+                              );
+                            })
+                          )}
+                        </div>
+                      );
+                  };
+
+                  // ⭐ 2. ดักทาง: ซ่อนกล่องมือซ้ายเดิม เพื่อเอาไปรวมวาดพร้อมกล่องมือขวา
+                  if (isDoubleLeft) return null; 
+
+                  let measuresContent;
+                  let containerPb = pb;
+                  let containerMarginBot = rMarginBot;
+
+                  if (isDoubleRight) {
+                      const leftRowIndex = rIndex + 1;
+                      const leftRow = sheetData[leftRowIndex] || [];
+                      
+                      // คำนวณว่ามันล้นไปกี่บรรทัดแล้ว (แบ่งบรรทัดละ 8 ช่อง)
+                      const maxMeasures = Math.max(row.length, leftRow.length) - 1; 
+                      const totalChunks = Math.max(1, Math.ceil(maxMeasures / 8));
+
+                      containerPb = layoutConfig.rowGap; 
+                      containerMarginBot = rowMargins[leftRowIndex]?.bottom || 0; 
+
+                      measuresContent = (
+                          <div className="flex flex-col w-full">
+                              {Array.from({ length: totalChunks }).map((_, chunkIdx) => {
+                                  const startM = chunkIdx * 8 + 1;
+                                  const endM = startM + 8;
+                                  
+                                  // หั่นกล่องให้ความยาวเท่ากันทั้งสองมือ
+                                  const rightChunk = [row[0], ...row.slice(startM, endM)];
+                                  const leftChunk = [leftRow[0], ...leftRow.slice(startM, endM)];
+
+                                  return (
+                                      <div key={chunkIdx} className="flex flex-col w-full" style={{ marginBottom: chunkIdx < totalChunks - 1 ? layoutConfig.rowGap : 0 }}>
+                                          {/* แถวขวา */}
+                                          <div className="grid w-full" style={{ gridTemplateColumns: '65px repeat(8, minmax(0, 1fr))' }}>
+                                              {rightChunk.map((measure, localMIdx) => {
+                                                  const actualMIndex = localMIdx === 0 ? 0 : startM + localMIdx - 1;
+                                                  return renderMeasureBlock(measure, actualMIndex, localMIdx, rIndex, 'double-right', rightChunk.length);
+                                              })}
+                                          </div>
+                                          {/* แถวซ้าย (ประกบคู่กันเสมอ) */}
+                                          <div className="grid w-full" style={{ gridTemplateColumns: '65px repeat(8, minmax(0, 1fr))' }}>
+                                              {leftChunk.map((measure, localMIdx) => {
+                                                  const actualMIndex = localMIdx === 0 ? 0 : startM + localMIdx - 1;
+                                                  return renderMeasureBlock(measure, actualMIndex, localMIdx, leftRowIndex, 'double-left', leftChunk.length);
+                                              })}
+                                          </div>
+                                      </div>
+                                  );
+                              })}
+                          </div>
+                      );
+                  } else {
+                      measuresContent = (
+                          <div className="grid w-full" style={{ rowGap: `${layoutConfig.rowGap}px`, gridTemplateColumns: 'repeat(8, minmax(0, 1fr))' }}>
+                              {row.map((measure, mIndex) => renderMeasureBlock(measure, mIndex, mIndex, rIndex, 'single', row.length))}
+                          </div>
+                      );
+                  }
+
                   return (
                     <div 
                       key={`note-${rIndex}-${rType}`} 
                       className="flex flex-col w-full relative transition-colors"
                       style={{ 
-                        paddingBottom: `${pb}px`, marginTop: `${rMarginTop}px`, marginBottom: `${rMarginBot}px`,
+                        paddingBottom: `${containerPb}px`, marginTop: `${rMarginTop}px`, marginBottom: `${containerMarginBot}px`,
                         paddingLeft: `calc(1rem + ${rIndent}px)`, paddingRight: '1rem',
                         zIndex: (rMarginTop < 0 || rMarginBot < 0) ? 20 : 1 
                       }}
@@ -1176,7 +1378,7 @@ return (
                         
                         {(displayRowNumbers[rIndex] !== '' && layoutConfig?.showRowNumber !== false) && (
                           <div 
-                            className={`absolute -left-8 -translate-y-1/2 text-[12px] font-bold print-hidden select-none ${isDoubleRight ? 'top-full' : 'top-1/2'}`} 
+                            className={`absolute -left-8 -translate-y-1/2 text-[12px] font-bold print-hidden select-none ${isDoubleRight ? 'top-[24px]' : 'top-1/2'}`} 
                             style={{ fontFamily: textFontFamily, color: layoutConfig?.rowNumberColor || '#cbd5e1' }}
                           >
                             {displayRowNumbers[rIndex]}
@@ -1185,9 +1387,9 @@ return (
 
                         {(isDoubleRight && layoutConfig?.showRowNumber !== false) && (
                           <div 
-                            className="absolute top-0 border-l border-t border-b print:border-slate-400"
+                            className="absolute border-l border-t border-b print:border-slate-400"
                             style={{
-                              left: '-10px', width: '6px', height: `${layoutConfig.measureHeight * 2}px`,
+                              top: 0, left: '-10px', width: '6px', height: '100%',
                               borderTopLeftRadius: '4px', borderBottomLeftRadius: '4px', zIndex: 10,
                               borderColor: layoutConfig?.rowNumberColor || '#cbd5e1',
                               borderWidth: `${layoutConfig?.rowNumberWidth ?? 3}px 0 ${layoutConfig?.rowNumberWidth ?? 3}px ${layoutConfig?.rowNumberWidth ?? 3}px`
@@ -1197,161 +1399,8 @@ return (
 
                         {visualIndex !== null && renderSectionLabels(visualIndex, rType, rIndex)}
 
-                        <div 
-                          className="grid w-full" 
-                          style={{ 
-                            rowGap: `${layoutConfig.rowGap}px`,
-                            gridTemplateColumns: isDouble ? '65px repeat(8, minmax(0, 1fr))' : 'repeat(8, minmax(0, 1fr))'
-                          }}
-                        >
-                          {row.map((measure, mIndex) => {
-                            // 🛑 ถ้าเป็นห้องที่โดนคลุมซ่อนไว้ (Merge) ให้ข้ามไปเลย ไม่วาดเส้นกั้น!
-                            if (measure[0] === '@HIDDEN') return null;
+                        {measuresContent}
 
-                            const isLabelMeasure = isDouble && mIndex === 0;
-                            // เช็กว่าเป็นห้องพิมพ์หรือเปล่า
-                            const isTextMeasure = typeof measure[0] === 'string' && measure[0].startsWith('@TEXT_SPAN_');
-                            const spanCount = isTextMeasure ? parseInt(measure[0].split('_')[2], 10) || 1 : 1;
-                            
-                            const colsPerLine = isDouble ? 9 : 8;
-                            const isFirstInLine = mIndex % colsPerLine === 0;
-                            const isLastInLine = (mIndex + spanCount - 1) % colsPerLine === colsPerLine - 1 || mIndex === row.length - 1;
-
-                            return (
-                              <div 
-                                key={mIndex} 
-                                className="grid bg-white relative h-full w-full overflow-hidden" 
-                                style={{ 
-                                  gridColumn: `span ${spanCount}`, // 👈 สั่งขยายช่องให้คลุมตามจำนวนที่ลาก
-                                  gridTemplateColumns: isLabelMeasure ? '1fr' : (isTextMeasure ? '1fr' : `repeat(${measure.length}, minmax(0, 1fr))`),
-                                  height: `${layoutConfig.measureHeight}px`,
-                                  borderTop: `${layoutConfig.outerBorderWidth ?? 1}px solid ${layoutConfig.borderColor || '#0f172a'}`,
-                                  borderBottom: isDoubleRight ? 'none' : `${layoutConfig.outerBorderWidth ?? 1}px solid ${layoutConfig.borderColor || '#0f172a'}`,
-                                  borderRight: `${layoutConfig.outerBorderWidth ?? 1}px solid ${layoutConfig.borderColor || '#0f172a'}`,
-                                  borderLeft: isFirstInLine ? `${layoutConfig.outerBorderWidth ?? 1}px solid ${layoutConfig.borderColor || '#0f172a'}` : 'none',
-                                  borderTopLeftRadius: (isFirstInLine && !isDoubleLeft) ? `${layoutConfig.borderRadius}px` : 0,
-                                  borderBottomLeftRadius: (isFirstInLine && !isDoubleRight) ? `${layoutConfig.borderRadius}px` : 0,
-                                  borderTopRightRadius: (isLastInLine && !isDoubleLeft) ? `${layoutConfig.borderRadius}px` : 0,
-                                  borderBottomRightRadius: (isLastInLine && !isDoubleRight) ? `${layoutConfig.borderRadius}px` : 0,
-                                  backgroundColor: isLabelMeasure ? '#f8fafc' : 'white',
-                                }}
-                              >
-                                {isLabelMeasure ? (
-                                  <div className="flex items-center justify-center w-full h-full text-[13px] font-bold text-slate-700 tracking-wide select-none" style={{ fontFamily: noteFontFamily }}>
-                                    {measure[0]}
-                                  </div>
-                                ) : isTextMeasure ? (
-                                  // 📝 โหมดช่องพิมพ์ข้อความพิเศษ!
-                                  <div className="w-full h-full p-1 bg-amber-50/30 hover:bg-amber-100/30 transition-colors">
-                                    <div
-                                      contentEditable
-                                      suppressContentEditableWarning
-                                      className="w-full h-full outline-none text-center cursor-text overflow-hidden flex items-center justify-center break-words"
-                                      style={{ fontFamily: textFontFamily, fontSize: `${layoutConfig.textFontSize || 16}px` }}
-                                      onMouseDown={(e) => { e.stopPropagation(); setSelectedCell([rIndex, mIndex, 0]); }}
-                                      onBlur={(e) => updateMeasureText(rIndex, mIndex, e.target.innerHTML)}
-                                      onKeyDown={(e) => {
-                                         e.stopPropagation(); // 👈 กันไม่ให้ปุ่มคีย์บอร์ดไปลั่นลบบรรทัดหรือคีย์ลัดอื่นๆ
-                                         if (e.key === 'Enter') e.preventDefault(); // กันเผลอขึ้นบรรทัดใหม่ในช่องเล็กๆ
-                                      }}
-                                      dangerouslySetInnerHTML={{ __html: measure[1] || '' }}
-                                    />
-                                  </div>
-                                ) : (                         
-                                  measure.map((note, cIndex) => {
-                                    let isInRange = false;
-                                    let minR = -1, maxR = -1, minCol = -1, maxCol = -1;
-                                    if (selectionRange && selectionRange.start && selectionRange.end) {
-                                      minR = Math.min(selectionRange.start[0], selectionRange.end[0]); maxR = Math.max(selectionRange.start[0], selectionRange.end[0]);
-                                      const startColVal = getFlattenedCol(sheetData[selectionRange.start[0]] || [], rowTypes[selectionRange.start[0]], selectionRange.start[1], selectionRange.start[2]);
-                                      const endColVal = getFlattenedCol(sheetData[selectionRange.end[0]] || [], rowTypes[selectionRange.end[0]], selectionRange.end[1], selectionRange.end[2]);
-                                      minCol = Math.min(startColVal, endColVal); maxCol = Math.max(startColVal, endColVal);
-                                    }
-
-                                    if (selectionRange && rIndex >= minR && rIndex <= maxR) {
-                                        const currentCol = getFlattenedCol(row, rType, mIndex, cIndex);
-                                        if (currentCol >= minCol && currentCol <= maxCol) isInRange = true;
-                                    }
-
-                                    const isCursorExact = selectedCell[0] === rIndex && selectedCell[1] === mIndex && selectedCell[2] === cIndex;
-                                    let isPlayingNow = false;
-                                    if (playbackCursor) {
-                                      if (playbackCursor[0] === rIndex && playbackCursor[1] === mIndex && playbackCursor[2] === cIndex) isPlayingNow = true;
-                                      if (rowTypes[playbackCursor[0]] === 'double-right' && rIndex === playbackCursor[0] + 1 && playbackCursor[1] === mIndex && playbackCursor[2] === cIndex) isPlayingNow = true;
-                                    }
-                                    
-                                    let cellBgClass = 'hover:bg-sky-50 print:bg-transparent';
-                                    // ⭐ ปรับเอฟเฟกต์สีเขียว: ขยายขนาดขึ้น (scale-105), ใส่เงาเรืองแสง (shadow), และปรับขอบให้หนาขึ้น
-                                    if (isPlayingNow) cellBgClass = 'bg-emerald-200 ring-[2.5px] ring-inset ring-emerald-400 z-20 print:bg-transparent print:ring-0 transform scale-[1.05] shadow-[0_0_10px_rgba(52,211,153,0.4)]';
-                                    else if (isInRange) cellBgClass = 'bg-sky-200 print:bg-transparent';
-                                    else if (isCursorExact) cellBgClass = 'bg-yellow-100 ring-2 ring-inset ring-blue-400 z-10 print:bg-transparent print:ring-0';
-                                    if (isCursorExact && isInRange && !isPlayingNow) cellBgClass = 'bg-sky-300 ring-2 ring-inset ring-blue-500 z-10 print:bg-transparent print:ring-0';
-
-                                    const cellCustomStyle = layoutConfig.customStyles?.[`${rIndex}_${mIndex}_${cIndex}`] || {};
-                                    const cellFontSize = cellCustomStyle.fontSize || layoutConfig.fontSize || 30;
-
-                                    const isEditingToken = editingTokenCell?.r === rIndex && editingTokenCell?.m === mIndex && editingTokenCell?.c === cIndex;
-
-                                    return (
-                                      <div 
-                                        id={`note-${rIndex}-${mIndex}-${cIndex}`}
-                                        key={cIndex} 
-                                        onMouseDown={(e) => {
-                                          e.stopPropagation(); 
-                                          if (setSelectedSymbolId) setSelectedSymbolId(null);
-                                          if (!isEditingToken && e.button !== 2) startSelection(rIndex, mIndex, cIndex);
-                                          if (setToolbarMode) setToolbarMode('default');
-                                        }}
-                                        onClick={(e) => e.stopPropagation()}
-                                        
-                                        onMouseEnter={() => updateSelection(rIndex, mIndex, cIndex)}
-                                        onContextMenu={(e) => handleRightClick(e, rIndex, mIndex, cIndex)}
-                                        // ⭐ เพิ่ม transition-all, duration-[250ms], และ ease-out เพื่อให้มันเฟดเข้า-ออกแบบสมูทๆ
-                                        className={`flex items-center justify-center cursor-crosshair transition-all duration-[250ms] ease-out min-h-0 overflow-hidden ${cellBgClass}`} 
-                                        style={{ 
-                                          fontSize: `${cellFontSize}px`, fontFamily: cellCustomStyle.noteFontFamily || noteFontFamily,
-                                          borderRight: (cIndex < measure.length - 1 && layoutConfig.innerBorderWidth > 0) ? `${layoutConfig.innerBorderWidth}px solid ${layoutConfig.borderColor}66` : 'none' 
-                                        }}
-                                        title={isReadOnly ? undefined : 'ดับเบิลคลิกเพื่อแก้ไขโน้ตแบบหลายตัวในช่องเดียว'}
-                                      >
-                                    
-                                        {isEditingToken ? (
-                                          <input
-                                            id={`token-editor-${rIndex}-${mIndex}-${cIndex}`}
-                                            type="text"
-                                            value={editingTokenValue}
-                                            autoFocus
-                                            spellCheck={false}
-                                            maxLength={8}
-                                            onMouseDown={(e) => e.stopPropagation()}
-                                            onClick={(e) => e.stopPropagation()}
-                                            onChange={(e) => setEditingTokenValue(e.target.value.replace(/\s+/g, ''))}
-                                            onBlur={() => commitTokenEdit()}
-                                            onKeyDown={(e) => {
-                                              if (e.key === 'Enter') {
-                                                e.preventDefault();
-                                                commitTokenEdit(); // บันทึกลูกสะบัด
-                                                if (moveSelectionNext) moveSelectionNext(); // ⭐ สั่งให้กระโดดไปช่องขวาต่อทันที!
-                                              } else if (e.key === 'Escape') {
-                                                e.preventDefault();
-                                                cancelTokenEdit();
-                                              }
-                                            }}
-                                            className="w-full h-full bg-white text-center outline-none px-1 text-slate-900"
-                                            style={{ fontSize: `${Math.max(cellFontSize - 2, 18)}px`, fontFamily: cellCustomStyle.noteFontFamily || noteFontFamily }}
-                                            placeholder="-"
-                                          />
-                                        ) : (
-                                          renderSheetNote(note, rIndex, mIndex, cIndex)
-                                        )}
-                                      </div>
-                                    );
-                                  })
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
                       </div>
                     </div>
                   );

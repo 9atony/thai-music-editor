@@ -104,14 +104,11 @@ const SequenceTab = () => {
     }
   };
 
-  // ⭐ ฟังก์ชันสำหรับสั่งเล่นเพลงจากท่อนที่คลิก
-  const handlePlayFromSequence = (idx) => {
+  const handlePlayFromSequence = async (idx) => {
     if (jumpToSequence) jumpToSequence(idx);
     if (!isPlaying && startPlayback) {
-      // หน่วงเวลาเล็กน้อยให้ระบบตั้งค่าเวลาเสร็จก่อนเริ่มเล่น
-      setTimeout(() => {
-        startPlayback();
-      }, 50);
+      // ⭐ 3. สั่งเริ่มเล่นทันที! ไม่ต้องหน่วงเวลาแล้ว เพราะระบบรู้พิกัดสดๆ แล้ว
+      startPlayback(); 
     }
   };
 
@@ -154,7 +151,7 @@ const SequenceTab = () => {
                 >
                   <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
                 </button>
-                
+
                 <button 
                   onClick={() => handleJumpToSection(item.label)}
                   className="p-1 text-slate-400 hover:text-sky-600 hover:bg-sky-50 rounded transition-colors active:scale-95 shrink-0"
