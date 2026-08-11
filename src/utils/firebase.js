@@ -1,9 +1,11 @@
 import { initializeApp } from "firebase/app";
 import { getAnalytics } from "firebase/analytics";
-import { getAuth, signInWithEmailAndPassword, signOut } from "firebase/auth";
+// 1. [เพิ่ม] นำเข้า createUserWithEmailAndPassword สำหรับการสมัครสมาชิก
+import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from "firebase/auth";
 import { 
   getFirestore, collection, query, orderBy, limit, getDocs, 
-  addDoc, doc, updateDoc, serverTimestamp 
+  addDoc, doc, updateDoc, serverTimestamp, 
+  setDoc, getDoc // 2. [เพิ่ม] นำเข้า setDoc และ getDoc เพื่อจัดการแฟ้มประวัติผู้ใช้
 } from 'firebase/firestore'; 
 import { getStorage } from "firebase/storage";
 
@@ -27,7 +29,54 @@ export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const storage = getStorage(app);
 
-// 4. ฟังก์ชันต่างๆ
+// ==========================================
+// 🌟 [ส่วนที่เพิ่มใหม่] ระบบสมัครสมาชิกและจัดการยศ
+// ==========================================
+
+// ฟังก์ชันสมัครสมาชิก พร้อมตั้งยศเริ่มต้นเป็น "user"
+export const registerUser = async (email, password, displayName = "") => {
+  try {
+    // 1. สร้างบัญชีใน Authentication
+    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+    const user = userCredential.user;
+
+    // 2. สร้างแฟ้มประวัติใน Firestore (Collection: users, Document: UID)
+    await setDoc(doc(db, "users", user.uid), {
+      email: user.email,
+      displayName: displayName,
+      role: "user", // <-- กำหนดยศเริ่มต้นที่นี่
+      createdAt: serverTimestamp()
+    });
+
+    return user;
+  } catch (error) {
+    console.error("สมัครสมาชิกไม่สำเร็จ:", error);
+    throw error;
+  }
+};
+
+// ฟังก์ชันสำหรับเช็กว่าผู้ใช้คนนี้มียศอะไร (ใช้ตอนหน้าเว็บโหลดเสร็จ)
+export const getUserProfile = async (uid) => {
+  try {
+    const docRef = doc(db, "users", uid);
+    const docSnap = await getDoc(docRef);
+    
+    if (docSnap.exists()) {
+      return docSnap.data(); // จะคืนค่ากลับมาเป็น { role: "user", email: ... }
+    } else {
+      console.log("ไม่พบข้อมูลผู้ใช้");
+      return { role: "user" }; // ป้องกัน Error ให้มองเป็นผู้ใช้ทั่วไปไว้ก่อน
+    }
+  } catch (error) {
+    console.error("ดึงข้อมูลประวัติไม่สำเร็จ:", error);
+    return null;
+  }
+};
+
+// ==========================================
+// ส่วนเดิมของคุณ
+// ==========================================
+
 export const fetchRecentProjects = async (uid) => {
   try {
     const projectsRef = collection(db, `users/${uid}/projects`);
@@ -48,11 +97,9 @@ export const fetchRecentProjects = async (uid) => {
   }
 };
 
-// ⭐ [แก้ไขแล้ว] ฟังก์ชันสำหรับดึงข้อมูลทุกโปรเจกต์ของ User สำหรับ Backup
 export const fetchAllProjects = async (uid) => {
   try {
     const projectsRef = collection(db, `users/${uid}/projects`);
-    // ✅ เอา orderBy ออก สั่ง getDocs ดึงข้อมูลจาก collection ตรงๆ เลยเพื่อกวาดมาทั้งหมด
     const querySnapshot = await getDocs(projectsRef);
     
     return querySnapshot.docs.map(doc => {

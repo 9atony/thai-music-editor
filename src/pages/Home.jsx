@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useContext, useRef } from 'react';
-import { auth, db } from '../utils/firebase'; 
+import { auth } from '../utils/firebase'; 
 import { fetchRecentProjects } from '../utils/firebase'; 
 import { MusicContext } from '../contexts/MusicContext';
 import TmeIcon from '../assets/icon.png'; 
@@ -8,6 +8,10 @@ const Home = ({ onNewProject, onPageChange }) => {
   const { newProject, loadProjectFromFirebase, loadProject } = useContext(MusicContext);
   const [recentProjects, setRecentProjects] = useState([]);
   const fileInputRef = useRef(null);
+  
+  // State สำหรับควบคุมการเปิด/ปิดหน้าต่างแจ้งเตือน (เฉพาะฝั่งคอมพิวเตอร์)
+  const [isNotifOpen, setIsNotifOpen] = useState(false);
+  const notifRef = useRef(null);
 
   useEffect(() => {
     const loadProjects = async () => {
@@ -20,17 +24,16 @@ const Home = ({ onNewProject, onPageChange }) => {
     loadProjects();
   }, []);
 
-  // ฟังก์ชันจัดรูปแบบเวลา (ดึงมาจาก MyProjects)
+  // ฟังก์ชันจัดรูปแบบเวลา
   const formatTime = (timestamp) => {
     if (!timestamp?.seconds) return "ไม่ระบุเวลา";
     const date = new Date(timestamp.seconds * 1000);
-    // ทำแบบย่อให้เหมาะกับมือถือ
     return date.toLocaleDateString('th-TH', { 
       month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
     });
   };
 
-  // ฟังก์ชันจัดรูปแบบขนาดไฟล์ (ดึงมาจาก MyProjects)
+  // ฟังก์ชันจัดรูปแบบขนาดไฟล์
   const formatSize = (data) => {
     if (!data) return "0 KB";
     const bytes = new Blob([typeof data === 'string' ? data : JSON.stringify(data)]).size;
@@ -42,7 +45,6 @@ const Home = ({ onNewProject, onPageChange }) => {
     const file = e.target.files[0];
     if (!file) return;
 
-    // ส่งไฟล์ให้ MusicContext จัดการ (แนบ true เพื่อข้ามการแจ้งเตือน)
     loadProject(file, true); 
     onNewProject(); 
     
@@ -60,16 +62,81 @@ const Home = ({ onNewProject, onPageChange }) => {
     onNewProject(); 
   };
 
+  // ดักจับการคลิกนอกกรอบเพื่อปิดหน้าต่างแจ้งเตือน
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (notifRef.current && !notifRef.current.contains(event.target)) {
+        setIsNotifOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
   return (
     <div 
-      className="max-w-6xl mx-auto w-full animate-fadeIn text-slate-800 pt-6 md:pt-10 px-5 md:px-8 pb-12"
+      className="max-w-6xl mx-auto w-full animate-fadeIn text-slate-800 pt-6 md:pt-10 px-5 md:px-8 pb-12 relative"
       style={{ fontFamily: 'Prompt, sans-serif' }}
     >
       
-      {/* ส่วนหัวต้อนรับ */}
-      <div className="mb-6 md:mb-8 px-1">
-        <h2 className="text-2xl md:text-3xl font-extrabold text-slate-900 mb-1 md:mb-2">ยินดีต้อนรับกลับมา 👋</h2>
-        <p className="text-xs md:text-sm text-slate-500 font-medium">ใช้งาน Thai Music Editor อย่างสร้างสรรค์ในทุกจังหวะของคุณ</p>
+      {/* ส่วนหัวต้อนรับ และ กระดิ่งแจ้งเตือน */}
+      <div className="flex justify-between items-start mb-6 md:mb-8 px-1">
+        <div>
+          <h2 className="text-2xl md:text-3xl font-extrabold text-slate-900 mb-1 md:mb-2">ยินดีต้อนรับกลับมา 👋</h2>
+          <p className="text-xs md:text-sm text-slate-500 font-medium">ใช้งาน Thai Music Editor อย่างสร้างสรรค์ในทุกจังหวะของคุณ</p>
+        </div>
+        
+        {/* ⭐ ใส่ class "hidden md:block" เพื่อให้ซ่อนในมือถือ และแสดงผลเฉพาะบนคอมพิวเตอร์ */}
+        <div className="relative hidden md:block" ref={notifRef}>
+          <button 
+            onClick={() => setIsNotifOpen(!isNotifOpen)}
+            className="w-10 h-10 rounded-full bg-white border border-slate-200 flex items-center justify-center text-slate-500 hover:text-sky-500 hover:border-sky-300 hover:shadow-sm transition-all relative group focus:outline-none"
+          >
+            {/* จุดแดงแจ้งเตือน */}
+            <span className="absolute top-2 right-2.5 w-2 h-2 bg-red-500 rounded-full border border-white"></span>
+            <svg className="w-5 h-5 group-active:scale-95 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+            </svg>
+          </button>
+
+          {/* หน้าต่าง Popup เมื่อกดปุ่มแจ้งเตือนบนคอมพิวเตอร์ */}
+          {isNotifOpen && (
+            <div className="absolute right-0 mt-3 w-80 bg-white border border-slate-200 rounded-2xl shadow-xl z-50 animate-fadeIn overflow-hidden">
+              <div className="px-5 py-3 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
+                <h3 className="text-sm font-bold text-slate-800">การแจ้งเตือน</h3>
+                <span className="text-[10px] bg-sky-100 text-sky-600 px-2 py-0.5 rounded-full font-bold">1 ใหม่</span>
+              </div>
+              <div className="max-h-[300px] overflow-y-auto">
+                
+                <div className="px-5 py-4 border-b border-slate-100 hover:bg-slate-50 transition-colors flex gap-3 cursor-pointer bg-sky-50/30">
+                  <div className="w-8 h-8 rounded-full bg-sky-100 text-sky-500 flex items-center justify-center shrink-0">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-800 mb-0.5">อัปเดตเวอร์ชัน 1.0.0 🎉</h4>
+                    <p className="text-[11px] text-slate-500 leading-tight">เพิ่มระบบเทมเพลต และเปิดใช้งานระบบบัญชีพรีเมียมแล้ววันนี้!</p>
+                    <span className="text-[9px] text-slate-400 mt-1 block">เมื่อ 2 ชั่วโมงที่แล้ว</span>
+                  </div>
+                </div>
+
+                <div className="px-5 py-4 border-b border-slate-100 hover:bg-slate-50 transition-colors flex gap-3 cursor-pointer opacity-70 hover:opacity-100">
+                  <div className="w-8 h-8 rounded-full bg-purple-100 text-purple-500 flex items-center justify-center shrink-0">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-800 mb-0.5">ยินดีต้อนรับสู่ TME!</h4>
+                    <p className="text-[11px] text-slate-500 leading-tight">เริ่มสร้างโปรเจกต์ใหม่และเขียนโน้ตเพลงไทยของคุณได้เลย</p>
+                    <span className="text-[9px] text-slate-400 mt-1 block">เมื่อ 1 วันที่แล้ว</span>
+                  </div>
+                </div>
+                
+              </div>
+              <div className="p-2 border-t border-slate-100 text-center bg-slate-50">
+                <button className="text-[11px] font-bold text-slate-400 hover:text-sky-500 transition-colors">ทำเครื่องหมายว่าอ่านแล้วทั้งหมด</button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Input ซ่อนสำหรับเลือกไฟล์ */}
@@ -81,7 +148,7 @@ const Home = ({ onNewProject, onPageChange }) => {
         onChange={handleFileUpload} 
       />
 
-      {/* ⭐ 1. Quick Actions: บนมือถือเป็น 3 คอลัมน์เล็กๆ กล่องสี่เหลี่ยม / คอมเป็นแนวยาว */}
+      {/* Quick Actions */}
       <div className="grid grid-cols-3 md:grid-cols-3 gap-3 md:gap-6 mb-8 md:mb-12">
         <button 
           onClick={() => { newProject(true); onNewProject(); }}
@@ -136,7 +203,6 @@ const Home = ({ onNewProject, onPageChange }) => {
           </button>
         </div>
         
-        {/* ⭐ 2. มุมมอง Desktop (Grid View): ซ่อนในมือถือ */}
         <div className="hidden md:grid md:grid-cols-4 lg:grid-cols-6 gap-5">
           {recentProjects.map((project) => (
             <button 
@@ -161,7 +227,6 @@ const Home = ({ onNewProject, onPageChange }) => {
           ))}
         </div>
 
-        {/* ⭐ 3. มุมมอง Mobile (List View): แสดงเฉพาะในมือถือ */}
         <div className="flex flex-col gap-3 md:hidden">
           {recentProjects.map((project) => (
             <button 

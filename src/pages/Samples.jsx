@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
-// ⭐ ตัด storage ทิ้งไปเลย ใช้แค่ auth กับ db
-import { auth, db } from '../utils/firebase'; 
+// ⭐ 1. ตัด auth ทิ้งได้เลย เพราะเรารับ userProfile มาแล้ว
+import { db } from '../utils/firebase'; 
 import { collection, onSnapshot, addDoc, doc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
 import TmeIcon from '../assets/icon.png'; 
 
-const Samples = ({ onOpenProject }) => {
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [currentUserEmail, setCurrentUserEmail] = useState('');
+// ⭐ 2. รับค่า userProfile เพิ่มเข้ามาใน Props
+const Samples = ({ onOpenProject, userProfile }) => {
+  
+  // ⭐ 3. เช็กสถานะแอดมินจากยศ (Role) โดยตรง
+  const isAdmin = userProfile?.role === 'admin';
   
   const [samples, setSamples] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -15,7 +17,6 @@ const Samples = ({ onOpenProject }) => {
   const [editingId, setEditingId] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
   
-  // ⭐ เปลี่ยน fileUrl เป็น fileContent เพื่อเก็บเนื้อหาไฟล์แทนลิงก์
   const [formData, setFormData] = useState({
     name: '',
     category: 'เพลงพื้นฐาน',
@@ -24,22 +25,7 @@ const Samples = ({ onOpenProject }) => {
     fileContent: '' 
   });
 
-  useEffect(() => {
-    const unsubscribeAuth = auth.onAuthStateChanged(user => {
-      if (user && user.email) {
-        setCurrentUserEmail(user.email);
-        if (user.email === 'admin@example.com' || user.email.includes('9atony.xyz')) {
-          setIsAdmin(true);
-        } else {
-          setIsAdmin(false);
-        }
-      } else {
-        setIsAdmin(false);
-      }
-    });
-    return () => unsubscribeAuth();
-  }, []);
-
+  // ⭐ 4. ลบ useEffect ที่เช็กอีเมลออกไป แล้วเหลือแค่ useEffect สำหรับดึงข้อมูลเพลง
   useEffect(() => {
     const samplesRef = collection(db, 'samples');
     const unsubscribeData = onSnapshot(samplesRef, (snapshot) => {
@@ -77,7 +63,6 @@ const Samples = ({ onOpenProject }) => {
     e.stopPropagation();
     if (window.confirm(`ต้องการลบเพลง "${sample.name}" ใช่หรือไม่?`)) {
       try {
-        // ⭐ ลบแค่ใน Database อย่างเดียวพอแล้ว
         await deleteDoc(doc(db, 'samples', sample.id));
         alert('ลบข้อมูลเรียบร้อยแล้ว');
       } catch (error) {
@@ -106,7 +91,6 @@ const Samples = ({ onOpenProject }) => {
     setIsModalOpen(true);
   };
 
-  // ⭐ ฟังก์ชันอ่านไฟล์ Text
   const readFileAsText = (file) => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -123,7 +107,6 @@ const Samples = ({ onOpenProject }) => {
     try {
       let finalContent = formData.fileContent;
 
-      // ⭐ ถ้ามีการอัปโหลดไฟล์ใหม่ ให้อ่านไฟล์แล้วดึงเนื้อหาออกมาเป็น Text
       if (formData.file) {
         finalContent = await readFileAsText(formData.file);
       }
@@ -132,7 +115,7 @@ const Samples = ({ onOpenProject }) => {
         name: formData.name,
         category: formData.category,
         level: formData.level,
-        fileContent: finalContent, // เซฟเนื้อหาโน้ตเพลงลง Firestore ตรงๆ
+        fileContent: finalContent, 
         updatedAt: serverTimestamp()
       };
 
@@ -167,14 +150,10 @@ const Samples = ({ onOpenProject }) => {
 
     if (sample.fileContent) {
       try {
-        // ลองแปลง Text ให้กลายเป็น JSON Object ก่อนส่ง
         const parsedContent = JSON.parse(sample.fileContent);
-        
-        // ส่ง ID, ข้อมูล และโหมดอ่านอย่างเดียวไปให้ Editor
         onOpenProject(sample.id, parsedContent, { readOnly: true }); 
       } catch (error) {
         console.error("แปลงไฟล์ .tme ไม่สำเร็จ (อาจไม่ใช่ JSON):", error);
-        // ถ้าแปลงไม่ได้ ก็ส่งแบบ Text ดิบๆ ไปเหมือนเดิม พร้อมโหมดอ่านอย่างเดียว
         onOpenProject(sample.id, sample.fileContent, { readOnly: true });
       }
     } else {

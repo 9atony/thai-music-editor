@@ -1768,21 +1768,25 @@ export const MusicProvider = ({ children }) => {
         commitChange(parsedSheetData, data.rowTypes, data.sectionLabels, data.symbols, loadedMargins);
 
         const uid = auth.currentUser?.uid;
-        if (uid) {
-           const projectDataToSave = { 
-             name: targetProjectName, songName: targetSongName, sheetData: parsedSheetData || sheetData, 
-             rowTypes: data.rowTypes || rowTypes, sectionLabels: data.sectionLabels || sectionLabels, 
-             symbols: data.symbols || symbols, layoutConfig: { ...layoutConfig, ...(data.layoutConfig || {}) }, 
-             headerDetails: data.headerDetails || headerDetails, currentInstrument: data.currentInstrument || currentInstrument?.id || 'ranat-ek', 
-             rowMargins: loadedMargins, playbackSequence: data.playbackSequence || playbackSequence,
-             isLoopAll: data.isLoopAll || false, isLoopOne: data.isLoopOne || false, 
-             intervalMode: data.intervalMode || (data.isOctaveMode ? '8' : 'off'), isReduceMode: data.isReduceMode || false,
-             isShowPlayMode: data.isShowPlayMode || false
-           };
-           
-           const newId = await saveProjectToDB(uid, null, projectDataToSave);
-           if (newId) setProjectId(newId); 
-        }
+if (uid) {
+   const projectDataToSave = { 
+     name: targetProjectName, songName: targetSongName, sheetData: parsedSheetData || sheetData, 
+     rowTypes: data.rowTypes || rowTypes, sectionLabels: data.sectionLabels || sectionLabels, 
+     symbols: data.symbols || symbols, layoutConfig: { ...layoutConfig, ...(data.layoutConfig || {}) }, 
+     headerDetails: data.headerDetails || headerDetails, currentInstrument: data.currentInstrument || currentInstrument?.id || 'ranat-ek', 
+     rowMargins: loadedMargins, playbackSequence: data.playbackSequence || playbackSequence,
+     isLoopAll: data.isLoopAll || false, isLoopOne: data.isLoopOne || false, 
+     intervalMode: data.intervalMode || (data.isOctaveMode ? '8' : 'off'), isReduceMode: data.isReduceMode || false,
+     isShowPlayMode: data.isShowPlayMode || false
+   };
+   
+   // ❌ ลบบรรทัด const newId = await saveProjectToDB(uid, null, projectDataToSave);
+   // ❌ ลบบรรทัด if (newId) setProjectId(newId); 
+   
+   setProjectId(null);  // ✅ คงไว้ เพื่อบอกแอปว่า "นี่คือไฟล์ใหม่ที่ยังไม่มี id ในระบบ"
+   // useEffect บรรทัด 2063 จะจัดการต่อเองภายใน 2 วินาที
+}
+
       } catch (error) {
         console.error("Load project error:", error);
         alert("ไฟล์ไม่ถูกต้อง หรือไฟล์เสียหายครับ!"); 

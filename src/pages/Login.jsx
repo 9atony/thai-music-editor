@@ -14,6 +14,8 @@ import {
 } from 'firebase/auth';
 
 import { auth } from '../utils/firebase';
+import { db } from '../utils/firebase'; 
+import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
 
 // ⭐ เพิ่ม onBackToLanding เข้ามาใน Props
 const Login = ({ onLoginSuccess, onBackToLanding }) => {
@@ -44,14 +46,26 @@ const Login = ({ onLoginSuccess, onBackToLanding }) => {
       await setPersistence(auth, persistenceType);
 
       if (isSignUp) {
+        // 1. สร้างบัญชี Auth
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        const user = userCredential.user;
         
         const autoAvatarURL = `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=random&color=fff&rounded=true&bold=true`;
         
-        await updateProfile(userCredential.user, {
+        // 2. อัปเดต Profile ใน Auth
+        await updateProfile(user, {
           displayName: displayName,
           photoURL: autoAvatarURL
         });
+
+        // ⭐ 3. บันทึกข้อมูลลง Firestore (คอลเล็กชัน users) ทันทีที่สมัครสมาชิก
+        await setDoc(doc(db, "users", user.uid), {
+          email: user.email,
+          displayName: displayName || user.email.split('@')[0],
+          role: "user", // กำหนดยศเริ่มต้นเป็น user
+          createdAt: serverTimestamp()
+        });
+
       } else {
         await signInWithEmailAndPassword(auth, email, password);
       }
@@ -79,7 +93,23 @@ const Login = ({ onLoginSuccess, onBackToLanding }) => {
     const provider = new GoogleAuthProvider();
     
     try {
-      await signInWithPopup(auth, provider);
+      // 1. ล็อกอินด้วย Google Popup
+      const result = await signInWithPopup(auth, provider);
+      const user = result.user;
+
+      // ⭐ 2. เช็กว่ามีข้อมูลใน Firestore หรือยัง ถ้ายังให้สร้างประวัติเริ่มต้นไว้ (ป้องกันกรณีสมัครครั้งแรกผ่าน Google)
+      const userDocRef = doc(db, "users", user.uid);
+      const userDocSnap = await getDoc(userDocRef);
+
+      if (!userDocSnap.exists()) {
+        await setDoc(userDocRef, {
+          email: user.email,
+          displayName: user.displayName || user.email.split('@')[0],
+          role: "user", // ยศเริ่มต้น
+          createdAt: serverTimestamp()
+        });
+      }
+
       if (onLoginSuccess) onLoginSuccess();
     } catch (err) {
       console.error(err);

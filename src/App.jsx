@@ -17,16 +17,24 @@ import Settings from './pages/Settings';
 import Templates from './pages/Templates';
 import Samples from './pages/Samples';
 
-// นำเข้าหน้า Tools ที่เพิ่งสร้างใหม่
+// นำเข้าหน้า Tools และ Admin Dashboard 
 import Tools from './pages/Tools';
+import AdminDashboard from './pages/AdminDashboard'; // ⭐ นำเข้าหน้าแอดมิน
 
 import { onAuthStateChanged } from 'firebase/auth';
-import { auth } from './utils/firebase'; 
+// ⭐ นำเข้า getUserProfile จาก firebase.js
+import { auth, getUserProfile } from './utils/firebase'; 
 import { MusicContext } from './contexts/MusicContext'; 
+
+import { doc, updateDoc } from 'firebase/firestore';
+import { db } from './utils/firebase';
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+  
+  // ⭐ State สำหรับเก็บข้อมูลโปรไฟล์และยศ (Role)
+  const [userProfile, setUserProfile] = useState(null); 
   
   // State สำหรับควบคุมการแสดงหน้า Login เมื่อยังไม่ได้ล็อกอิน
   const [showLogin, setShowLogin] = useState(false);
@@ -39,7 +47,7 @@ function App() {
   // ==========================================
   // ⭐ ระบบรหัสผ่านชั่วคราวกั้นหน้าเว็บ (บังคับกรอกทุกครั้งที่เปิดเว็บ)
   // ==========================================
-  const SITE_PASSWORD = "327085"; // 👈 เปลี่ยนรหัสผ่านตรงนี้ได้ตามต้องการครับ
+  const SITE_PASSWORD = "327085"; 
   const [isSiteUnlocked, setIsSiteUnlocked] = useState(() => {
     return sessionStorage.getItem('tme_site_unlocked') === 'true';
   });
@@ -61,40 +69,51 @@ function App() {
   // ==========================================
 
   const { isMobile } = useDevice();
-
-  // ⭐ ดึงฟังก์ชัน applyTemplate และฟังก์ชันโหลดข้อมูลโปรเจกต์จาก Context
   const { applyTemplate, loadProjectFromFirebase } = useContext(MusicContext);
-
-  // โหมดการเปิด Editor: ปกติ / ดูตัวอย่างแบบอ่านอย่างเดียว
   const [editorMode, setEditorMode] = useState('normal');
 
+  // 2. ปรับแก้ส่วน useEffect เดิม เป็นแบบนี้ครับ
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
         setIsAuthenticated(true);
-        // รีเซ็ตหน้ากลับเป็น home เสมอเมื่อเข้าสู่ระบบสำเร็จ
+        
+        // ดึงข้อมูลโปรไฟล์จาก Firestore
+        const profileData = await getUserProfile(user.uid);
+        
+        // ⭐ เพิ่มระบบดึงชื่อจาก Gmail มาเซฟลงฐานข้อมูลอัตโนมัติ
+        if (profileData && !profileData.displayName && user.displayName) {
+          try {
+            await updateDoc(doc(db, 'users', user.uid), {
+              displayName: user.displayName // เอาชื่อจาก Google/Gmail มาเซฟทับ
+            });
+            profileData.displayName = user.displayName; // อัปเดตใน State ด้วย
+          } catch (error) {
+            console.error("อัปเดตชื่ออัตโนมัติไม่สำเร็จ:", error);
+          }
+        }
+
+        setUserProfile(profileData);
         setCurrentView('home');
       } else {
         setIsAuthenticated(false);
+        setUserProfile(null); 
       }
       setIsCheckingAuth(false);
     });
     return () => unsubscribe();
   }, []);
 
-// ⭐ ดักจับปุ่ม Back ของเบราว์เซอร์/มือถือ (ป้องกันกดแล้วหลุดออกจากเว็บ)
+  // ดักจับปุ่ม Back ของเบราว์เซอร์/มือถือ
   useEffect(() => {
     window.history.pushState(null, null, window.location.href);
 
     const handlePopState = () => {
-      // ดันประวัติหลอกไว้ซ้ำเรื่อยๆ เพื่อดักปุ่ม Back ไม่ให้หลุดเว็บ
       window.history.pushState(null, null, window.location.href);
 
-      // ถ้าตอนนี้อยู่หน้า Editor ให้กด Back แล้วเด้งกลับหน้าก่อนหน้า (เช่น home หรือ my-projects)
       if (currentView === 'editor') {
         setCurrentView(previousView);
       } 
-      // ถ้าไม่ได้อยู่หน้า Editor แต่เป็นหน้าเมนูย่อยอื่นๆ ให้กด Back แล้วกลับมาหน้า home
       else if (currentView !== 'home' && currentView !== 'landing') {
         setCurrentView('home');
       }
@@ -108,7 +127,6 @@ function App() {
     return <div className="min-h-screen bg-slate-50 flex items-center justify-center font-sans text-slate-500 font-medium">กำลังตรวจสอบข้อมูล...</div>;
   }
 
-  // ⭐ ถ้ายังไม่ได้ปลดล็อกรหัสผ่านหน้าเว็บ ให้แสดงหน้าจอกรอกรหัสก่อนเป็นอันดับแรกสุด
   if (!isSiteUnlocked) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4 font-sans" style={{ fontFamily: 'Prompt, sans-serif' }}>
@@ -142,10 +160,8 @@ function App() {
     );
   }
 
-  // ปรับโลจิกจัดการหน้าก่อนเข้าสู่ระบบ
   if (!isAuthenticated) {
     if (showLogin) {
-      // หน้า Login พร้อมส่งฟังก์ชันปิดหน้าเพื่อกลับไป Landing ได้
       return (
         <Login 
           onLoginSuccess={() => {
@@ -156,36 +172,28 @@ function App() {
         />
       );
     }
-    // แสดงหน้า Landing เป็นค่าเริ่มต้น
     return <Landing onLoginClick={() => setShowLogin(true)} />;
   }
 
-  // ===== ส่วนด้านล่างนี้คือหน้าสำหรับผู้ใช้ที่ล็อกอินแล้ว =====
-
-  // ⭐ ปรับให้ handleOpenEditor รับค่า id, ข้อมูลโปรเจกต์ และ option เพิ่มเติม
   const handleOpenEditor = (projectId = null, projectData = null, options = {}) => {
     const isSampleView = options?.readOnly === true;
     setEditorMode(isSampleView ? 'sample-readonly' : 'normal');
 
-    // ถ้ามีการส่งข้อมูล projectData มาด้วย (เช่น จากหน้า Samples)
     if (projectData && loadProjectFromFirebase) {
       try {
-        // แปลงข้อมูล Text ให้เป็น JSON Object ก่อนส่งให้ Editor ทำงาน
         const parsedData = typeof projectData === 'string' ? JSON.parse(projectData) : projectData;
-
-        // ถ้าเป็น sample แบบดูอย่างเดียว ไม่ต้องผูก projectId เดิมไว้ ป้องกันการเซฟทับต้นฉบับ
         const payload = isSampleView
           ? parsedData
           : { ...(parsedData || {}), ...(projectId ? { id: projectId } : {}) };
 
-        loadProjectFromFirebase(payload, true, isSampleView); // ⭐ skipWarning + readOnly
+        loadProjectFromFirebase(payload, true, isSampleView); 
       } catch (e) {
         console.error("รูปแบบข้อมูลไม่ถูกต้อง แปลง JSON ไม่สำเร็จ:", e);
       }
     }
 
-    setPreviousView(currentView); // จำไว้ว่ามาจากหน้าไหน 
-    setCurrentView('editor');     // เปลี่ยนหน้าไปเป็น editor
+    setPreviousView(currentView); 
+    setCurrentView('editor');     
   };
 
   if (currentView === 'editor') {
@@ -195,10 +203,12 @@ function App() {
     return <DesktopEditor onBack={() => setCurrentView(previousView)} readOnly={editorMode === 'sample-readonly'} />;
   }
 
+  // ⭐ ส่ง userProfile เข้าไปในแต่ละหน้า (Pages)
   const renderContent = () => (
     <>
       {currentView === 'home' && (
         <Home 
+          userProfile={userProfile}
           onNewProject={(...args) => {
             setEditorMode('normal');
             handleOpenEditor(...args);
@@ -208,31 +218,41 @@ function App() {
       )}
       
       {currentView === 'my-projects' && (
-        <MyProjects onNewProject={(...args) => {
-          setEditorMode('normal');
-          handleOpenEditor(...args);
-        }} /> 
+        <MyProjects 
+          userProfile={userProfile}
+          onNewProject={(...args) => {
+            setEditorMode('normal');
+            handleOpenEditor(...args);
+          }} 
+        /> 
       )}
 
       {currentView === 'templates' && (
-        <Templates onNewProject={(templateData) => {
-          setEditorMode('normal');
-          applyTemplate(templateData);
-          handleOpenEditor(); 
-        }} />
+        <Templates 
+          userProfile={userProfile}
+          onNewProject={(templateData) => {
+            setEditorMode('normal');
+            applyTemplate(templateData);
+            handleOpenEditor(); 
+          }} 
+        />
       )}
 
-      {/* ⭐ ส่ง handleOpenEditor ไปที่ Samples */}
       {currentView === 'samples' && (
-        <Samples onOpenProject={handleOpenEditor} /> 
+        <Samples userProfile={userProfile} onOpenProject={handleOpenEditor} /> 
       )}
 
       {currentView === 'tools' && (
-        <Tools onPageChange={(page) => setCurrentView(page)} />
+        <Tools userProfile={userProfile} onPageChange={(page) => setCurrentView(page)} />
       )}
 
       {currentView === 'settings' && (
-        <Settings />
+        <Settings userProfile={userProfile} />
+      )}
+
+      {/* ⭐ เพิ่มการแสดงผลหน้า Admin Dashboard */}
+      {currentView === 'admin-users' && (
+        <AdminDashboard userProfile={userProfile} />
       )}
     </>
   );

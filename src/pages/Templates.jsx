@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { auth } from '../utils/firebase'; 
+import React, { useState } from 'react';
+// ลบการนำเข้า auth ออกไปได้เลย เพราะเราใช้ userProfile ที่ส่งมาแทนแล้ว
 
 // นำเข้ารูปภาพจากโฟลเดอร์ assets/templates
 import previewBlank from '../assets/templates/preview-blank.png';
@@ -7,20 +7,11 @@ import previewStandard from '../assets/templates/preview-standard.png';
 import previewWorksheet from '../assets/templates/preview-worksheet.png';
 import previewFormal from '../assets/templates/preview-formal.png';
 
-const Templates = ({ onNewProject }) => {
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [currentUserEmail, setCurrentUserEmail] = useState('');
-
-  useEffect(() => {
-    const user = auth.currentUser;
-    if (user && user.email) {
-      setCurrentUserEmail(user.email);
-      // เปลี่ยนอีเมลตรงนี้เป็นอีเมลของคุณได้เลยครับ
-      if (user.email === 'admin@example.com' || user.email.includes('9atony.xyz')) {
-        setIsAdmin(true);
-      }
-    }
-  }, []);
+// ⭐ 1. รับค่า userProfile เข้ามาทาง Props
+const Templates = ({ onNewProject, userProfile }) => {
+  
+  // ⭐ 2. เช็กสถานะแอดมินจาก "ยศ" ใน userProfile โดยตรง
+  const isAdmin = userProfile?.role === 'admin';
 
   const defaultTemplates = [
     { 
@@ -156,7 +147,7 @@ const Templates = ({ onNewProject }) => {
               </div>
             )}
 
-            {/* ⭐ พื้นที่รูปภาพพรีวิว (กรอบแนวนอน 16:9, ไม่ครอป, ไม่มีไอคอนบัง) */}
+            {/* พื้นที่รูปภาพพรีวิว */}
             <div className="w-full aspect-video bg-slate-50 relative overflow-hidden border-b border-slate-200 flex items-center justify-center">
               {template.previewImg ? (
                 <img 
