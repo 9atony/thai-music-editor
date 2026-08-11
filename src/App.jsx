@@ -36,6 +36,30 @@ function App() {
   // State สำหรับจดจำหน้าก่อนหน้าที่จะเข้า Editor
   const [previousView, setPreviousView] = useState('home'); 
 
+  // ==========================================
+  // ⭐ ระบบรหัสผ่านชั่วคราวกั้นหน้าเว็บ (บังคับกรอกทุกครั้งที่เปิดเว็บ)
+  // ==========================================
+  const SITE_PASSWORD = "327085"; // 👈 เปลี่ยนรหัสผ่านตรงนี้ได้ตามต้องการครับ
+  const [isSiteUnlocked, setIsSiteUnlocked] = useState(() => {
+    return sessionStorage.getItem('tme_site_unlocked') === 'true';
+  });
+  const [sitePassInput, setSitePassInput] = useState("");
+  const [passError, setPassError] = useState(false);
+
+  const handleSiteLogin = (e) => {
+    e.preventDefault();
+    if (sitePassInput === SITE_PASSWORD) {
+      sessionStorage.setItem('tme_site_unlocked', 'true');
+      setIsSiteUnlocked(true);
+      setPassError(false);
+    } else {
+      setPassError(true);
+      setSitePassInput("");
+    }
+  };
+  // ==========================================
+  // ==========================================
+
   const { isMobile } = useDevice();
 
   // ⭐ ดึงฟังก์ชัน applyTemplate และฟังก์ชันโหลดข้อมูลโปรเจกต์จาก Context
@@ -82,6 +106,40 @@ function App() {
 
   if (isCheckingAuth) {
     return <div className="min-h-screen bg-slate-50 flex items-center justify-center font-sans text-slate-500 font-medium">กำลังตรวจสอบข้อมูล...</div>;
+  }
+
+  // ⭐ ถ้ายังไม่ได้ปลดล็อกรหัสผ่านหน้าเว็บ ให้แสดงหน้าจอกรอกรหัสก่อนเป็นอันดับแรกสุด
+  if (!isSiteUnlocked) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4 font-sans" style={{ fontFamily: 'Prompt, sans-serif' }}>
+        <div className="bg-white rounded-3xl p-8 w-full max-w-sm shadow-2xl text-center">
+          <div className="w-16 h-16 bg-sky-100 text-sky-500 rounded-full flex items-center justify-center mx-auto mb-4">
+            <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+          </div>
+          <h2 className="text-xl font-bold text-slate-800 mb-1">กรอกรหัสผ่านเข้าเว็บไซต์</h2>
+          <p className="text-xs text-slate-400 mb-6">โปรดระบุรหัสผ่านเพื่อเข้าใช้งานระบบ</p>
+          
+          <form onSubmit={handleSiteLogin} className="space-y-4">
+            <input 
+              type="password"
+              placeholder="รหัสผ่านเว็บไซต์"
+              value={sitePassInput}
+              onChange={(e) => setSitePassInput(e.target.value)}
+              autoFocus
+              className={`w-full px-4 py-3 bg-slate-50 border rounded-xl text-sm font-bold text-center outline-none transition-all ${passError ? 'border-rose-500 bg-rose-50/30' : 'border-slate-200 focus:border-sky-400'}`}
+            />
+            {passError && <p className="text-xs text-rose-500 font-bold">รหัสผ่านไม่ถูกต้อง กรุณาลองใหม่อีกครั้ง</p>}
+            
+            <button 
+              type="submit"
+              className="w-full py-3 bg-sky-500 hover:bg-sky-600 text-white rounded-xl text-sm font-bold transition-all shadow-lg shadow-sky-500/20 active:scale-[0.98]"
+            >
+              เข้าสู่เว็บไซต์
+            </button>
+          </form>
+        </div>
+      </div>
+    );
   }
 
   // ปรับโลจิกจัดการหน้าก่อนเข้าสู่ระบบ
