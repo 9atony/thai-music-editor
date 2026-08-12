@@ -219,12 +219,14 @@ export const MusicProvider = ({ children }) => {
     setPendingAction({ isOpen: false, type: null, payload: null });
   };
   
-  const autoSaveToFirebase = async (data) => {
+  // ⭐ เพิ่ม currentProjectId เข้ามารับค่าโดยตรง
+  const autoSaveToFirebase = async (data, currentProjectId) => {
     const uid = auth.currentUser?.uid;
-    if (!uid) return; 
+    if (!uid) return;
     try {
-      const id = await saveProjectToDB(uid, projectId, data);
-      if (!projectId && id) setProjectId(id); 
+      // ใช้ currentProjectId ที่รับมาส่งให้ Firebase
+      const id = await saveProjectToDB(uid, currentProjectId, data);
+      if (!currentProjectId && id) setProjectId(id);
     } catch (err) {
       console.error("Auto-save failed:", err);
     }
@@ -342,9 +344,12 @@ export const MusicProvider = ({ children }) => {
   const scheduleResolvedInstrumentNote = (noteStr, vol, whenSec, options = {}) => {
     if (!noteStr || noteStr === '-') return;
 
-    const { bypassOctaveLayer = false, hand = 'single' } = options;
+    const { bypassOctaveLayer = false, hand = 'single', overrideInstId = null } = options;
     const actualNoteToPlay = isReduceModeRef.current ? shiftNoteString(noteStr, -1) : noteStr;
-    const inst = currentInstrumentRef.current;
+    
+    // ⭐ เช็กว่ามีการระบุเครื่องดนตรีเฉพาะกิจมาไหม ถ้ามีใช้ตัวนั้น ถ้าไม่มีค่อยใช้ของทั้งเพลง
+    const inst = overrideInstId && INSTRUMENT_CONFIG[overrideInstId] ? INSTRUMENT_CONFIG[overrideInstId] : currentInstrumentRef.current;
+    
     const safeWhen = Math.max((getAudioCurrentTime ? getAudioCurrentTime() : 0) + 0.015, whenSec ?? 0);
 
     if (!bypassOctaveLayer && intervalModeRef.current !== 'off') {
@@ -378,10 +383,19 @@ export const MusicProvider = ({ children }) => {
     const events = parseCellToken(token, 'flat'); 
     if (events.length === 0) return;
 
+    // ⭐ ดึงเครื่องดนตรีเฉพาะกิจของช่องปัจจุบัน (ถ้ามี) มาใช้พรีวิวเสียง
+    let overrideInstId = null;
+    if (selectedCellRef.current) {
+      const [r, m, c] = selectedCellRef.current;
+      overrideInstId = layoutConfigRef.current.customStyles?.[`${r}_${m}_${c}`]?.instrumentId || null;
+    }
+
     events.forEach((event, index) => {
       const delay = events.length === 1 ? 0 : Math.max(0, Math.floor(index * previewGapMs));
       const volume = Math.max(0, Math.round(baseVolume * (event.emphasis ?? 1)));
-      const playEvent = () => playResolvedInstrumentNote(event.note, volume, { hand: 'single' }); 
+      
+      // ⭐ แนบเครื่องดนตรีเฉพาะกิจส่งไปให้ฟังก์ชันเล่นเสียงด้วย
+      const playEvent = () => playResolvedInstrumentNote(event.note, volume, { hand: 'single', overrideInstId }); 
 
       if (delay <= 0) playEvent();
       else effectTimersRef.current.push(setTimeout(playEvent, delay));
@@ -695,11 +709,16 @@ export const MusicProvider = ({ children }) => {
       const tokenEvents = parseCellToken(tokenStr, 'flat');
       if (tokenEvents.length === 0) return;
 
+      // ⭐ แอบไปดูว่าโน้ตช่องนี้โดนคลุมดำแล้วเปลี่ยนเครื่องดนตรีฝังไว้หรือเปล่า
+      const customStyles = layoutConfigRef.current.customStyles || {};
+      const overrideInstId = customStyles[`${targetR}_${targetM}_${targetC}`]?.instrumentId || null;
+
       tokenEvents.forEach((event, subIdx) => {
         const eventDelayMs = Math.max(0, Math.floor(baseDelayMs + (cellDurationMs * (event.ratio ?? 0))));
         const eventVolume = getCellVolume(targetR, targetM, targetC, subIdx, baseVol);
         if (eventVolume > 0) {
-          scheduleResolvedInstrumentNote(event.note, eventVolume, cellStartSec + (eventDelayMs / 1000), options);
+          // ⭐ แปะเครื่องดนตรีนี้ส่งไปให้ Audio Engine เล่นด้วย
+          scheduleResolvedInstrumentNote(event.note, eventVolume, cellStartSec + (eventDelayMs / 1000), { ...options, overrideInstId });
         }
       });
     };
@@ -709,6 +728,13 @@ export const MusicProvider = ({ children }) => {
         let noteRightStr = null;
         let noteLeftStr = null;
         const firstColNotes = events[0] || [];
+
+        // ⭐ ดึงเครื่องดนตรีเฉพาะกิจสำหรับลูกกรอ
+        let overrideInstId = null;
+        if (firstColNotes.length > 0) {
+           const customStyles = layoutConfigRef.current.customStyles || {};
+           overrideInstId = customStyles[`${firstColNotes[0].r}_${firstColNotes[0].m}_${firstColNotes[0].c}`]?.instrumentId || null;
+        }
 
         if (firstColNotes.length >= 2) {
           noteRightStr = firstColNotes[0].note && firstColNotes[0].note !== '-' ? firstColNotes[0].note : null;
@@ -735,7 +761,7 @@ export const MusicProvider = ({ children }) => {
               ? (startHand === 'left' ? 'left' : 'right')
               : (startHand === 'left' ? 'right' : 'left');
             const noteToPlay = currentHand === 'right' ? noteRightStr : noteLeftStr;
-            scheduleResolvedInstrumentNote(noteToPlay, layoutConfigRef.current.volume ?? 100, cellStartSec + (offsetMs / 1000), { bypassOctaveLayer: true, hand: currentHand });
+            scheduleResolvedInstrumentNote(noteToPlay, layoutConfigRef.current.volume ?? 100, cellStartSec + (offsetMs / 1000), { bypassOctaveLayer: true, hand: currentHand, overrideInstId });
           }
         }
         return;
@@ -747,8 +773,11 @@ export const MusicProvider = ({ children }) => {
       if (stepCount === 1) {
         events[0].forEach(nData => {
           const vol = getCellVolume(nData.r, nData.m, nData.c, nData.subIdx, layoutConfigRef.current.volume ?? 100);
+          const customStyles = layoutConfigRef.current.customStyles || {};
+          const overrideInstId = customStyles[`${nData.r}_${nData.m}_${nData.c}`]?.instrumentId || null;
+
           if (vol > 0) {
-            scheduleResolvedInstrumentNote(nData.note, vol, cellStartSec, { hand: 'single' });
+            scheduleResolvedInstrumentNote(nData.note, vol, cellStartSec, { hand: 'single', overrideInstId });
           }
         });
       } else if (stepCount > 1) {
@@ -757,8 +786,11 @@ export const MusicProvider = ({ children }) => {
           const playTimeMs = stepIdx * intervalMs;
           chord.forEach(nData => {
             const vol = getCellVolume(nData.r, nData.m, nData.c, nData.subIdx, layoutConfigRef.current.volume ?? 100);
+            const customStyles = layoutConfigRef.current.customStyles || {};
+            const overrideInstId = customStyles[`${nData.r}_${nData.m}_${nData.c}`]?.instrumentId || null;
+
             if (vol > 0) {
-              scheduleResolvedInstrumentNote(nData.note, vol, cellStartSec + (playTimeMs / 1000), { hand: 'single' });
+              scheduleResolvedInstrumentNote(nData.note, vol, cellStartSec + (playTimeMs / 1000), { hand: 'single', overrideInstId });
             }
           });
         });
@@ -2029,6 +2061,9 @@ if (uid) {
     if (saved) {
       try {
         const data = JSON.parse(saved);
+        const restoredId = data.projectId || data.id || null;
+        if (restoredId) setProjectId(restoredId);
+        if (data.projectId !== undefined) setProjectId(data.projectId);
         if (data.name !== undefined) setProjectName(data.name);
         if (data.songName !== undefined) setSongName(data.songName);
         if (data.sheetData) setSheetData(data.sheetData);
@@ -2062,13 +2097,17 @@ if (uid) {
       commitChange(sheetData, rowTypes, sectionLabels, symbols, rowMargins);
     }
     setIsLoaded(true);
-  }, []);
+    
+  }, []); 
+  
 
  useEffect(() => {
     if (!isLoaded || isImportingRef.current || isReadOnly) return; 
     const isFreshProject = !projectId && historyIndex <= 0 && projectName === "โปรเจกต์ไม่มีชื่อ" && songName === "เพลงใหม่";
 
     const projectData = { 
+      projectId: projectId, // ⭐ ฝัง ID ลงไปในข้อมูลเสมอ
+      id: projectId, // ⭐ ฝังเผื่อไว้อีกตัว
       name: projectName, songName, sheetData, rowTypes, sectionLabels, 
       symbols, layoutConfig, headerDetails, currentInstrument: currentInstrument.id, 
       rowMargins, playbackSequence,
@@ -2076,16 +2115,17 @@ if (uid) {
     };
     
     localStorage.setItem('thaiMusicEditorAutoSave', JSON.stringify(projectData));
+
     
     if (!isFreshProject) {
       const debounceTimer = setTimeout(() => {
-        autoSaveToFirebase(projectData);
+        // ⭐ โยน projectId ยัดใส่มือฟังก์ชันตรงๆ แก้ปัญหา Stale Closure!
+        autoSaveToFirebase(projectData, projectId);
       }, 2000);
 
       return () => clearTimeout(debounceTimer);
     }
   }, [isLoaded, projectName, songName, sheetData, rowTypes, sectionLabels, symbols, layoutConfig, headerDetails, currentInstrument, rowMargins, playbackSequence, isLoopAll, isLoopOne, intervalMode, isReduceMode, isShowPlayMode, projectId, historyIndex, isReadOnly]);
-  
   const updateRowMarginsList = (arg1, arg2, arg3) => {
     if (isReadOnlyRef.current) return;
     const newRowMargins = [...rowMargins];
@@ -2114,7 +2154,68 @@ if (uid) {
   const addDetail = () => { if (isReadOnlyRef.current) return; setHeaderDetails([...headerDetails, { id: headerDetails.length > 0 ? Math.max(...headerDetails.map(d => d.id)) + 1 : 1, label: "หัวข้อใหม่", value: "ระบุข้อมูล" }]); };
   const removeDetail = (id) => { if (isReadOnlyRef.current) return; setHeaderDetails(headerDetails.filter(detail => detail.id !== id)); };
   const updateDetail = (id, key, newValue) => { if (isReadOnlyRef.current) return; setHeaderDetails(headerDetails.map(detail => detail.id === id ? { ...detail, [key]: newValue } : detail)); };
-  const changeInstrument = (instrumentId) => setCurrentInstrument(INSTRUMENT_CONFIG[instrumentId]);
+  const changeInstrument = (instrumentId) => {
+    if (isReadOnlyRef.current) return;
+    
+    // ⭐ เช็กให้ชัวร์ว่าลาก "คลุมดำ" จริงๆ (จุดเริ่มต้นกับจุดสิ้นสุดต้องไม่ใช่อันเดียวกัน)
+    let isBlockSelection = false;
+    if (selectionRange && selectionRange.start && selectionRange.end) {
+      const { start: [sr, sm, sc], end: [er, em, ec] } = selectionRange;
+      if (sr !== er || sm !== em || sc !== ec) {
+        isBlockSelection = true;
+      }
+    }
+    
+    if (isBlockSelection) {
+      const { start: [sr, sm, sc], end: [er, em, ec] } = selectionRange;
+      const minR = Math.min(sr, er), maxR = Math.max(sr, er);
+      const startCol = getFlattenedCol(sheetData[sr], rowTypes[sr], sm, sc);
+      const endCol = getFlattenedCol(sheetData[er], rowTypes[er], em, ec);
+      const minCol = Math.min(startCol, endCol), maxCol = Math.max(startCol, endCol);
+
+      const newLayoutConfig = { ...layoutConfig };
+      const newCustomStyles = { ...(newLayoutConfig.customStyles || {}) };
+
+      let hasChanges = false;
+
+      for (let r = minR; r <= maxR; r++) {
+        if (rowTypes[r] === 'page-break' || rowTypes[r] === 'text') continue;
+        let currentCol = 0;
+        for (let m = 0; m < sheetData[r].length; m++) {
+          if (rowTypes[r].startsWith('double') && m === 0) continue;
+          for (let c = 0; c < sheetData[r][m].length; c++) {
+            if (currentCol >= minCol && currentCol <= maxCol) {
+              const cellKey = `${r}_${m}_${c}`;
+              newCustomStyles[cellKey] = {
+                ...(newCustomStyles[cellKey] || {}),
+                instrumentId: instrumentId 
+              };
+              
+              // ⭐ ถ้าเป็นบรรทัดคู่ ต้องแอบไปฝังให้อีกมือด้วย เสียงจะได้ตรงกัน
+              if (rowTypes[r] === 'double-right') {
+                 newCustomStyles[`${r+1}_${m}_${c}`] = { ...(newCustomStyles[`${r+1}_${m}_${c}`] || {}), instrumentId };
+              } else if (rowTypes[r] === 'double-left') {
+                 newCustomStyles[`${r-1}_${m}_${c}`] = { ...(newCustomStyles[`${r-1}_${m}_${c}`] || {}), instrumentId };
+              }
+              
+              hasChanges = true;
+            }
+            currentCol++;
+          }
+        }
+      }
+
+      if (hasChanges) {
+        newLayoutConfig.customStyles = newCustomStyles;
+        setLayoutConfig(newLayoutConfig);
+        commitChange(sheetData, rowTypes, sectionLabels, symbols, rowMargins);
+        setSelectionRange(null); 
+      }
+    } else {
+      // ⭐ ถ้าไม่ได้คลุมดำยาวๆ (แค่คลิกเฉยๆ) ให้เปลี่ยนเครื่องดนตรีหลักของเพลงตามปกติ
+      setCurrentInstrument(INSTRUMENT_CONFIG[instrumentId]);
+    }
+  };
   
   const performLoadProjectFromFirebase = (projectData) => {
     isImportingRef.current = true;
