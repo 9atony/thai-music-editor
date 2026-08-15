@@ -148,6 +148,21 @@ const Sheet = forwardRef((props, ref) => {
           commitTokenEdit();
         }
       }
+
+      const activeEl = document.activeElement;
+      if (activeEl && activeEl !== document.body && typeof activeEl.id === 'string' && !activeEl.contains(e.target)) {
+        if (activeEl.id.startsWith('text-row-')) {
+          const rowIndex = Number(activeEl.id.replace('text-row-', ''));
+          if (!Number.isNaN(rowIndex) && updateTextRow) {
+            updateTextRow(rowIndex, activeEl.innerHTML);
+          }
+        } else if (activeEl.id.startsWith('annotation-')) {
+          const parts = activeEl.id.replace('annotation-', '').split('-').map(Number);
+          if (parts.length >= 2 && !Number.isNaN(parts[0]) && !Number.isNaN(parts[1]) && updateMeasureText) {
+            updateMeasureText(parts[0], parts[1], activeEl.innerHTML);
+          }
+        }
+      }
     };
 
     window.addEventListener('mouseup', handleMouseUpGlobal);
@@ -1296,12 +1311,9 @@ return (
                                   if (setToolbarMode) setToolbarMode('text'); // บังคับเปิดแถบเครื่องมือ
                                 }}
                                 onBlur={(e) => {
-                                  // แอบใช้ updateMeasureText เซฟข้อความลงไปในช่องที่ 0 ของห้องนี้
-                                  const text = e.target.innerHTML;
-                                  if (sheetData[actualRIndex] && sheetData[actualRIndex][actualMIndex]) {
-                                      sheetData[actualRIndex][actualMIndex][0] = text;
-                                      setPaginateTrigger(prev => prev + 1); 
-                                  }
+                                  const isToolbar = e.relatedTarget && e.relatedTarget.closest('.playback-controls-container');
+                                  if (isToolbar) return;
+                                  updateMeasureText(actualRIndex, actualMIndex, e.target.innerHTML);
                                 }}
                                 onKeyDown={(e) => {
                                     e.stopPropagation(); 

@@ -1609,7 +1609,12 @@ export const MusicProvider = ({ children }) => {
     setTimeout(() => { setSelectedCell([insertIdx, 0, 0]); }, 10);
   };
 
-  const updateTextRow = (rIndex, text) => { if (isReadOnlyRef.current) return; const newData = [...sheetData]; newData[rIndex] = [[text]]; setSheetData(newData); };
+  const updateTextRow = (rIndex, text) => {
+    if (isReadOnlyRef.current) return;
+    const newData = [...sheetData];
+    newData[rIndex] = [[text]];
+    commitChange(newData);
+  };
 
   // ⭐ ฟังก์ชันใหม่: สร้างบรรทัดคำอธิบาย (ตาราง 8 ห้อง ห้องละ 4 จังหวะ แต่เอาไว้พิมพ์ข้อความ)
   const addAnnotationRow = (insertAtTop = null) => {
@@ -1790,10 +1795,16 @@ export const MusicProvider = ({ children }) => {
   const updateMeasureText = (r, m, text) => {
     if (isReadOnlyRef.current) return;
     const newData = [...sheetData];
-    if (newData[r][m][0].startsWith('@TEXT_SPAN_')) {
-       newData[r][m][1] = text;
-       commitChange(newData);
+    if (!newData[r] || !newData[r][m]) return;
+
+    if (typeof newData[r][m][0] === 'string' && newData[r][m][0].startsWith('@TEXT_SPAN_')) {
+      newData[r][m][1] = text;
+      commitChange(newData);
+      return;
     }
+
+    newData[r][m][0] = text;
+    commitChange(newData);
   };
 
   const addSectionLabel = (visualIndex) => { if (isReadOnlyRef.current) return; commitChange(sheetData, rowTypes, { ...sectionLabels, [visualIndex]: [...(sectionLabels[visualIndex] || []), { id: Date.now(), text: "", position: 'top-left', fontSize: 18, isBold: true, offsetY: 6 }] }); };
