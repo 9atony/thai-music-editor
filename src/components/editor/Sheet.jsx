@@ -195,7 +195,7 @@ const Sheet = forwardRef((props, ref) => {
   }, [selectedCell, rowTypes, sheetData, addTextRow]);
 
   useEffect(() => {
-    const [r] = selectedCell;
+    const [r, m] = selectedCell;
     if (rowTypes[r] === 'text') {
       setToolbarMode('text'); 
       setTimeout(() => {
@@ -214,10 +214,29 @@ const Sheet = forwardRef((props, ref) => {
           }
         }
       }, 10); 
+    } else if (rowTypes[r] === 'annotation') {
+      // ⭐ เปิด Toolbar ข้อความสำหรับบรรทัดคำอธิบายด้วย
+      setToolbarMode('text');
+      setTimeout(() => {
+        const annoEl = document.getElementById(`annotation-${r}-${m}`);
+        if (annoEl) {
+          const sel = window.getSelection();
+          if (!annoEl.contains(sel.anchorNode)) {
+            annoEl.focus();
+            if (document.createRange) {
+              const range = document.createRange();
+              range.selectNodeContents(annoEl);
+              range.collapse(false); 
+              sel.removeAllRanges();
+              sel.addRange(range);
+            }
+          }
+        }
+      }, 10);
     } else {
       setToolbarMode('default'); 
     }
-  }, [selectedCell[0], rowTypes, setToolbarMode]);
+  }, [selectedCell[0], selectedCell[1], rowTypes, setToolbarMode]);
 
   useEffect(() => {
     if (selectedSymbolId) setToolbarMode('symbol');
@@ -1156,26 +1175,31 @@ return (
                   const isDoubleRight = rType === 'double-right';
                   const isDoubleLeft = rType === 'double-left';
                   const isDouble = isDoubleRight || isDoubleLeft;
-                  const pb = isDoubleRight ? 0 : layoutConfig.rowGap;
+                  const isAnnotation = rType === 'annotation';
+                  
+                  // ⭐ เช็กว่าบรรทัดถัดไปเป็นบรรทัดคำอธิบายหรือไม่ เพื่อลดระยะห่างให้ติดกัน
+                  const nextRType = rIndex + 1 < rowTypes.length ? rowTypes[rIndex + 1] : null;
+                  const pb = (isDoubleRight || nextRType === 'annotation') ? 0 : layoutConfig.rowGap;
 
                   let visualRowNumber = displayRowNumbers[rIndex];
                   if (isDoubleLeft && rIndex > 0) visualRowNumber = displayRowNumbers[rIndex - 1]; 
                   const visualIndex = visualRowNumber !== '' && visualRowNumber != null ? visualRowNumber - 1 : null;                  
                   
-                  // ⭐ 1. สร้างแพ็กเกจสำหรับวาดช่องโน้ต (รองรับการหั่นบรรทัดเมื่อล้น 8 ห้อง)
+                  // ⭐ 1. สร้างแพ็กเกจสำหรับวาดช่องโน้ต (รองรับการหั่นบรรทัดเมื่อล้น 8 ห้อง และบรรทัดคำอธิบาย)
                   const renderMeasureBlock = (measure, actualMIndex, localMIdx, actualRIndex, actualRType, chunkLength) => {
                       if (!measure || measure[0] === '@HIDDEN') return null;
 
                       const isDoubleCurrent = actualRType.startsWith('double');
                       const isDoubleRightCurrent = actualRType === 'double-right';
                       const isDoubleLeftCurrent = actualRType === 'double-left';
+                      const isAnnotationCurrent = actualRType === 'annotation';
 
                       const isLabelMeasure = isDoubleCurrent && localMIdx === 0;
                       const isTextMeasure = typeof measure[0] === 'string' && measure[0].startsWith('@TEXT_SPAN_');
                       const spanCount = isTextMeasure ? parseInt(measure[0].split('_')[2], 10) || 1 : 1;
 
                       const colsPerLine = isDoubleCurrent ? 9 : 8;
-                      const isFirstInLine = localMIdx % colsPerLine === 0;
+                      const isFirstInLine = localMIdx % colsPerLine === (isDoubleCurrent ? 1 : 0);
                       const isLastInLine = (localMIdx + spanCount - 1) % colsPerLine === colsPerLine - 1 || localMIdx === chunkLength - 1;
 
                       return (
@@ -1184,17 +1208,19 @@ return (
                           className="grid bg-white relative h-full w-full overflow-hidden" 
                           style={{ 
                             gridColumn: `span ${spanCount}`, 
-                            gridTemplateColumns: isLabelMeasure ? '1fr' : (isTextMeasure ? '1fr' : `repeat(${measure.length}, minmax(0, 1fr))`),
-                            height: `${layoutConfig.measureHeight}px`,
-                            borderTop: `${layoutConfig.outerBorderWidth ?? 1}px solid ${layoutConfig.borderColor || '#0f172a'}`,
+                            gridTemplateColumns: isLabelMeasure ? '1fr' : (isTextMeasure || isAnnotationCurrent ? '1fr' : `repeat(${measure.length}, minmax(0, 1fr))`),
+                            height: isAnnotationCurrent ? `${layoutConfig.measureHeight * 0.75}px` : `${layoutConfig.measureHeight}px`,
+                            // ⭐ ดึงขอบบนออกถ้าเป็นบรรทัดคำอธิบาย เพื่อให้แนบเนียนกับบรรทัดโน้ต
+                            borderTop: isAnnotationCurrent ? 'none' : `${layoutConfig.outerBorderWidth ?? 1}px solid ${layoutConfig.borderColor || '#0f172a'}`,
                             borderBottom: isDoubleRightCurrent ? 'none' : `${layoutConfig.outerBorderWidth ?? 1}px solid ${layoutConfig.borderColor || '#0f172a'}`,
                             borderRight: `${layoutConfig.outerBorderWidth ?? 1}px solid ${layoutConfig.borderColor || '#0f172a'}`,
-                            borderLeft: isFirstInLine ? `${layoutConfig.outerBorderWidth ?? 1}px solid ${layoutConfig.borderColor || '#0f172a'}` : 'none',
+                            borderLeft: isFirstInLine || isLabelMeasure ? `${layoutConfig.outerBorderWidth ?? 1}px solid ${layoutConfig.borderColor || '#0f172a'}` : 'none',
+                            // ลดความโค้งของขอบในบรรทัดคำอธิบายให้ดูเรียบขึ้น
                             borderTopLeftRadius: (isFirstInLine && !isDoubleLeftCurrent) ? `${layoutConfig.borderRadius}px` : 0,
                             borderBottomLeftRadius: (isFirstInLine && !isDoubleRightCurrent) ? `${layoutConfig.borderRadius}px` : 0,
                             borderTopRightRadius: (isLastInLine && !isDoubleLeftCurrent) ? `${layoutConfig.borderRadius}px` : 0,
                             borderBottomRightRadius: (isLastInLine && !isDoubleRightCurrent) ? `${layoutConfig.borderRadius}px` : 0,
-                            backgroundColor: isLabelMeasure ? '#f8fafc' : 'white',
+                            backgroundColor: isLabelMeasure ? '#f8fafc' : (isAnnotationCurrent ? '#f8fafc' : 'white'),
                           }}
                         >
                           {isLabelMeasure ? (
@@ -1202,22 +1228,87 @@ return (
                               {measure[0]}
                             </div>
                           ) : isTextMeasure ? (
-                            <div className="w-full h-full p-1 bg-amber-50/30 hover:bg-amber-100/30 transition-colors">
+                            <div className={`w-full h-full p-1 transition-colors ${isAnnotationCurrent ? 'bg-white hover:bg-slate-50' : 'bg-amber-50/30 hover:bg-amber-100/30'}`}>
                               <div
+                                id={`annotation-${actualRIndex}-${actualMIndex}`}
                                 contentEditable
                                 suppressContentEditableWarning
-                                className="w-full h-full outline-none text-center cursor-text overflow-hidden flex items-center justify-center break-words"
-                                style={{ fontFamily: textFontFamily, fontSize: `${layoutConfig.textFontSize || 16}px` }}
-                                onMouseDown={(e) => { e.stopPropagation(); setSelectedCell([actualRIndex, actualMIndex, 0]); }}
-                                onBlur={(e) => updateMeasureText(actualRIndex, actualMIndex, e.target.innerHTML)}
+                                // ⭐ ปลดล็อกสมบูรณ์แบบ: ใช้ block คู่กับ text-center เพื่อให้ Toolbar สามารถส่งคำสั่ง align-left/right มาทับได้ 100%
+                                className={`w-full h-full outline-none cursor-text overflow-hidden break-words px-1 pt-0.5 block text-center ${isAnnotationCurrent ? 'text-slate-500' : 'text-slate-800'}`}
+                                style={{ fontFamily: textFontFamily, fontSize: isAnnotationCurrent ? `${(layoutConfig.textFontSize || 16) * 0.85}px` : `${layoutConfig.textFontSize || 16}px` }}
+                                onMouseDown={(e) => { 
+                                  e.stopPropagation(); 
+                                  if (selectedCell[0] !== actualRIndex || selectedCell[1] !== actualMIndex) {
+                                      setSelectedCell([actualRIndex, actualMIndex, 0]); 
+                                  }
+                                }}
+                                onMouseUp={(e) => { e.stopPropagation(); if (setToolbarMode) setToolbarMode('text'); }}
+                                onInput={(e) => {
+                                  if (sheetData[actualRIndex] && sheetData[actualRIndex][actualMIndex]) {
+                                      sheetData[actualRIndex][actualMIndex][1] = e.target.innerHTML;
+                                  }
+                                  setPaginateTrigger(prev => prev + 1);
+                                }}
+                                onBlur={(e) => {
+                                  const isToolbar = e.relatedTarget && e.relatedTarget.closest('.playback-controls-container');
+                                  if (isToolbar) return; 
+                                  updateMeasureText(actualRIndex, actualMIndex, e.target.innerHTML);
+                                }}
+                                onKeyDown={(e) => {
+                                    e.stopPropagation(); 
+                                    if (e.key === 'Enter') e.preventDefault(); 
+                                    if (e.key === 'Delete') {
+                                        // ⭐ ดักไว้: ห้ามลบทิ้งทั้งบรรทัด ถ้ามันคือช่องผสานในบรรทัดโน้ตปกติ! (อนุญาตให้ลบได้เฉพาะบรรทัด annotation)
+                                        if (isAnnotationCurrent) {
+                                            e.preventDefault(); 
+                                            if (removeRow) removeRow(actualRIndex); 
+                                        }
+                                    }
+                                }}
+                                dangerouslySetInnerHTML={{ __html: measure[1] || '' }}
+                                placeholder={isAnnotationCurrent ? "พิมพ์คำอธิบาย..." : ""}
+                              />
+                            </div>
+                          ) : isAnnotationCurrent ? (
+                            // ⭐ โหมดใหม่: บรรทัดคำอธิบายพิมพ์อิสระต่อ 1 ห้อง
+                            <div className="w-full h-full p-1 hover:bg-slate-100/50 transition-colors">
+                              <div
+                                id={`annotation-${actualRIndex}-${actualMIndex}`} // ⭐ ใส่ ID ให้ระบบโฟกัสถูกช่อง
+                                contentEditable
+                                suppressContentEditableWarning
+                                // ⭐ ปลดล็อก: ถอดคำสั่ง text-center, flex, justify-center ออก เพื่อให้อิสระในการจัดหน้าซ้าย-ขวา-กลาง
+                                className="w-full h-full outline-none cursor-text overflow-hidden break-words text-slate-600 px-1 pt-0.5"
+                                style={{ fontFamily: textFontFamily, fontSize: `${(layoutConfig.textFontSize || 16) * 0.9}px` }}
+                                onMouseDown={(e) => { 
+                                  e.stopPropagation(); 
+                                  // ⭐ ต้องให้มันจำว่าเรากำลังเลือกช่องนี้ตั้งแต่ตอนเมาส์กดลงไป เพื่อให้ Toolbar อ่านค่าได้ทันที
+                                  if (selectedCell[0] !== actualRIndex || selectedCell[1] !== actualMIndex) {
+                                      setSelectedCell([actualRIndex, actualMIndex, 0]); 
+                                  }
+                                }}
+                                onMouseUp={(e) => { 
+                                  e.stopPropagation(); 
+                                  if (setToolbarMode) setToolbarMode('text'); // บังคับเปิดแถบเครื่องมือ
+                                }}
+                                onBlur={(e) => {
+                                  // แอบใช้ updateMeasureText เซฟข้อความลงไปในช่องที่ 0 ของห้องนี้
+                                  const text = e.target.innerHTML;
+                                  if (sheetData[actualRIndex] && sheetData[actualRIndex][actualMIndex]) {
+                                      sheetData[actualRIndex][actualMIndex][0] = text;
+                                      setPaginateTrigger(prev => prev + 1); 
+                                  }
+                                }}
                                 onKeyDown={(e) => {
                                     e.stopPropagation(); 
                                     if (e.key === 'Enter') e.preventDefault(); 
                                 }}
-                                dangerouslySetInnerHTML={{ __html: measure[1] || '' }}
+                                // ดึงข้อความออกมาแสดง
+                                dangerouslySetInnerHTML={{ __html: measure[0] !== '-' ? measure[0] : '' }}
+                                placeholder="คำอธิบาย..."
                               />
                             </div>
                           ) : (                         
+                            // โหมดวาดโน้ตปกติ
                             measure.map((note, cIndex) => {
                               let isInRange = false;
                               let minR = -1, maxR = -1, minCol = -1, maxCol = -1;
@@ -1306,6 +1397,7 @@ return (
                         </div>
                       );
                   };
+                  
 
                   // ⭐ 2. ดักทาง: ซ่อนกล่องมือซ้ายเดิม เพื่อเอาไปรวมวาดพร้อมกล่องมือขวา
                   if (isDoubleLeft) return null; 
@@ -1322,8 +1414,11 @@ return (
                       const maxMeasures = Math.max(row.length, leftRow.length) - 1; 
                       const totalChunks = Math.max(1, Math.ceil(maxMeasures / 8));
 
-                      containerPb = layoutConfig.rowGap; 
-                      containerMarginBot = rowMargins[leftRowIndex]?.bottom || 0; 
+                      // ⭐ เช็กว่าบรรทัดถัดจากมือซ้าย เป็นคำอธิบายหรือไม่ ถ้าใช่ให้ระยะห่างเป็น 0 เพื่อดูดชิดกัน
+                      const nextAfterDouble = leftRowIndex + 1 < rowTypes.length ? rowTypes[leftRowIndex + 1] : null;
+                      containerPb = nextAfterDouble === 'annotation' ? 0 : layoutConfig.rowGap; 
+                      
+                      containerMarginBot = rowMargins[leftRowIndex]?.bottom || 0;
 
                       measuresContent = (
                           <div className="flex flex-col w-full">

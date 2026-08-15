@@ -39,7 +39,8 @@ const PlaybackControls = () => {
   
   const [isCollapsed, setIsCollapsed] = useState(false);
 
-  const isTextRow = rowTypes && rowTypes[selectedCell[0]] === 'text';
+  // ⭐ อัปเดต: ให้มองบรรทัด annotation เป็นบรรทัดข้อความ (TextRow) ด้วย เพื่อให้ใช้เครื่องมือได้
+  const isTextRow = rowTypes && (rowTypes[selectedCell[0]] === 'text' || rowTypes[selectedCell[0]] === 'annotation');
 
   let minR = selectedCell[0];
   let maxR = selectedCell[0];
@@ -165,9 +166,23 @@ const PlaybackControls = () => {
 
       if (isTextRow) {
         const rIndex = selectedCell[0];
-        const el = document.getElementById(`text-row-${rIndex}`);
-        if (el && sheetData[rIndex] && sheetData[rIndex][0]) {
-          sheetData[rIndex][0][0] = el.innerHTML;
+        const mIndex = selectedCell[1]; 
+        
+        if (rowTypes[rIndex] === 'text') {
+            const el = document.getElementById(`text-row-${rIndex}`);
+            if (el && sheetData[rIndex] && sheetData[rIndex][0]) {
+               sheetData[rIndex][0][0] = el.innerHTML; 
+            }
+        } else {
+            // ⭐ ใช้กระบวนการเดียวกัน ทั้งบรรทัด annotation และช่องผสาน (TEXT_SPAN) ในบรรทัดโน้ตปกติ
+            const el = document.getElementById(`annotation-${rIndex}-${mIndex}`);
+            if (el && sheetData[rIndex] && sheetData[rIndex][mIndex]) {
+               if (typeof sheetData[rIndex][mIndex][0] === 'string' && sheetData[rIndex][mIndex][0].startsWith('@TEXT_SPAN_')) {
+                   sheetData[rIndex][mIndex][1] = el.innerHTML; 
+               } else {
+                   sheetData[rIndex][mIndex][0] = el.innerHTML; 
+               }
+            }
         }
       }
     }, 10);

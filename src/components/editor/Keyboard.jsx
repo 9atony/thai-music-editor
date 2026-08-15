@@ -14,6 +14,7 @@ const Keyboard = () => {
     isAutoScroll, setIsAutoScroll,
     appendNoteToCurrentCell, trimCurrentCellToken, moveSelectionNext, moveSelectionPrev,
     convertMeasureToText,
+    addAnnotationRow, // ⭐ นำเข้าฟังก์ชันนี้เพื่อเอาไปผูกกับปุ่ม
     selectedCell, playbackCursor, isPlaying
   } = useContext(MusicContext);
 
@@ -298,6 +299,10 @@ const Keyboard = () => {
               <ToolButton onClick={addMeasure} bgClass="bg-[#eefbf3] text-emerald-700 border-emerald-100 hover:bg-[#e1f7ea]" icon={<span className="text-lg leading-none">+</span>} label="ห้อง" title="เพิ่มห้องเพลง" />
               <ToolButton onClick={addRow} bgClass="bg-[#f7efff] text-violet-700 border-violet-100 hover:bg-[#efe2ff]" icon={<span className="text-lg leading-none">+</span>} label="บรรทัด" title="เพิ่มบรรทัดเดี่ยว" />
               <ToolButton onClick={addDoubleRow} bgClass="bg-[#f7efff] text-violet-700 border-violet-100 hover:bg-[#efe2ff]" icon={<span className="text-lg leading-none">+</span>} label="บรรทัดคู่" title="เพิ่มบรรทัดคู่" />
+              
+              {/* ⭐ ปุ่มใหม่: สร้างบรรทัดคำอธิบาย */}
+              <ToolButton onClick={addAnnotationRow} bgClass="bg-[#fffbeb] text-amber-600 border-amber-200 hover:bg-[#fef3c7]" icon={<span className="text-lg leading-none">Aa</span>} label="คำอธิบาย" title="เพิ่มบรรทัดสำหรับพิมพ์คำอธิบาย (ไม่เล่นเสียง)" />
+
               <ToolButton onClick={addPageBreak} bgClass="bg-white text-slate-600 border-slate-200 hover:bg-slate-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6zM14 3v5h5M16 13H8M16 17H8M10 9H8" /></svg>} label="หน้าใหม่" title="เพิ่มจุดตัดหน้ากระดาษ" />
             </ToolbarSection>
 
