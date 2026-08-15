@@ -1265,7 +1265,12 @@ return (
                                         }
                                     }
                                 }}
-                                dangerouslySetInnerHTML={{ __html: measure[1] || '' }}
+                                ref={(el) => {
+                                  const textValue = measure[1] || '';
+                                  if (el && document.activeElement !== el && el.innerHTML !== textValue) {
+                                    el.innerHTML = textValue;
+                                  }
+                                }}
                                 placeholder={isAnnotationCurrent ? "พิมพ์คำอธิบาย..." : ""}
                               />
                             </div>
@@ -1303,7 +1308,12 @@ return (
                                     if (e.key === 'Enter') e.preventDefault(); 
                                 }}
                                 // ดึงข้อความออกมาแสดง
-                                dangerouslySetInnerHTML={{ __html: measure[0] !== '-' ? measure[0] : '' }}
+                                ref={(el) => {
+                                  const textValue = measure[0] !== '-' ? measure[0] : '';
+                                  if (el && document.activeElement !== el && el.innerHTML !== textValue) {
+                                    el.innerHTML = textValue;
+                                  }
+                                }}
                                 placeholder="คำอธิบาย..."
                               />
                             </div>
