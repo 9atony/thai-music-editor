@@ -14,7 +14,7 @@ const Keyboard = () => {
     isAutoScroll, setIsAutoScroll,
     appendNoteToCurrentCell, trimCurrentCellToken, moveSelectionNext, moveSelectionPrev,
     convertMeasureToText,
-    addAnnotationRow, // ⭐ นำเข้าฟังก์ชันนี้เพื่อเอาไปผูกกับปุ่ม
+    addAnnotationRow, addNathapRow, // ⭐ ดึงฟังก์ชันสร้างบรรทัดหน้าทับมาใช้งาน
     selectedCell, playbackCursor, isPlaying
   } = useContext(MusicContext);
 
@@ -39,8 +39,14 @@ const Keyboard = () => {
     }
   }
 
+  // ⭐ เช็กว่าเครื่องดนตรีที่แสดงอยู่ เป็นเครื่องประกอบจังหวะหรือไม่
+  const isPercussion = displayInstrument?.type === 'percussion';
+
   const getFormattedStr = (eng, thai) => {
-    const octave = parseInt(eng.replace(/\D/g, ''));
+    const numMatch = eng.match(/\d+/);
+    if (!numMatch) return thai; // ⭐ ถ้าไม่มีตัวเลขกำกับ (คำหน้าทับ) ให้ส่งคำนั้นไปตรงๆ เลย
+    
+    const octave = parseInt(numMatch[0], 10);
     let finalNote = thai;
     if (octave >= 5) finalNote += '\u0E4D';
     else if (octave === 2) finalNote += '\u0E3A\u200B';
@@ -51,7 +57,6 @@ const Keyboard = () => {
   useEffect(() => {
     const handleNotePlayed = (e) => {
       const { note, hand } = e.detail; 
-      // ⭐ ใช้ displayInstrument แทน currentInstrument
       const idx = displayInstrument.keys.findIndex(k => getFormattedStr(k.eng, k.thai) === note);
       
       if (idx !== -1) {
@@ -74,18 +79,15 @@ const Keyboard = () => {
 
     window.addEventListener('tme-note-played', handleNotePlayed);
     return () => window.removeEventListener('tme-note-played', handleNotePlayed);
-  // ⭐ เปลี่ยน Dependency เป็น displayInstrument
   }, [displayInstrument]); 
 
-  // ⭐ คำนวณระยะห่างตามโหมดคู่เสียงที่เลือก
   const isIntervalActive = intervalMode !== 'off';
   const intervalDist = isIntervalActive ? parseInt(intervalMode, 10) - 1 : 0;
 
   const handleKeyClick = (idx, e) => {
     if (!inputNote || !appendNoteToCurrentCell) return;
-    if (isIntervalActive && idx < intervalDist) return; // บล็อกแป้นถ้าไม่มีพื้นที่ให้มือซ้ายลง
+    if (isIntervalActive && idx < intervalDist) return; 
 
-    // ⭐ ใช้ displayInstrument แทน currentInstrument
     const kOriginal = displayInstrument.keys[idx];
     const k = isReduceMode ? shiftNoteObject(kOriginal, 1) : kOriginal;
     const noteToInsert = getFormattedStr(k.eng, k.thai);
@@ -114,11 +116,14 @@ const Keyboard = () => {
   };
 
   const renderNoteLabel = (thai, eng) => {
-    const octave = parseInt(eng.replace(/\D/g, ''));
+    const numMatch = eng.match(/\d+/);
+    const octave = numMatch ? parseInt(numMatch[0], 10) : null;
+    const isWord = thai.length >= 2; // ⭐ ตรวจจับถ้าเป็นคำยาว ให้ลดฟอนต์ลงเพื่อไม่ให้ล้นปุ่ม
+    
     return (
       <div className="relative flex flex-col items-center justify-center h-12 pointer-events-none transition-opacity">
-        <span className="text-2xl font-bold group-hover:scale-110 transition-transform">
-          {octave >= 5 ? thai + '\u0E4D' : octave <= 3 ? thai + '\u0E3A' : thai}
+        <span className={`${isWord ? 'text-[1.1rem]' : 'text-2xl'} font-bold group-hover:scale-110 transition-transform`}>
+          {octave === null ? thai : (octave >= 5 ? thai + '\u0E4D' : octave <= 3 ? thai + '\u0E3A' : thai)}
         </span>
         {octave === 2 && (
           <div className="absolute -bottom-1 flex gap-0.5">
@@ -243,33 +248,37 @@ const Keyboard = () => {
                 </div>
               </div>
 
-              <div 
-                onPointerDown={() => setIsReduceMode(prev => !prev)} 
-                className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-500 cursor-pointer shadow-sm select-none"
-              >
-                <span className="whitespace-nowrap">โหมดลดเสียง</span>
-                <div className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${isReduceMode ? 'bg-sky-400' : 'bg-slate-300'}`}>
-                  <div className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white transition-transform ${isReduceMode ? 'translate-x-4' : ''}`}></div>
-                </div>
-              </div>
+              {!isPercussion && (
+                <>
+                  <div 
+                    onPointerDown={() => setIsReduceMode(prev => !prev)} 
+                    className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-500 cursor-pointer shadow-sm select-none"
+                  >
+                    <span className="whitespace-nowrap">โหมดลดเสียง</span>
+                    <div className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${isReduceMode ? 'bg-sky-400' : 'bg-slate-300'}`}>
+                      <div className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white transition-transform ${isReduceMode ? 'translate-x-4' : ''}`}></div>
+                    </div>
+                  </div>
 
-              <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-bold text-slate-500 shadow-sm select-none">
-                <span className="whitespace-nowrap">โหมดคู่เสียง</span>
-                <select 
-                   value={intervalMode}
-                   onChange={(e) => setIntervalMode(e.target.value)}
-                   className="bg-amber-50 border border-amber-200 text-amber-700 rounded-md px-1 py-0.5 outline-none focus:ring-1 focus:ring-amber-400 font-black cursor-pointer text-center"
-                >
-                   <option value="off">ปิด</option>
-                   <option value="8">คู่ 8</option>
-                   <option value="7">คู่ 7</option>
-                   <option value="6">คู่ 6</option>
-                   <option value="5">คู่ 5</option>
-                   <option value="4">คู่ 4</option>
-                   <option value="3">คู่ 3</option>
-                   <option value="2">คู่ 2</option>
-                </select>
-              </div>
+                  <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-bold text-slate-500 shadow-sm select-none">
+                    <span className="whitespace-nowrap">โหมดคู่เสียง</span>
+                    <select 
+                      value={intervalMode}
+                      onChange={(e) => setIntervalMode(e.target.value)}
+                      className="bg-amber-50 border border-amber-200 text-amber-700 rounded-md px-1 py-0.5 outline-none focus:ring-1 focus:ring-amber-400 font-black cursor-pointer text-center"
+                    >
+                      <option value="off">ปิด</option>
+                      <option value="8">คู่ 8</option>
+                      <option value="7">คู่ 7</option>
+                      <option value="6">คู่ 6</option>
+                      <option value="5">คู่ 5</option>
+                      <option value="4">คู่ 4</option>
+                      <option value="3">คู่ 3</option>
+                      <option value="2">คู่ 2</option>
+                    </select>
+                  </div>
+                </>
+              )}
 
               <div 
                 onPointerDown={() => setIsAutoScroll(prev => !prev)} 
@@ -302,6 +311,8 @@ const Keyboard = () => {
               
               {/* ⭐ ปุ่มใหม่: สร้างบรรทัดคำอธิบาย */}
               <ToolButton onClick={addAnnotationRow} bgClass="bg-[#fffbeb] text-amber-600 border-amber-200 hover:bg-[#fef3c7]" icon={<span className="text-lg leading-none">Aa</span>} label="คำอธิบาย" title="เพิ่มบรรทัดสำหรับพิมพ์คำอธิบาย (ไม่เล่นเสียง)" />
+              {/* ⭐ ปุ่มใหม่: สร้างบรรทัดหน้าทับ */}
+              <ToolButton onClick={addNathapRow} bgClass="bg-[#fff0f5] text-rose-600 border-rose-200 hover:bg-[#ffe4e6]" icon={<span className="text-lg leading-none">🥁</span>} label="หน้าทับ" title="เพิ่มบรรทัดหน้าทับกลอง" />
 
               <ToolButton onClick={addPageBreak} bgClass="bg-white text-slate-600 border-slate-200 hover:bg-slate-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6zM14 3v5h5M16 13H8M16 17H8M10 9H8" /></svg>} label="หน้าใหม่" title="เพิ่มจุดตัดหน้ากระดาษ" />
             </ToolbarSection>

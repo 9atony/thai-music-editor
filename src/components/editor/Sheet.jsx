@@ -1192,9 +1192,9 @@ return (
                   const isDouble = isDoubleRight || isDoubleLeft;
                   const isAnnotation = rType === 'annotation';
                   
-                  // ⭐ เช็กว่าบรรทัดถัดไปเป็นบรรทัดคำอธิบายหรือไม่ เพื่อลดระยะห่างให้ติดกัน
+                  // ⭐ เช็กว่าบรรทัดถัดไปเป็นคำอธิบายหรือหน้าทับหรือไม่ เพื่อลดระยะห่างให้ติดกัน
                   const nextRType = rIndex + 1 < rowTypes.length ? rowTypes[rIndex + 1] : null;
-                  const pb = (isDoubleRight || nextRType === 'annotation') ? 0 : layoutConfig.rowGap;
+                  const pb = (isDoubleRight || nextRType === 'annotation' || nextRType === 'nathap') ? 0 : layoutConfig.rowGap;
 
                   let visualRowNumber = displayRowNumbers[rIndex];
                   if (isDoubleLeft && rIndex > 0) visualRowNumber = displayRowNumbers[rIndex - 1]; 
@@ -1208,6 +1208,7 @@ return (
                       const isDoubleRightCurrent = actualRType === 'double-right';
                       const isDoubleLeftCurrent = actualRType === 'double-left';
                       const isAnnotationCurrent = actualRType === 'annotation';
+                      const isNathapCurrent = actualRType === 'nathap'; // ⭐ เพิ่มตัวแปรเช็กบรรทัดหน้าทับ
 
                       const isLabelMeasure = isDoubleCurrent && localMIdx === 0;
                       const isTextMeasure = typeof measure[0] === 'string' && measure[0].startsWith('@TEXT_SPAN_');
@@ -1224,18 +1225,17 @@ return (
                           style={{ 
                             gridColumn: `span ${spanCount}`, 
                             gridTemplateColumns: isLabelMeasure ? '1fr' : (isTextMeasure || isAnnotationCurrent ? '1fr' : `repeat(${measure.length}, minmax(0, 1fr))`),
-                            height: isAnnotationCurrent ? `${layoutConfig.measureHeight * 0.75}px` : `${layoutConfig.measureHeight}px`,
-                            // ⭐ ดึงขอบบนออกถ้าเป็นบรรทัดคำอธิบาย เพื่อให้แนบเนียนกับบรรทัดโน้ต
-                            borderTop: isAnnotationCurrent ? 'none' : `${layoutConfig.outerBorderWidth ?? 1}px solid ${layoutConfig.borderColor || '#0f172a'}`,
+                            height: (isAnnotationCurrent || isNathapCurrent) ? `${layoutConfig.measureHeight * 0.75}px` : `${layoutConfig.measureHeight}px`,
+                            // ⭐ ดึงขอบบนออกและปรับสีพื้นหลังให้กลมกลืน (ใช้ร่วมกันทั้งคำอธิบายและหน้าทับ)
+                            borderTop: (isAnnotationCurrent || isNathapCurrent) ? 'none' : `${layoutConfig.outerBorderWidth ?? 1}px solid ${layoutConfig.borderColor || '#0f172a'}`,
                             borderBottom: isDoubleRightCurrent ? 'none' : `${layoutConfig.outerBorderWidth ?? 1}px solid ${layoutConfig.borderColor || '#0f172a'}`,
                             borderRight: `${layoutConfig.outerBorderWidth ?? 1}px solid ${layoutConfig.borderColor || '#0f172a'}`,
                             borderLeft: isFirstInLine || isLabelMeasure ? `${layoutConfig.outerBorderWidth ?? 1}px solid ${layoutConfig.borderColor || '#0f172a'}` : 'none',
-                            // ลดความโค้งของขอบในบรรทัดคำอธิบายให้ดูเรียบขึ้น
-                            borderTopLeftRadius: (isFirstInLine && !isDoubleLeftCurrent) ? `${layoutConfig.borderRadius}px` : 0,
+                            borderTopLeftRadius: (isFirstInLine && !isDoubleLeftCurrent && !isAnnotationCurrent && !isNathapCurrent) ? `${layoutConfig.borderRadius}px` : 0,
                             borderBottomLeftRadius: (isFirstInLine && !isDoubleRightCurrent) ? `${layoutConfig.borderRadius}px` : 0,
-                            borderTopRightRadius: (isLastInLine && !isDoubleLeftCurrent) ? `${layoutConfig.borderRadius}px` : 0,
+                            borderTopRightRadius: (isLastInLine && !isDoubleLeftCurrent && !isAnnotationCurrent && !isNathapCurrent) ? `${layoutConfig.borderRadius}px` : 0,
                             borderBottomRightRadius: (isLastInLine && !isDoubleRightCurrent) ? `${layoutConfig.borderRadius}px` : 0,
-                            backgroundColor: isLabelMeasure ? '#f8fafc' : (isAnnotationCurrent ? '#f8fafc' : 'white'),
+                            backgroundColor: isLabelMeasure ? '#f8fafc' : ((isAnnotationCurrent || isNathapCurrent) ? '#f8fafc' : 'white'),
                           }}
                         >
                           {isLabelMeasure ? (
@@ -1360,7 +1360,9 @@ return (
                               if (isCursorExact && isInRange && !isPlayingNow) cellBgClass = 'bg-sky-300 ring-2 ring-inset ring-blue-500 z-10 print:bg-transparent print:ring-0';
 
                               const cellCustomStyle = layoutConfig.customStyles?.[`${actualRIndex}_${actualMIndex}_${cIndex}`] || {};
-                              const cellFontSize = cellCustomStyle.fontSize || layoutConfig.fontSize || 30;
+                              // ⭐ ลดขนาดฟอนต์ของหน้าทับลง 25% ให้ดูเป็นบรรทัดรอง
+                              const baseFontSize = isNathapCurrent ? (layoutConfig.fontSize || 30) * 0.75 : (layoutConfig.fontSize || 30);
+                              const cellFontSize = cellCustomStyle.fontSize || baseFontSize;
                               const isEditingToken = editingTokenCell?.r === actualRIndex && editingTokenCell?.m === actualMIndex && editingTokenCell?.c === cIndex;
 
                               return (
@@ -1376,7 +1378,8 @@ return (
                                   onClick={(e) => e.stopPropagation()}
                                   onMouseEnter={() => updateSelection(actualRIndex, actualMIndex, cIndex)}
                                   onContextMenu={(e) => handleRightClick(e, actualRIndex, actualMIndex, cIndex)}
-                                  className={`flex items-center justify-center cursor-crosshair transition-all duration-[250ms] ease-out min-h-0 overflow-hidden ${cellBgClass}`} 
+                                  // ⭐ ปรับสีตัวหนังสือหน้าทับให้อ่อนลงเล็กน้อย (slate-600) ให้ดูแยกกับโน้ตหลักชัดเจน
+                                  className={`flex items-center justify-center cursor-crosshair transition-all duration-[250ms] ease-out min-h-0 overflow-hidden ${cellBgClass} ${isNathapCurrent ? 'text-slate-600' : ''}`}
                                   style={{ 
                                     fontSize: `${cellFontSize}px`, fontFamily: cellCustomStyle.noteFontFamily || noteFontFamily,
                                     borderRight: (cIndex < measure.length - 1 && layoutConfig.innerBorderWidth > 0) ? `${layoutConfig.innerBorderWidth}px solid ${layoutConfig.borderColor}66` : 'none' 
@@ -1436,9 +1439,9 @@ return (
                       const maxMeasures = Math.max(row.length, leftRow.length) - 1; 
                       const totalChunks = Math.max(1, Math.ceil(maxMeasures / 8));
 
-                      // ⭐ เช็กว่าบรรทัดถัดจากมือซ้าย เป็นคำอธิบายหรือไม่ ถ้าใช่ให้ระยะห่างเป็น 0 เพื่อดูดชิดกัน
+                      // ⭐ เช็กว่าบรรทัดถัดจากมือซ้าย เป็นคำอธิบายหรือหน้าทับหรือไม่ ถ้าใช่ให้ระยะห่างเป็น 0 เพื่อดูดชิดกัน
                       const nextAfterDouble = leftRowIndex + 1 < rowTypes.length ? rowTypes[leftRowIndex + 1] : null;
-                      containerPb = nextAfterDouble === 'annotation' ? 0 : layoutConfig.rowGap; 
+                      containerPb = (nextAfterDouble === 'annotation' || nextAfterDouble === 'nathap') ? 0 : layoutConfig.rowGap; 
                       
                       containerMarginBot = rowMargins[leftRowIndex]?.bottom || 0;
 

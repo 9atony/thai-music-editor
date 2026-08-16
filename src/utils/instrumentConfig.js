@@ -118,5 +118,30 @@ export const INSTRUMENT_CONFIG = {
       { thai: 'ร', eng: 'D5', audio: '17.wav' }, 
       { thai: 'ม', eng: 'E5', audio: '18.wav' }
     ]
+  },
+  "klong-khaek": {
+    id: "klong-khaek",
+    name: "กลองแขก (ทัง-ติง-โจ๊ะ-จ๊ะ)",
+    type: "percussion", // ⭐ ตัวแปรสำคัญที่บอกระบบว่านี่คือเครื่องประกอบจังหวะ
+    keys: [
+      { thai: 'ทัง', eng: 'THANG', audio: 'thang.wav' },
+      { thai: 'ติง', eng: 'TING', audio: 'ting.wav' },
+      { thai: 'โจ๊ะ', eng: 'JOH', audio: 'joh.wav' },
+      { thai: 'จ๊ะ', eng: 'JA', audio: 'ja.wav' },
+      { thai: 'ทั่ม', eng: 'TUM', audio: 'tum.wav' },
+      { thai: 'ต้อม', eng: 'TOM', audio: 'tom.wav' }
+    ]
+  },
+  "ching-chab": {
+    id: "ching-chab",
+    name: "ฉิ่ง-ฉาบ",
+    type: "percussion",
+    keys: [
+      { thai: 'ฉิ่ง', eng: 'CHING', audio: 'ching.wav' },
+      { thai: 'ฉับ', eng: 'CHAB', audio: 'chab.wav' }
+    ]
   }
 };
+
+
+
