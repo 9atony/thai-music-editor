@@ -25,6 +25,7 @@ const Keyboard = () => {
 
   const [isMinimized, setIsMinimized] = useState(false);
   const [isInstMenuOpen, setIsInstMenuOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false); // ⭐ State สำหรับเปิด/ปิดเมนูตั้งค่า
 
   // ⭐ คำนวณหาเครื่องดนตรีที่จะแสดงบนแป้นพิมพ์ (ดึงจากตอนเล่นเพลง หรือตอนคลิกเลือกโน้ต)
   const activeCell = (isPlaying && playbackCursor) ? playbackCursor : selectedCell;
@@ -158,7 +159,7 @@ const Keyboard = () => {
   const iconClass = 'w-4 h-4';
 
   return (
-    <div className={`relative flex flex-col z-10 w-full font-sans transition-colors duration-300 ${isIntervalActive && !isMinimized ? 'bg-[#fffdf0]' : 'bg-[#eaf4fc]'}`}>
+    <div className={`relative flex flex-col z-[70] w-full font-sans transition-colors duration-300 ${isIntervalActive && !isMinimized ? 'bg-[#fffdf0]' : 'bg-[#eaf4fc]'}`}>
       
       <style>
         {`
@@ -208,10 +209,10 @@ const Keyboard = () => {
               <div className="relative">
                 <div 
                   onPointerDown={() => setIsInstMenuOpen(!isInstMenuOpen)}
-                  className="relative flex items-center gap-2 rounded-xl bg-[#fff4d9] px-3 py-2 text-xs font-bold text-amber-900 border border-amber-200 min-w-[130px] hover:bg-[#ffeec2] transition-colors shadow-sm cursor-pointer select-none"
+                  className="relative flex items-center gap-2 rounded-xl bg-[#fff4d9] px-3 py-2 text-xs font-bold text-amber-900 border border-amber-200 min-w-[140px] hover:bg-[#ffeec2] transition-colors shadow-sm cursor-pointer select-none"
                 >
-                  <span className="text-lg leading-none">🎼</span>
-                  {/* ⭐ แสดงชื่อจาก displayInstrument */}
+                  {/* ใช้ SVG รูปตัวโน้ตมินิมอลแทน Emoji */}
+                  <svg className="w-4 h-4 text-amber-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" /></svg>
                   <span className="flex-1 truncate">{displayInstrument.name}</span>
                   <svg className={`h-3.5 w-3.5 text-amber-700 transition-transform ${isInstMenuOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 9l-7 7-7-7" /></svg>
                 </div>
@@ -219,115 +220,166 @@ const Keyboard = () => {
                 {isInstMenuOpen && (
                   <>
                     <div className="fixed inset-0 z-[180]" onPointerDown={() => setIsInstMenuOpen(false)}></div>
-                    <div className="absolute left-0 top-[calc(100%+8px)] z-[220] min-w-[220px] w-max max-w-[280px] bg-white border border-amber-200 rounded-xl shadow-[0_18px_40px_rgba(15,23,42,0.18)] overflow-hidden py-1">
-                      {Object.values(INSTRUMENT_CONFIG).map(inst => (
+                    {/* ⭐ เปลี่ยนจาก top เป็น bottom เพื่อให้เมนูเด้งขึ้นด้านบน */}
+                    <div className="absolute left-0 bottom-[calc(100%+8px)] z-[220] min-w-[220px] w-max max-w-[280px] bg-white border border-amber-200 rounded-xl shadow-[0_18px_40px_rgba(15,23,42,0.18)] overflow-hidden py-1.5 flex flex-col">
+
+                      <div className="px-3 pt-2 pb-1 text-[10px] font-black text-amber-500/80 uppercase tracking-widest select-none">เครื่องดำเนินทำนอง</div>
+                      {Object.values(INSTRUMENT_CONFIG).filter(i => i.type !== 'percussion').map(inst => (
                         <button
                           key={inst.id}
-                          onPointerDown={() => {
-                            changeInstrument(inst.id);
-                            setIsInstMenuOpen(false);
-                          }}
-                          /* ⭐ เปรียบเทียบกับ displayInstrument.id */
+                          onPointerDown={() => { changeInstrument(inst.id); setIsInstMenuOpen(false); }}
                           className={`w-full text-left px-4 py-2 text-[11px] font-bold hover:bg-amber-50 transition-colors ${displayInstrument.id === inst.id ? 'bg-amber-100 text-amber-900' : 'text-slate-600'}`}
                         >
                           {inst.name}
                         </button>
                       ))}
+
+                      <div className="px-3 pt-3 pb-1 mt-1 text-[10px] font-black text-amber-500/80 uppercase tracking-widest border-t border-amber-100 select-none">เครื่องประกอบจังหวะ</div>
+                      {Object.values(INSTRUMENT_CONFIG).filter(i => i.type === 'percussion').map(inst => (
+                        <button
+                          key={inst.id}
+                          onPointerDown={() => { changeInstrument(inst.id); setIsInstMenuOpen(false); }}
+                          className={`w-full text-left px-4 py-2 text-[11px] font-bold hover:bg-amber-50 transition-colors ${displayInstrument.id === inst.id ? 'bg-amber-100 text-amber-900' : 'text-slate-600'}`}
+                        >
+                          {inst.name}
+                        </button>
+                      ))}
+
                     </div>
                   </>
                 )}
               </div>
 
-              <div 
-                onPointerDown={() => setIsShowPlayMode(prev => !prev)} 
-                className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-500 cursor-pointer shadow-sm select-none"
-              >
-                <span className="whitespace-nowrap">แสดงการตี</span>
-                <div className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${isShowPlayMode ? 'bg-rose-500' : 'bg-slate-300'}`}>
-                  <div className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white transition-transform ${isShowPlayMode ? 'translate-x-4' : ''}`}></div>
-                </div>
-              </div>
-
+              {/* ⭐ ปุ่มเปิด/ปิด คู่ 8 แบบด่วน (1-Click Toggle) */}
               {!isPercussion && (
-                <>
-                  <div 
-                    onPointerDown={() => setIsReduceMode(prev => !prev)} 
-                    className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-500 cursor-pointer shadow-sm select-none"
-                  >
-                    <span className="whitespace-nowrap">โหมดลดเสียง</span>
-                    <div className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${isReduceMode ? 'bg-sky-400' : 'bg-slate-300'}`}>
-                      <div className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white transition-transform ${isReduceMode ? 'translate-x-4' : ''}`}></div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-bold text-slate-500 shadow-sm select-none">
-                    <span className="whitespace-nowrap">โหมดคู่เสียง</span>
-                    <select 
-                      value={intervalMode}
-                      onChange={(e) => setIntervalMode(e.target.value)}
-                      className="bg-amber-50 border border-amber-200 text-amber-700 rounded-md px-1 py-0.5 outline-none focus:ring-1 focus:ring-amber-400 font-black cursor-pointer text-center"
-                    >
-                      <option value="off">ปิด</option>
-                      <option value="8">คู่ 8</option>
-                      <option value="7">คู่ 7</option>
-                      <option value="6">คู่ 6</option>
-                      <option value="5">คู่ 5</option>
-                      <option value="4">คู่ 4</option>
-                      <option value="3">คู่ 3</option>
-                      <option value="2">คู่ 2</option>
-                    </select>
-                  </div>
-                </>
+                <button
+                  onPointerDown={() => setIntervalMode(intervalMode === 'off' ? '8' : 'off')}
+                  className={`flex items-center gap-1.5 rounded-xl border px-3 py-2 text-[11px] font-bold shadow-sm transition-colors active:scale-95 select-none ${
+                    intervalMode !== 'off' 
+                      ? 'bg-amber-400 border-amber-500 text-amber-950' 
+                      : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
+                  }`}
+                  title="เปิด/ปิด โหมดตีคู่ 8 อัตโนมัติ"
+                >
+                  <span className="text-sm leading-none opacity-80">🎹</span>
+                  <span className="whitespace-nowrap">
+                    {intervalMode !== 'off' ? `โหมดคู่ ${intervalMode}` : 'เล่นคู่ 8'}
+                  </span>
+                </button>
               )}
 
-              <div 
-                onPointerDown={() => setIsAutoScroll(prev => !prev)} 
-                className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-500 cursor-pointer shadow-sm select-none"
-              >
-                <span className="whitespace-nowrap">เลื่อนตามโน้ต</span>
-                <div className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${isAutoScroll ? 'bg-indigo-500' : 'bg-slate-300'}`}>
-                  <div className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white transition-transform ${isAutoScroll ? 'translate-x-4' : ''}`}></div>
-                </div>
+              {/* ⭐ ปุ่มตั้งค่าและ Dropdown Settings (มินิมอล) */}
+              <div className="relative pl-1">
+                <button
+                  onPointerDown={() => setIsSettingsOpen(!isSettingsOpen)}
+                  className={`flex items-center justify-center w-[36px] h-[36px] rounded-xl border transition-colors shadow-sm ${isSettingsOpen ? 'bg-sky-50 border-sky-200 text-sky-600' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}
+                  title="การตั้งค่าคีย์บอร์ด"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                </button>
+
+                {isSettingsOpen && (
+                  <>
+                    <div className="fixed inset-0 z-[180]" onPointerDown={() => setIsSettingsOpen(false)}></div>
+                    {/* ⭐ เปลี่ยนจาก top เป็น bottom เพื่อให้เมนูตั้งค่าเด้งขึ้นด้านบน */}
+                    <div className="absolute left-0 sm:left-auto sm:right-0 bottom-[calc(100%+10px)] z-[220] min-w-[200px] w-max bg-white border border-slate-200 rounded-xl shadow-[0_18px_40px_rgba(15,23,42,0.18)] overflow-hidden py-1.5 flex flex-col gap-0.5 px-2">
+
+                      <div className="px-2 pt-1.5 pb-2 text-[10px] font-black text-slate-400 uppercase tracking-widest select-none">ตั้งค่าการเล่น</div>
+                      
+                      <div 
+                        onPointerDown={() => setIsShowPlayMode(prev => !prev)} 
+                        className="flex items-center justify-between gap-3 rounded-lg hover:bg-slate-50 px-2 py-2 text-[11px] font-bold text-slate-600 cursor-pointer select-none transition-colors"
+                      >
+                        <span className="whitespace-nowrap">แสดงการตีบนจอ</span>
+                        <div className={`relative h-4 w-8 shrink-0 rounded-full transition-colors ${isShowPlayMode ? 'bg-rose-500' : 'bg-slate-300'}`}>
+                          <div className={`absolute top-0.5 left-0.5 h-3 w-3 rounded-full bg-white transition-transform ${isShowPlayMode ? 'translate-x-4' : ''}`}></div>
+                        </div>
+                      </div>
+
+                      <div 
+                        onPointerDown={() => setIsAutoScroll(prev => !prev)} 
+                        className="flex items-center justify-between gap-3 rounded-lg hover:bg-slate-50 px-2 py-2 text-[11px] font-bold text-slate-600 cursor-pointer select-none transition-colors"
+                      >
+                        <span className="whitespace-nowrap">เลื่อนกระดาษตามโน้ต</span>
+                        <div className={`relative h-4 w-8 shrink-0 rounded-full transition-colors ${isAutoScroll ? 'bg-indigo-500' : 'bg-slate-300'}`}>
+                          <div className={`absolute top-0.5 left-0.5 h-3 w-3 rounded-full bg-white transition-transform ${isAutoScroll ? 'translate-x-4' : ''}`}></div>
+                        </div>
+                      </div>
+
+                      {!isPercussion && (
+                        <>
+                          <div className="my-1 border-t border-slate-100"></div>
+                          
+                          <div 
+                            onPointerDown={() => setIsReduceMode(prev => !prev)} 
+                            className="flex items-center justify-between gap-3 rounded-lg hover:bg-slate-50 px-2 py-2 text-[11px] font-bold text-slate-600 cursor-pointer select-none transition-colors"
+                          >
+                            <span className="whitespace-nowrap">โหมดลดเสียงเครื่อง</span>
+                            <div className={`relative h-4 w-8 shrink-0 rounded-full transition-colors ${isReduceMode ? 'bg-sky-400' : 'bg-slate-300'}`}>
+                              <div className={`absolute top-0.5 left-0.5 h-3 w-3 rounded-full bg-white transition-transform ${isReduceMode ? 'translate-x-4' : ''}`}></div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-[11px] font-bold text-slate-600 select-none">
+                            <span className="whitespace-nowrap">เสียงซ้อน (คู่ 8)</span>
+                            <select 
+                              value={intervalMode}
+                              onChange={(e) => setIntervalMode(e.target.value)}
+                              className="bg-amber-50 border border-amber-200 text-amber-700 rounded-md px-1.5 py-0.5 outline-none focus:ring-1 focus:ring-amber-400 font-black cursor-pointer text-center text-[10px]"
+                            >
+                              <option value="off">ปิด</option>
+                              <option value="8">คู่ 8</option>
+                              <option value="7">คู่ 7</option>
+                              <option value="6">คู่ 6</option>
+                              <option value="5">คู่ 5</option>
+                              <option value="4">คู่ 4</option>
+                              <option value="3">คู่ 3</option>
+                              <option value="2">คู่ 2</option>
+                            </select>
+                          </div>
+                        </>
+                      )}
+
+                    </div>
+                  </>
+                )}
               </div>
               
             </ToolbarSection>
           </div>
 
           <div className="flex-1 overflow-x-auto custom-scrollbar flex items-center gap-3 pb-0.5 w-full">
-            <ToolbarSection>
-              <ToolButton onClick={() => handleSpecialKey('-')} bgClass="bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V4a2 2 0 10-4 0v1.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>} label="พักเสียง" title="ใส่ขีดพักเสียง" />
-              <ToolButton onClick={() => handleSpecialKey('PREV_CELL')} bgClass="bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>} label="ย้อนช่อง" title="ย้ายไปช่องก่อนหน้า" />
-              <ToolButton onClick={() => handleSpecialKey('NEXT_CELL')} bgClass="bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>} label="จบช่อง" title="ยืนยันช่องนี้แล้วไปช่องถัดไป" />
-              <ToolButton onClick={copySelection} bgClass="bg-emerald-50 text-emerald-600 border-emerald-200 hover:bg-emerald-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>} label="คัดลอก" title="คัดลอกโน้ต" />
-              <ToolButton onClick={pasteSelection} disabled={clipboardData.length === 0} bgClass="bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>} label="วาง" title="วางโน้ต" />
+            {/* โซนการพิมพ์เบื้องต้น */}
+            <ToolbarSection bodyClass="bg-white border border-slate-200">
+              <ToolButton onClick={() => handleSpecialKey('-')} bgClass="bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V4a2 2 0 10-4 0v1.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>} label="พักเสียง" title="ใส่ขีดพักเสียง (-)" />
             </ToolbarSection>
 
+            {/* โซนสร้างโครงสร้างหลัก (ไอคอน +) */}
             <ToolbarSection bodyClass="bg-slate-50 border border-slate-200">
-              <ToolButton onClick={convertMeasureToText} bgClass="bg-[#fff5f0] text-orange-700 border-orange-100 hover:bg-[#ffece0]" icon={<span className="text-lg leading-none">T</span>} label="ช่องพิมพ์" title="เปลี่ยนห้องโน้ตเป็นห้องพิมพ์ข้อความ" />
-              <ToolButton onClick={addNoteColumn} bgClass="bg-[#f2f4ff] text-blue-700 border-blue-100 hover:bg-[#e8ecff]" icon={<span className="text-lg leading-none">+</span>} label="จังหวะ" title="เพิ่มคอลัมน์โน้ต" />
-              <ToolButton onClick={addMeasure} bgClass="bg-[#eefbf3] text-emerald-700 border-emerald-100 hover:bg-[#e1f7ea]" icon={<span className="text-lg leading-none">+</span>} label="ห้อง" title="เพิ่มห้องเพลง" />
-              <ToolButton onClick={addRow} bgClass="bg-[#f7efff] text-violet-700 border-violet-100 hover:bg-[#efe2ff]" icon={<span className="text-lg leading-none">+</span>} label="บรรทัด" title="เพิ่มบรรทัดเดี่ยว" />
-              <ToolButton onClick={addDoubleRow} bgClass="bg-[#f7efff] text-violet-700 border-violet-100 hover:bg-[#efe2ff]" icon={<span className="text-lg leading-none">+</span>} label="บรรทัดคู่" title="เพิ่มบรรทัดคู่" />
-              
-              {/* ⭐ ปุ่มใหม่: สร้างบรรทัดคำอธิบาย */}
-              <ToolButton onClick={addAnnotationRow} bgClass="bg-[#fffbeb] text-amber-600 border-amber-200 hover:bg-[#fef3c7]" icon={<span className="text-lg leading-none">Aa</span>} label="คำอธิบาย" title="เพิ่มบรรทัดสำหรับพิมพ์คำอธิบาย (ไม่เล่นเสียง)" />
-              {/* ⭐ ปุ่มใหม่: สร้างบรรทัดหน้าทับ */}
-              <ToolButton onClick={addNathapRow} bgClass="bg-[#fff0f5] text-rose-600 border-rose-200 hover:bg-[#ffe4e6]" icon={<span className="text-lg leading-none">🥁</span>} label="หน้าทับ" title="เพิ่มบรรทัดหน้าทับกลอง" />
-
+              <ToolButton onClick={addNoteColumn} bgClass="bg-[#f2f4ff] text-blue-700 border-blue-100 hover:bg-[#e8ecff]" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" /></svg>} label="จังหวะ" title="เพิ่มคอลัมน์โน้ต" />
+              <ToolButton onClick={addMeasure} bgClass="bg-[#eefbf3] text-emerald-700 border-emerald-100 hover:bg-[#e1f7ea]" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" /></svg>} label="ห้อง" title="เพิ่มห้องเพลง" />
+              <ToolButton onClick={addRow} bgClass="bg-[#f7efff] text-violet-700 border-violet-100 hover:bg-[#efe2ff]" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" /></svg>} label="บรรทัด" title="เพิ่มบรรทัดเดี่ยว" />
+              <ToolButton onClick={addDoubleRow} bgClass="bg-[#f7efff] text-violet-700 border-violet-100 hover:bg-[#efe2ff]" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" /></svg>} label="บรรทัดคู่" title="เพิ่มบรรทัดคู่" />
               <ToolButton onClick={addPageBreak} bgClass="bg-white text-slate-600 border-slate-200 hover:bg-slate-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6zM14 3v5h5M16 13H8M16 17H8M10 9H8" /></svg>} label="หน้าใหม่" title="เพิ่มจุดตัดหน้ากระดาษ" />
+            </ToolbarSection>
+
+            {/* โซนสร้างข้อความและลูกเล่นพิเศษ */}
+            <ToolbarSection bodyClass="bg-[#f8fafc] border border-slate-200">
+              <ToolButton onClick={convertMeasureToText} bgClass="bg-white text-slate-600 border-slate-200 hover:bg-slate-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h8m-8 6h16" /></svg>} label="ช่องพิมพ์" title="เปลี่ยนห้องโน้ตให้พิมพ์ข้อความยาวๆ ได้" />
+              <ToolButton onClick={addAnnotationRow} bgClass="bg-white text-amber-600 border-amber-200 hover:bg-amber-50" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /></svg>} label="คำอธิบาย" title="เพิ่มบรรทัดสำหรับพิมพ์คำอธิบาย (ไม่มีเส้นคั่นห้อง)" />
+              <ToolButton onClick={addNathapRow} bgClass="bg-[#fff0f5] text-rose-600 border-rose-200 hover:bg-[#ffe4e6]" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" /></svg>} label="หน้าทับ" title="เพิ่มบรรทัดหน้าทับกลอง (พิมพ์โน้ตหน้าทับและแนบติดบรรทัดบน)" />
             </ToolbarSection>
 
             <div className="flex-1 min-w-[10px]"></div>
 
+            {/* โซนอันตราย ลบข้อมูล (ไอคอนวงกลมมีขีด) */}
             <ToolbarSection wrapperClass="ml-auto" bodyClass="bg-red-50 border border-red-100">
-              <ToolButton onClick={() => handleSpecialKey('BACKSPACE')} bgClass="bg-white text-red-600 border-red-200 hover:bg-red-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2M3 12l6.414 6.414a2 2 0 001.414.586H19a2 2 0 002-2V7a2 2 0 00-2-2h-8.172a2 2 0 00-1.414.586L3 12z" /></svg>} label="ลบโน้ต" title="ลบโน้ต (Backspace)" />
-              
-              <ToolButton onClick={() => handleSpecialKey('TRIM_LAST')} bgClass="bg-white text-red-600 border-red-200 hover:bg-red-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H8m0 0l4 4m-4-4l4-4M4 6h7M4 18h7" /></svg>} label="ลบตัวท้าย" title="ลบตัวโน้ตตัวสุดท้ายในช่องปัจจุบัน" />
-              
-              <ToolButton onClick={removeNoteColumn} bgClass="bg-white text-red-600 border-red-200 hover:bg-red-100" icon={<span className="text-lg leading-none">−</span>} label="ลบจังหวะ" title="ลบคอลัมน์โน้ต" />
-              <ToolButton onClick={removeMeasure} bgClass="bg-white text-red-600 border-red-200 hover:bg-red-100" icon={<span className="text-lg leading-none">−</span>} label="ลบห้อง" title="ลบห้องเพลง" />
-              <ToolButton onClick={removeRow} bgClass="bg-white text-red-600 border-red-200 hover:bg-red-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 7h12M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-7 0l1 12h6l1-12" /></svg>} label="ลบบรรทัด" title="ลบบรรทัดปัจจุบัน" />
+              <ToolButton onClick={() => handleSpecialKey('BACKSPACE')} bgClass="bg-white text-red-600 border-red-200 hover:bg-red-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2M3 12l6.414 6.414a2 2 0 001.414.586H19a2 2 0 002-2V7a2 2 0 00-2-2h-8.172a2 2 0 00-1.414.586L3 12z" /></svg>} label="ลบโน้ต" title="ลบโน้ตถอยหลัง" />
+              <ToolButton onClick={removeNoteColumn} bgClass="bg-white text-red-600 border-red-200 hover:bg-red-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M20 12H4" /></svg>} label="ลบจังหวะ" title="ลบคอลัมน์โน้ตทิ้ง" />
+              <ToolButton onClick={removeMeasure} bgClass="bg-white text-red-600 border-red-200 hover:bg-red-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M20 12H4" /></svg>} label="ลบห้อง" title="ลบห้องดนตรีทิ้ง" />
+              <ToolButton onClick={removeRow} bgClass="bg-white text-red-600 border-red-200 hover:bg-red-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>} label="ลบบรรทัด" title="ลบบรรทัดปัจจุบันทิ้ง" />
             </ToolbarSection>
+          
           </div>
         </div>
 

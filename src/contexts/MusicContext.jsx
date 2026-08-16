@@ -144,11 +144,34 @@ export const shiftNoteString = (noteStr, steps) => {
   return finalNote;
 };
 
+const DEFAULT_INSTRUMENT = INSTRUMENT_CONFIG["khong-wong-yai"] || INSTRUMENT_CONFIG["ranat-ek"] || Object.values(INSTRUMENT_CONFIG)[0];
+const createDefaultSheetData = () => Array(4).fill().map(() => Array(8).fill().map(() => Array(4).fill('-')));
+const createDefaultRowTypes = () => Array(4).fill('single');
+const createDefaultRowMargins = (length = 4) => Array.from({ length }, () => ({ top: 0, bottom: 0, left: 0 }));
+const createDefaultHeaderDetails = () => ([
+  { id: 1, label: "อัตราจังหวะ", value: "๒ ชั้น" },
+  { id: 2, label: "หน้าทับ", value: "สองไม้" },
+  { id: 3, label: "บันไดเสียง", value: "ทางเพียงออ" },
+  { id: 4, label: "ผู้บันทึก", value: "9atony" }
+]);
+const createDefaultLayoutConfig = () => ({
+  fontSize: 30, isBold: false, isItalic: false, measureHeight: 48,
+  rowGap: 32, songNameSize: 48, authorSize: 16, detailsAlign: 'between',
+  borderWidth: 2, innerBorderWidth: 1, borderColor: '#1e293b', borderRadius: 0,
+  bpm: 80, volume: 100,
+  sabatColor: '#1e293b', sabatStrokeWidth: 2.5, sabatCurve: 20, sabatOffset: 4, sabatStyle: 'crescendo',
+  kroColor: '#3b82f6', kroStrokeWidth: 2.5, kroOffset: 30, kroSpeed: 65, kroStartHand: 'right',
+  activeSymbol: 'sabat', symbolColor: '#1e293b', symbolStrokeWidth: 2.5, symbolHeight: 20,
+  marginTop: 48, marginBottom: 48, marginLeft: 48, marginRight: 48,
+  marginUnit: 'px', textLineHeight: 1.5, textFontSize: 16,
+  customStyles: {}
+});
+
 export const MusicProvider = ({ children }) => {
-  const [currentInstrument, setCurrentInstrument] = useState(INSTRUMENT_CONFIG["khong-wong-yai"] || INSTRUMENT_CONFIG["ranat-ek"]);
-  const [sheetData, setSheetData] = useState(Array(4).fill().map(() => Array(8).fill().map(() => Array(4).fill('-'))));
-  const [rowTypes, setRowTypes] = useState(Array(4).fill('single'));
-  const [rowMargins, setRowMargins] = useState(Array(4).fill({ top: 0, bottom: 0, left: 0 }));
+  const [currentInstrument, setCurrentInstrument] = useState(DEFAULT_INSTRUMENT);
+  const [sheetData, setSheetData] = useState(createDefaultSheetData);
+  const [rowTypes, setRowTypes] = useState(createDefaultRowTypes);
+  const [rowMargins, setRowMargins] = useState(() => createDefaultRowMargins());
   const [selectedCell, setSelectedCell] = useState([0, 0, 0]);
   
   const [songName, setSongName] = useState("เพลงลาวดวงเดือน");
@@ -253,18 +276,7 @@ export const MusicProvider = ({ children }) => {
   const pendingPlaybackCursorRef = useRef(null);
   const playbackCursorRafRef = useRef(null);
   
-  const [layoutConfig, setLayoutConfig] = useState({
-    fontSize: 30, isBold: false, isItalic: false, measureHeight: 48,
-    rowGap: 32, songNameSize: 48, authorSize: 16, detailsAlign: 'between',
-    borderWidth: 2, innerBorderWidth: 1, borderColor: '#1e293b', borderRadius: 0,
-    bpm: 80, volume: 100, 
-    sabatColor: '#1e293b', sabatStrokeWidth: 2.5, sabatCurve: 20, sabatOffset: 4, sabatStyle: 'crescendo',
-    kroColor: '#3b82f6', kroStrokeWidth: 2.5, kroOffset: 30, kroSpeed: 65, kroStartHand: 'right',
-    activeSymbol: 'sabat', symbolColor: '#1e293b', symbolStrokeWidth: 2.5, symbolHeight: 20, 
-    marginTop: 48, marginBottom: 48, marginLeft: 48, marginRight: 48,
-    marginUnit: 'px', textLineHeight: 1.5, textFontSize: 16,
-    customStyles: {} // ⭐ ที่อยู่ของค่าความดังรายตัวโน้ตที่เราเพิ่มเข้ามา
-  });
+  const [layoutConfig, setLayoutConfig] = useState(createDefaultLayoutConfig);
 
   const layoutConfigRef = useRef(layoutConfig);
   const isPlayingRef = useRef(false);
@@ -283,6 +295,35 @@ export const MusicProvider = ({ children }) => {
   const sheetMapRef = useRef([]);
   const isImportingRef = useRef(false);
   const currentInstrumentRef = useRef(currentInstrument); 
+  const resetProjectScopedState = ({ keepProjectId = false } = {}) => {
+    const defaultSheet = createDefaultSheetData();
+    const defaultTypes = createDefaultRowTypes();
+    const defaultMargins = createDefaultRowMargins(defaultSheet.length);
+
+    setSheetData(defaultSheet);
+    setRowTypes(defaultTypes);
+    setRowMargins(defaultMargins);
+    setSectionLabels({});
+    setSymbols([]);
+    setLayoutConfig(createDefaultLayoutConfig());
+    setHeaderDetails(createDefaultHeaderDetails());
+    setCurrentInstrument(DEFAULT_INSTRUMENT);
+    setPlaybackSequence([]);
+    setIsLoopAll(false);
+    setIsLoopOne(false);
+    setIntervalMode('off');
+    setIsReduceMode(false);
+    setIsShowPlayMode(false);
+    setIsAutoScroll(true);
+    setToolbarMode('default');
+    setSelectedSymbolId(null);
+    setSelectedCell([0, 0, 0]);
+    setSelectionRange(null);
+    if (!keepProjectId) setProjectId(null);
+
+    return { defaultSheet, defaultTypes, defaultMargins };
+  };
+
 
   useEffect(() => { layoutConfigRef.current = layoutConfig; }, [layoutConfig]);
   useEffect(() => { currentInstrumentRef.current = currentInstrument; }, [currentInstrument]); 
@@ -559,12 +600,7 @@ export const MusicProvider = ({ children }) => {
     commitChange(newData);
   };
 
-  const [headerDetails, setHeaderDetails] = useState([
-    { id: 1, label: "อัตราจังหวะ", value: "๒ ชั้น" },
-    { id: 2, label: "หน้าทับ", value: "สองไม้" },
-    { id: 3, label: "บันไดเสียง", value: "ทางเพียงออ" },
-    { id: 4, label: "ผู้บันทึก", value: "9atony" }
-  ]);
+  const [headerDetails, setHeaderDetails] = useState(createDefaultHeaderDetails);
 
   // preload เสียงของเครื่องดนตรีที่เลือกไว้ล่วงหน้า โดยไม่บังคับเปิดคู่ 8 อัตโนมัติ
   useEffect(() => {
@@ -1891,35 +1927,41 @@ export const MusicProvider = ({ children }) => {
         const fileNameWithoutExt = file.name ? file.name.replace(/\.[^/.]+$/, "") : "";
         const targetProjectName = data.name || fileNameWithoutExt || "โปรเจกต์ไม่มีชื่อ";
         const targetSongName = data.songName || targetProjectName;
-        
+
+        const { defaultSheet, defaultTypes, defaultMargins } = resetProjectScopedState();
         setProjectName(targetProjectName);
-        setSongName(targetSongName); 
+        setSongName(targetSongName);
         setProjectId(null);
-      
+
         let parsedSheetData = data.sheetData;
         if (data.sheetData) {
           parsedSheetData = typeof data.sheetData === 'string' ? JSON.parse(data.sheetData) : data.sheetData;
           setSheetData(parsedSheetData);
-        }
-        if (data.rowTypes) setRowTypes(data.rowTypes);
-        if (data.sectionLabels) setSectionLabels(data.sectionLabels);
-        if (data.symbols) setSymbols(data.symbols);
-        if (data.layoutConfig) setLayoutConfig(prev => ({ ...prev, ...data.layoutConfig }));
-        if (data.headerDetails) setHeaderDetails(data.headerDetails);
-        if (data.currentInstrument && INSTRUMENT_CONFIG[data.currentInstrument]) setCurrentInstrument(INSTRUMENT_CONFIG[data.currentInstrument]);
-
-        // ⭐ 1. อัปเดตลำดับการเล่นให้อัตโนมัติทันทีที่โหลดโปรเจกต์
-        if (data.playbackSequence) {
-          setPlaybackSequence(data.playbackSequence);
         } else {
-          setPlaybackSequence([]); // ถ้าโปรเจกต์เก่าไม่มี ให้เคลียร์เป็นค่าว่าง
+          parsedSheetData = defaultSheet;
         }
 
-        if (data.isLoopAll !== undefined) setIsLoopAll(data.isLoopAll);
-        if (data.playbackSequence) setPlaybackSequence(data.playbackSequence);
-        if (data.isLoopAll !== undefined) setIsLoopAll(data.isLoopAll);
-        if (data.isLoopOne !== undefined) setIsLoopOne(data.isLoopOne);
-        
+        const loadedRowTypes = data.rowTypes || defaultTypes;
+        const loadedSectionLabels = data.sectionLabels || {};
+        const loadedSymbols = data.symbols || [];
+        const loadedLayoutConfig = { ...createDefaultLayoutConfig(), ...(data.layoutConfig || {}) };
+        const loadedHeaderDetails = data.headerDetails || createDefaultHeaderDetails();
+        const loadedPlaybackSequence = data.playbackSequence || [];
+        const loadedMargins = data.rowMargins || createDefaultRowMargins(parsedSheetData?.length || defaultMargins.length);
+        const loadedInstrument = (data.currentInstrument && INSTRUMENT_CONFIG[data.currentInstrument])
+          ? INSTRUMENT_CONFIG[data.currentInstrument]
+          : DEFAULT_INSTRUMENT;
+
+        setRowTypes(loadedRowTypes);
+        setSectionLabels(loadedSectionLabels);
+        setSymbols(loadedSymbols);
+        setLayoutConfig(loadedLayoutConfig);
+        setHeaderDetails(loadedHeaderDetails);
+        setCurrentInstrument(loadedInstrument);
+        setPlaybackSequence(loadedPlaybackSequence);
+        setIsLoopAll(data.isLoopAll !== undefined ? data.isLoopAll : false);
+        setIsLoopOne(data.isLoopOne !== undefined ? data.isLoopOne : false);
+
         if (data.intervalMode !== undefined) {
           setIntervalMode(data.intervalMode);
         } else if (data.isOctaveMode !== undefined) {
@@ -1928,35 +1970,13 @@ export const MusicProvider = ({ children }) => {
           setIntervalMode('off');
         }
 
-        if (data.isReduceMode !== undefined) setIsReduceMode(data.isReduceMode);
-        if (data.isShowPlayMode !== undefined) setIsShowPlayMode(data.isShowPlayMode);
-        
-        const loadedMargins = data.rowMargins || Array(data.sheetData?.length || 4).fill({ top: 0, bottom: 0, left: 0 });
+        setIsReduceMode(data.isReduceMode !== undefined ? data.isReduceMode : false);
+        setIsShowPlayMode(data.isShowPlayMode !== undefined ? data.isShowPlayMode : false);
+
         setRowMargins(loadedMargins);
-        setSelectedCell([0, 0, 0]); 
+        setSelectedCell([0, 0, 0]);
         setSelectionRange(null);
-        commitChange(parsedSheetData, data.rowTypes, data.sectionLabels, data.symbols, loadedMargins);
-
-        const uid = auth.currentUser?.uid;
-if (uid) {
-   const projectDataToSave = { 
-     name: targetProjectName, songName: targetSongName, sheetData: parsedSheetData || sheetData, 
-     rowTypes: data.rowTypes || rowTypes, sectionLabels: data.sectionLabels || sectionLabels, 
-     symbols: data.symbols || symbols, layoutConfig: { ...layoutConfig, ...(data.layoutConfig || {}) }, 
-     headerDetails: data.headerDetails || headerDetails, currentInstrument: data.currentInstrument || currentInstrument?.id || 'ranat-ek', 
-     rowMargins: loadedMargins, playbackSequence: data.playbackSequence || playbackSequence,
-     isLoopAll: data.isLoopAll || false, isLoopOne: data.isLoopOne || false, 
-     intervalMode: data.intervalMode || (data.isOctaveMode ? '8' : 'off'), isReduceMode: data.isReduceMode || false,
-     isShowPlayMode: data.isShowPlayMode || false
-   };
-   
-   // ❌ ลบบรรทัด const newId = await saveProjectToDB(uid, null, projectDataToSave);
-   // ❌ ลบบรรทัด if (newId) setProjectId(newId); 
-   
-   setProjectId(null);  // ✅ คงไว้ เพื่อบอกแอปว่า "นี่คือไฟล์ใหม่ที่ยังไม่มี id ในระบบ"
-   // useEffect บรรทัด 2063 จะจัดการต่อเองภายใน 2 วินาที
-}
-
+        commitChange(parsedSheetData, loadedRowTypes, loadedSectionLabels, loadedSymbols, loadedMargins);
       } catch (error) {
         console.error("Load project error:", error);
         alert("ไฟล์ไม่ถูกต้อง หรือไฟล์เสียหายครับ!"); 
@@ -1969,21 +1989,15 @@ if (uid) {
 
   const performNewProject = () => {
     isImportingRef.current = true;
-    const initSheet = Array(4).fill().map(() => Array(8).fill().map(() => Array(4).fill('-')));
-    const initType = Array(4).fill('single');
-    const initMar = Array(4).fill({ top: 0, bottom: 0, left: 0 });
-    
-    setSongName("เพลงใหม่"); 
-    setProjectName("โปรเจกต์ไม่มีชื่อ"); 
-    setProjectId(null); 
-    setSheetData(initSheet); setRowTypes(initType); setRowMargins(initMar); setSectionLabels({}); setSymbols([]);
-    
-    // ⭐ 3. สั่งเคลียร์ลำดับการเล่นให้เป็นค่าว่าง เมื่อสร้างโปรเจกต์ใหม่
-    setPlaybackSequence([]); 
+    const { defaultSheet, defaultTypes, defaultMargins } = resetProjectScopedState();
 
-    setHeaderDetails([{ id: 1, label: "อัตราจังหวะ", value: "๒ ชั้น" }, { id: 2, label: "หน้าทับ", value: "สองไม้" }, { id: 3, label: "บันไดเสียง", value: "ทางเพียงออ" }, { id: 4, label: "ผู้บันทึก", value: "9atony" }]);
-    setSelectedCell([0, 0, 0]); setSelectionRange(null); setHistoryIndex(-1); setHistory([]); localStorage.removeItem('thaiMusicEditorAutoSave');
-    commitChange(initSheet, initType, {}, [], initMar);
+    setSongName("เพลงใหม่");
+    setProjectName("โปรเจกต์ไม่มีชื่อ");
+    setHistoryIndex(-1);
+    setHistory([]);
+    localStorage.removeItem('thaiMusicEditorAutoSave');
+
+    commitChange(defaultSheet, defaultTypes, {}, [], defaultMargins);
     setTimeout(() => { isImportingRef.current = false; }, 1000);
   };
 
@@ -2208,7 +2222,7 @@ if (uid) {
         if (data.rowTypes) setRowTypes(data.rowTypes);
         if (data.sectionLabels) setSectionLabels(data.sectionLabels);
         if (data.symbols) setSymbols(data.symbols); 
-        if (data.layoutConfig) setLayoutConfig(prev => ({ ...prev, ...data.layoutConfig }));
+        setLayoutConfig({ ...createDefaultLayoutConfig(), ...(data.layoutConfig || {}) });
         if (data.headerDetails) setHeaderDetails(data.headerDetails);
         if (data.currentInstrument && INSTRUMENT_CONFIG[data.currentInstrument]) setCurrentInstrument(INSTRUMENT_CONFIG[data.currentInstrument]);
         if (data.playbackSequence) setPlaybackSequence(data.playbackSequence);
@@ -2358,45 +2372,49 @@ if (uid) {
   const performLoadProjectFromFirebase = (projectData) => {
     isImportingRef.current = true;
     try {
-      const parsedSheetData = typeof projectData.sheetData === 'string' ? JSON.parse(projectData.sheetData) : projectData.sheetData;
+      const parsedFromSource = typeof projectData.sheetData === 'string' ? JSON.parse(projectData.sheetData) : projectData.sheetData;
+      const { defaultSheet, defaultTypes, defaultMargins } = resetProjectScopedState({ keepProjectId: true });
+      const parsedSheetData = parsedFromSource || defaultSheet;
 
       if (projectData.id) setProjectId(projectData.id);
       if (projectData.name !== undefined) setProjectName(projectData.name);
       if (projectData.songName !== undefined) setSongName(projectData.songName);
-      
-      if (parsedSheetData) setSheetData(parsedSheetData);
-      if (projectData.rowTypes) setRowTypes(projectData.rowTypes);
-      if (projectData.sectionLabels) setSectionLabels(projectData.sectionLabels);
-      if (projectData.symbols) setSymbols(projectData.symbols);
-      if (projectData.layoutConfig) setLayoutConfig(prev => ({ ...prev, ...projectData.layoutConfig }));
-      if (projectData.headerDetails) setHeaderDetails(projectData.headerDetails);
-      
-      if (projectData.currentInstrument && INSTRUMENT_CONFIG[projectData.currentInstrument]) setCurrentInstrument(INSTRUMENT_CONFIG[projectData.currentInstrument]);
-      
-      // ⭐ 2. อัปเดตลำดับการเล่นจากฐานข้อมูล Firebase ทันที
-      if (projectData.playbackSequence) {
-          setPlaybackSequence(projectData.playbackSequence);
-      } else {
-          setPlaybackSequence([]);
-      }
 
-      if (projectData.isLoopAll !== undefined) setIsLoopAll(projectData.isLoopAll);
-      if (projectData.playbackSequence) setPlaybackSequence(projectData.playbackSequence);
-      if (projectData.isLoopAll !== undefined) setIsLoopAll(projectData.isLoopAll);
-      if (projectData.isLoopOne !== undefined) setIsLoopOne(projectData.isLoopOne);
-      
+      setSheetData(parsedSheetData);
+
+      const loadedRowTypes = projectData.rowTypes || defaultTypes;
+      const loadedSectionLabels = projectData.sectionLabels || {};
+      const loadedSymbols = projectData.symbols || [];
+      const loadedLayoutConfig = { ...createDefaultLayoutConfig(), ...(projectData.layoutConfig || {}) };
+      const loadedHeaderDetails = projectData.headerDetails || createDefaultHeaderDetails();
+      const loadedPlaybackSequence = projectData.playbackSequence || [];
+      const loadedMargins = projectData.rowMargins || createDefaultRowMargins(parsedSheetData?.length || defaultMargins.length);
+      const loadedInstrument = (projectData.currentInstrument && INSTRUMENT_CONFIG[projectData.currentInstrument])
+        ? INSTRUMENT_CONFIG[projectData.currentInstrument]
+        : DEFAULT_INSTRUMENT;
+
+      setRowTypes(loadedRowTypes);
+      setSectionLabels(loadedSectionLabels);
+      setSymbols(loadedSymbols);
+      setLayoutConfig(loadedLayoutConfig);
+      setHeaderDetails(loadedHeaderDetails);
+      setCurrentInstrument(loadedInstrument);
+      setPlaybackSequence(loadedPlaybackSequence);
+      setIsLoopAll(projectData.isLoopAll !== undefined ? projectData.isLoopAll : false);
+      setIsLoopOne(projectData.isLoopOne !== undefined ? projectData.isLoopOne : false);
+
       if (projectData.intervalMode !== undefined) {
-          setIntervalMode(projectData.intervalMode);
+        setIntervalMode(projectData.intervalMode);
       } else if (projectData.isOctaveMode !== undefined) {
-          setIntervalMode(projectData.isOctaveMode ? '8' : 'off');
+        setIntervalMode(projectData.isOctaveMode ? '8' : 'off');
+      } else {
+        setIntervalMode('off');
       }
 
-      if (projectData.isReduceMode !== undefined) setIsReduceMode(projectData.isReduceMode);
-      if (projectData.isShowPlayMode !== undefined) setIsShowPlayMode(projectData.isShowPlayMode);
+      setIsReduceMode(projectData.isReduceMode !== undefined ? projectData.isReduceMode : false);
+      setIsShowPlayMode(projectData.isShowPlayMode !== undefined ? projectData.isShowPlayMode : false);
 
-      const loadedMargins = projectData.rowMargins || Array(parsedSheetData?.length || 4).fill({ top: 0, bottom: 0, left: 0 });
       setRowMargins(loadedMargins);
-      
       setSelectedCell([0, 0, 0]);
       setSelectionRange(null);
     } catch (error) {
@@ -2424,15 +2442,12 @@ if (uid) {
   };
 
   const applyTemplate = (templateData) => {
-    setSheetData(Array(4).fill().map(() => Array(8).fill().map(() => Array(4).fill('-'))));
-    setRowTypes(Array(4).fill('single'));
-    setSectionLabels({});
-    setProjectId(null);
+    resetProjectScopedState();
 
     setSongName(templateData.defaultSongName || "เพลงใหม่");
     setProjectName("โปรเจกต์ไม่มีชื่อ");
-    setHeaderDetails(templateData.headerDetails || []);
-    
+    setHeaderDetails(templateData.headerDetails || createDefaultHeaderDetails());
+
     if (templateData.detailsAlign) {
       setLayoutConfig(prev => ({ ...prev, detailsAlign: templateData.detailsAlign }));
     }

@@ -63,7 +63,8 @@ const SequenceTab = () => {
     const sortedIndices = Object.keys(sectionLabels).map(Number).sort((a, b) => a - b);
     sortedIndices.forEach(vIdx => {
       sectionLabels[vIdx].forEach(lbl => {
-          if (lbl.text) {
+          // ⭐ เพิ่มเงื่อนไขให้ดึงมาเฉพาะป้ายที่มีข้อความ และอยู่ในตำแหน่งมุมซ้ายบนเท่านั้น
+          if (lbl.text && lbl.position === 'top-left') {
            newSeq.push({ id: Date.now() + Math.random(), label: lbl.text, loops: 1 });
           }
       });
