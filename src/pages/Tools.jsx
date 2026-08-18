@@ -4,6 +4,9 @@ import TunerDashboard from '../components/tools/TunerDashboard';
 import RanatDictionary from '../components/tools/RanatDictionary';
 import RanatGenerator from '../components/tools/RanatGenerator';
 
+// ⭐ 1. นำเข้า Tool Workspace ของเรา
+import ToolWorkspace from '../components/tools/ToolWorkspace';
+
 const Tools = ({ onPageChange }) => {
   // สร้าง State สำหรับจดจำว่าผู้ใช้กำลังเปิดเครื่องมือไหนอยู่ (null = หน้าเมนูหลัก)
   const [activeTool, setActiveTool] = useState(null);
@@ -33,6 +36,15 @@ const Tools = ({ onPageChange }) => {
       icon: '🧠', 
       color: 'bg-violet-50 text-violet-500',
       borderColor: 'hover:border-violet-400' 
+    },
+    // ⭐ 2. เพิ่มปุ่มกดใหม่เข้าหน้า Dashboard จัดวง
+    { 
+      id: 'workspace', 
+      name: 'จัดวงดนตรี (Arranger)', 
+      desc: 'เครื่องมือจัดการวง ควบคุมไทม์ไลน์ และผูกเนื้อร้องกับโครงสร้างดนตรี', 
+      icon: '🎛️', 
+      color: 'bg-rose-50 text-rose-500',
+      borderColor: 'hover:border-rose-400' 
     }
   ];
 
@@ -49,6 +61,9 @@ const Tools = ({ onPageChange }) => {
         return <RanatDictionary />;
       case 'tuner-ai':
         return <TunerDashboard />;
+      // ⭐ 3. เมื่อผู้ใช้คลิกปุ่มนี้ ให้เรนเดอร์ Tool Workspace
+      case 'workspace':
+        return <ToolWorkspace />;
       default:
         return (
           <div className="flex flex-col items-center justify-center h-[60vh] text-slate-500">

@@ -6,6 +6,8 @@ let masterCompressorNode = null;
 const audioBufferCache = {};
 const audioBufferPromiseCache = {};
 const activeSources = new Set();
+const trackGainNodes = {};
+const clipGainNodes = {};
 const DEFAULT_START_LEAD_TIME = 0.015;
 
 const getAudioContext = () => {
@@ -47,6 +49,13 @@ const safeAudioNow = () => {
   return ctx.currentTime;
 };
 
+// ⭐ หา key ของโน้ตจากชื่อโน้ตที่จัดรูปแบบแล้ว (ใช้กรณี buffer ยังไม่ถูกโหลด)
+const findKeyByFormattedNote = (instrumentId, noteStr) => {
+  const instrument = INSTRUMENT_CONFIG[instrumentId];
+  if (!instrument?.keys) return null;
+  return instrument.keys.find((k) => getFormattedNote(k.thai, k.eng) === noteStr) || null;
+};
+
 const normalizeScheduledTime = (whenSec) => {
   const ctx = getAudioContext();
   const minWhen = ctx.currentTime + DEFAULT_START_LEAD_TIME;
@@ -54,7 +63,7 @@ const normalizeScheduledTime = (whenSec) => {
   return Math.max(minWhen, whenSec);
 };
 
-const createBufferedSource = (buffer, volumeLevel, whenSec) => {
+const createBufferedSource = (buffer, volumeLevel, whenSec, destination) => {
   const ctx = getAudioContext();
   const startAt = normalizeScheduledTime(whenSec);
 
@@ -68,7 +77,7 @@ const createBufferedSource = (buffer, volumeLevel, whenSec) => {
   gainNode.gain.linearRampToValueAtTime(normalizedGain, startAt + 0.003);
 
   source.connect(gainNode);
-  gainNode.connect(getOutputNode());
+  gainNode.connect(destination || getOutputNode());
 
   activeSources.add(source);
   source.onended = () => {
@@ -122,6 +131,62 @@ export const initAudioContext = async () => {
 
 export const getAudioCurrentTime = () => safeAudioNow();
 
+// ⭐ Gain ต่อ Track: ให้ Mute/Solo ควบคุมระดับเสียงของแต่ละ Track ได้จริง (รวมถึงตอนกำลังเล่น)
+export const getTrackGainNode = (trackId) => {
+  const ctx = getAudioContext();
+  if (!trackGainNodes[trackId]) {
+    const g = ctx.createGain();
+    g.gain.value = 1;
+    g.connect(getOutputNode());
+    trackGainNodes[trackId] = g;
+  }
+  return trackGainNodes[trackId];
+};
+
+export const setTrackGain = (trackId, value) => {
+  const g = trackGainNodes[trackId];
+  if (g) {
+    const ctx = getAudioContext();
+    const v = Math.max(0, Math.min(1, Number(value) || 0));
+    g.gain.cancelScheduledValues(ctx.currentTime);
+    g.gain.setValueAtTime(v, ctx.currentTime);
+  }
+};
+
+// ⭐ Gain ต่อแทรก (clip): ให้ระดับเสียงของแต่ละแทรกควบคุมได้จริง (รวมถึงตอนกำลังเล่น)
+export const getClipGainNode = (clipId) => {
+  const ctx = getAudioContext();
+  if (!clipGainNodes[clipId]) {
+    const g = ctx.createGain();
+    g.gain.value = 1;
+    clipGainNodes[clipId] = g;
+  }
+  return clipGainNodes[clipId];
+};
+
+export const setClipGain = (clipId, value) => {
+  const g = clipGainNodes[clipId];
+  if (g) {
+    const ctx = getAudioContext();
+    const v = Math.max(0, Math.min(1, Number(value) || 0));
+    g.gain.cancelScheduledValues(ctx.currentTime);
+    g.gain.setValueAtTime(v, ctx.currentTime);
+  }
+};
+
+// ⭐ เชื่อม Gain แทรกเข้ากับ Gain ของ Track (กันเชื่อมซ้ำ → เสียงไม่เพี้ยน)
+export const connectClipGain = (clipId, trackGain) => {
+  const g = clipGainNodes[clipId];
+  if (!g) return;
+  if (g._dest !== trackGain) {
+    if (g._dest) {
+      try { g.disconnect(g._dest); } catch (_) {}
+    }
+    g.connect(trackGain);
+    g._dest = trackGain;
+  }
+};
+
 export const preloadSounds = async (instrumentId) => {
   const instrument = INSTRUMENT_CONFIG[instrumentId];
   if (!instrument) return;
@@ -139,13 +204,29 @@ export const preloadAllSounds = async () => {
   await Promise.allSettled(instrumentIds.map((instrumentId) => preloadSounds(instrumentId)));
 };
 
-export const scheduleNote = (instrumentId, noteChar, whenSec, volumeLevel = 100) => {
+// ⭐ ตัวเลข generation ใช้กันเสียงหลุดหลังกดหยุด: ถ้ากำลังโหลด buffer อยู่แล้วมีคำสั่งหยุดแทรกเข้ามา ให้ยกเลิกการเล่นโน้ตนั้นทิ้ง
+let noteGeneration = 0;
+
+// ⭐ scheduleNote เวอร์ชันใหม่: ถ้า buffer ยังไม่ถูกโหลด/ถอดรหัส จะโหลดให้อัตโนมัติแล้วค่อยเล่นตามเวลาที่กำหนด
+//    ทำให้ไม่มีโน้ตหลุด (dropped note) แม้กดเล่นครั้งแรกทันที
+const scheduleNote = async (instrumentId, noteChar, whenSec, volumeLevel = 100, destination) => {
   if (!noteChar || noteChar === '-') return null;
   const cleanNote = noteChar.trim();
-  const buffer = audioBufferCache[instrumentId]?.[cleanNote];
-  if (!buffer) return null;
-  return createBufferedSource(buffer, volumeLevel, whenSec);
+  if (!INSTRUMENT_CONFIG[instrumentId]) return null;
+
+  let buffer = audioBufferCache[instrumentId]?.[cleanNote];
+  if (!buffer) {
+    const myGen = noteGeneration;
+    const key = findKeyByFormattedNote(instrumentId, cleanNote);
+    buffer = key ? await loadSoundBuffer(instrumentId, key) : null;
+    if (myGen !== noteGeneration) return null; // หยุดเล่นไปแล้วระหว่างโหลด
+    if (!buffer) return null;
+  }
+
+  return createBufferedSource(buffer, volumeLevel, whenSec, destination);
 };
+
+export { scheduleNote };
 
 export const playNote = (instrumentId, noteChar, volumeLevel = 100) => {
   const now = safeAudioNow();
@@ -153,6 +234,7 @@ export const playNote = (instrumentId, noteChar, volumeLevel = 100) => {
 };
 
 export const stopAllScheduledNotes = () => {
+  noteGeneration += 1;
   const ctx = getAudioContext();
   const stopAt = ctx.currentTime;
   Array.from(activeSources).forEach((source) => {

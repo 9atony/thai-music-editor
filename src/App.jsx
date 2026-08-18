@@ -36,13 +36,13 @@ function App() {
   // ⭐ State สำหรับเก็บข้อมูลโปรไฟล์และยศ (Role)
   const [userProfile, setUserProfile] = useState(null); 
   
-  // State สำหรับควบคุมการแสดงหน้า Login เมื่อยังไม่ได้ล็อกอิน
+ // State สำหรับควบคุมการแสดงหน้า Login เมื่อยังไม่ได้ล็อกอิน
   const [showLogin, setShowLogin] = useState(false);
   
   const [currentView, setCurrentView] = useState('home'); 
   
   // State สำหรับจดจำหน้าก่อนหน้าที่จะเข้า Editor
-  const [previousView, setPreviousView] = useState('home'); 
+  const [previousView, setPreviousView] = useState('home');
 
   // ==========================================
   // ⭐ ระบบรหัสผ่านชั่วคราวกั้นหน้าเว็บ (บังคับกรอกทุกครั้งที่เปิดเว็บ)

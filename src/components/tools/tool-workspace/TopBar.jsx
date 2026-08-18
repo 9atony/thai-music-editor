@@ -1,0 +1,151 @@
+import React from 'react';
+import { useWorkspace } from '../../../contexts/WorkspaceContext';
+
+export default function TopBar() {
+  const {
+    projectName,
+    isPlaying,
+    startPlayback,
+    stopPlayback,
+    bpm,
+    setBpm,
+    currentTime,
+    totalTime,
+    formatTime,
+    exportWorkspace,
+    importWorkspace,
+    setCurrentTime,
+  } = useWorkspace();
+
+  const handleImportProject = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => importWorkspace(e.target?.result);
+    reader.readAsText(file);
+    event.target.value = null; 
+  };
+
+  return (
+    <header className="h-16 shrink-0 bg-[#11151a] border-b border-white/10 flex items-center px-3 gap-3">
+      
+      {/* ⭐ ปุ่มกดกลับ (ออกไปหน้าเว็บหลัก) กินพื้นที่น้อยที่สุด */}
+      <button 
+        onClick={() => window.history.back()} 
+        className="w-9 h-9 shrink-0 flex items-center justify-center rounded-lg hover:bg-white/10 text-white/50 hover:text-white transition-colors"
+        title="กลับ / ออกจากเครื่องมือ"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="19" y1="12" x2="5" y2="12"></line>
+          <polyline points="12 19 5 12 12 5"></polyline>
+        </svg>
+      </button>
+
+      {/* 1. โลโก้และชื่อโปรเจกต์ */}
+      <div className="flex items-center gap-3 w-[240px] pl-1 border-l border-white/10">
+        <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-red-500 via-orange-400 to-blue-500 flex items-center justify-center font-bold text-white shadow-[0_0_15px_rgba(239,68,68,0.3)]">M</div>
+        <div className="min-w-0">
+          <div className="text-sm font-semibold truncate text-white/90">Thai Music Arranger</div>
+          <div className="text-[11px] text-white/40 truncate">{projectName}</div>
+        </div>
+      </div>
+
+      {/* 2. เครื่องมือควบคุมการเล่นเพลง */}
+      <div className="flex-1 flex justify-center items-center gap-2">
+        <button
+          onClick={() => setCurrentTime(0)}
+          className="w-10 h-10 flex items-center justify-center rounded-xl hover:bg-white/10 text-white/60 hover:text-white transition-colors"
+          title="กลับต้นเพลง"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polygon points="11 19 2 12 11 5 11 19"></polygon>
+            <polygon points="22 19 13 12 22 5 22 19"></polygon>
+          </svg>
+        </button>
+        
+        <div className="w-px h-5 bg-white/10 mx-1" />
+
+        <button
+          onClick={startPlayback}
+          className={`w-10 h-10 flex items-center justify-center rounded-xl transition-all ${
+            isPlaying
+              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-[0_0_15px_rgba(16,185,129,0.2)]'
+              : 'bg-white/5 hover:bg-white/10 text-white border border-transparent'
+          }`}
+          title="เล่น"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+            <polygon points="5 3 19 12 5 21 5 3"></polygon>
+          </svg>
+        </button>
+
+        <button
+          onClick={stopPlayback}
+          className={`w-10 h-10 flex items-center justify-center rounded-xl transition-all ${
+            !isPlaying
+              ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+              : 'hover:bg-white/10 text-white/80 hover:text-white border border-transparent'
+          }`}
+          title="หยุด"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+          </svg>
+        </button>
+
+        <div className="ml-4 flex items-center justify-center min-w-[120px] h-9 bg-[#0c1014] rounded-lg border border-white/5 font-mono text-[11px] tracking-wider text-white/70 shadow-inner">
+          <span className={isPlaying ? "text-white" : ""}>{formatTime(currentTime)}</span>
+          <span className="text-white/20 mx-1.5">/</span> 
+          <span>{formatTime(totalTime)}</span>
+        </div>
+      </div>
+
+      {/* 3. จัดการโปรเจกต์ */}
+      <div className="flex items-center gap-3 w-[260px] justify-end">
+        
+        {/* BPM Input */}
+        <div className="bg-[#0c1014] border border-white/5 shadow-inner rounded-lg px-2.5 py-1.5 flex items-center mr-2">
+          <span className="text-white/40 text-[10px] uppercase tracking-wider mr-2">BPM</span>
+          <input
+            type="number"
+            value={bpm}
+            onChange={(e) => setBpm(Math.max(20, Math.min(240, Number(e.target.value) || 120)))}
+            className="bg-transparent border-none outline-none text-xs w-9 text-white text-right font-mono"
+            min="20"
+            max="240"
+          />
+        </div>
+
+        {/* ปุ่ม Import */}
+        <label className="cursor-pointer h-9 px-3.5 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-white/90 text-xs font-medium transition-colors flex items-center gap-2 shadow-sm">
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="7 10 12 15 17 10"></polyline>
+            <line x1="12" y1="15" x2="12" y2="3"></line>
+          </svg>
+          Import
+          <input
+            type="file"
+            accept=".json"
+            className="hidden"
+            onChange={handleImportProject}
+          />
+        </label>
+
+        {/* ปุ่ม Export */}
+        <button
+          onClick={exportWorkspace}
+          className="h-9 px-3.5 rounded-lg border border-blue-500/50 bg-blue-500 hover:bg-blue-400 text-white text-xs font-medium transition-colors flex items-center gap-2 shadow-[0_0_12px_rgba(59,130,246,0.3)]"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="17 8 12 3 7 8"></polyline>
+            <line x1="12" y1="3" x2="12" y2="15"></line>
+          </svg>
+          Export
+        </button>
+      </div>
+    </header>
+  );
+}
