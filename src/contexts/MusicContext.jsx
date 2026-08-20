@@ -1171,7 +1171,7 @@ export const MusicProvider = ({ children }) => {
   const updateSelection = (r, m, c) => { if (isDragging && dragStart) setSelectionRange({ start: dragStart, end: [r, m, c] }); };
   const endSelection = () => { setIsDragging(false); setDragStart(null); };
 
-  const copySelection = () => {
+  const copySelection = async () => {
     if (!selectionRange) return;
     const { start: [sr, sm, sc], end: [er, em, ec] } = selectionRange;
     const minR = Math.min(sr, er), maxR = Math.max(sr, er);
@@ -1215,24 +1215,50 @@ export const MusicProvider = ({ children }) => {
         }
     });
 
-    setClipboardData({ block: copiedBlock, symbols: copiedSymbols });
+    const payload = { block: copiedBlock, symbols: copiedSymbols };
+    setClipboardData(payload); // สำรองไว้ใน State
+
+    // ⭐ อัปเกรด: ส่งข้อมูลยัดลง System Clipboard ของเครื่องคอมพิวเตอร์
+    try {
+      const payloadString = JSON.stringify({ type: 'TME_CLIPBOARD', data: payload });
+      await navigator.clipboard.writeText(payloadString);
+    } catch (err) {
+      console.warn("ไม่สามารถคัดลอกลง Clipboard ของระบบได้", err);
+    }
+
     setSelectionRange(null); 
   };
 
-  const pasteSelection = () => {
+  const pasteSelection = async () => {
     if (isReadOnlyRef.current) return; 
-    if (!clipboardData) return;
+    
+    let payload = clipboardData; // ใช้ค่าเดิมใน State เป็นตัวสำรอง
+
+    // ⭐ อัปเกรด: พยายามดึงข้อมูลจาก System Clipboard ของเครื่องคอมพิวเตอร์ก่อน
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text) {
+        const parsed = JSON.parse(text);
+        if (parsed && parsed.type === 'TME_CLIPBOARD') {
+          payload = parsed.data; // ถ้าใช่โค้ดของ TME ให้ใช้ข้อมูลจากคอมพิวเตอร์
+        }
+      }
+    } catch (err) {
+      console.warn("ไม่สามารถอ่าน Clipboard ได้ (อาจไม่ได้รับอนุญาต) จะใช้ข้อมูลสำรองแทน", err);
+    }
+
+    if (!payload) return;
     
     let blockToPaste = [];
     let symbolsToPaste = [];
 
-    if (Array.isArray(clipboardData)) {
-       if (clipboardData.length === 0) return;
-       blockToPaste = clipboardData.map((row, idx) => ({ rowOffset: idx, cells: row }));
+    if (Array.isArray(payload)) {
+       if (payload.length === 0) return;
+       blockToPaste = payload.map((row, idx) => ({ rowOffset: idx, cells: row }));
     } else {
-       if (!clipboardData.block || clipboardData.block.length === 0) return;
-       blockToPaste = clipboardData.block;
-       symbolsToPaste = clipboardData.symbols || [];
+       if (!payload.block || payload.block.length === 0) return;
+       blockToPaste = payload.block;
+       symbolsToPaste = payload.symbols || [];
     }
 
     let [r, m, c] = selectedCell;
@@ -1305,13 +1331,16 @@ export const MusicProvider = ({ children }) => {
     setSelectedCell(lastValidCursor);
   };
 
-  const cutSelection = () => {
+  const cutSelection = async () => {
     if (isReadOnlyRef.current) return; 
     if (!selectionRange) return;
     
-    copySelection();
+    // ⭐ เซฟช่วงคลุมดำไว้ก่อน เพราะ copySelection จะทำการล้างค่าทิ้ง
+    const currentRange = { ...selectionRange };
     
-    const { start: [sr, sm, sc], end: [er, em, ec] } = selectionRange;
+    await copySelection();
+    
+    const { start: [sr, sm, sc], end: [er, em, ec] } = currentRange;
     const minR = Math.min(sr, er), maxR = Math.max(sr, er);
     const startCol = getFlattenedCol(sheetData[sr], rowTypes[sr], sm, sc);
     const endCol = getFlattenedCol(sheetData[er], rowTypes[er], em, ec);
@@ -1346,7 +1375,7 @@ export const MusicProvider = ({ children }) => {
     commitChange(newData, rowTypes, sectionLabels, remainingSymbols, rowMargins);
     setSelectionRange(null); 
   };
-
+  
   const inputNote = (note) => {
     if (isReadOnlyRef.current) return; 
     const newData = sheetData.map(row => row.map(meas => [...meas]));
@@ -1790,16 +1819,81 @@ export const MusicProvider = ({ children }) => {
 
   const removeMeasure = () => {
     if (isReadOnlyRef.current) return;
-    setSelectionRange(null); 
-    const [rowIdx, measIdx] = selectedCell;
-    if (rowTypes[rowIdx] === 'page-break' || rowTypes[rowIdx] === 'text' || (rowTypes[rowIdx].startsWith('double') && measIdx === 0)) return; 
-    if (sheetData[rowIdx].length > (rowTypes[rowIdx].startsWith('double') ? 2 : 1)) {
-      const newData = [...sheetData];
-      if (rowTypes[rowIdx] === 'single') newData[rowIdx].splice(measIdx, 1);
-      else if (rowTypes[rowIdx] === 'double-right') { newData[rowIdx].splice(measIdx, 1); newData[rowIdx + 1].splice(measIdx, 1); }
-      else if (rowTypes[rowIdx] === 'double-left') { newData[rowIdx].splice(measIdx, 1); newData[rowIdx - 1].splice(measIdx, 1); }
+
+    let isBlockSelection = false;
+    let minR, maxR, minM, maxM;
+
+    // 1. เช็กว่ามีการ "คลุมดำ" หลายช่อง/หลายห้องหรือไม่
+    if (selectionRange && selectionRange.start && selectionRange.end) {
+      const { start: [sr, sm], end: [er, em] } = selectionRange;
+      if (sr !== er || sm !== em) {
+        isBlockSelection = true;
+        minR = Math.min(sr, er);
+        maxR = Math.max(sr, er);
+        minM = Math.min(sm, em);
+        maxM = Math.max(sm, em);
+      }
+    }
+
+    // ทำการ Copy ข้อมูลกระดาษโน้ตทั้งหมด
+    const newData = sheetData.map(row => row.map(meas => [...meas]));
+
+    if (isBlockSelection) {
+      // 2. กรณีคลุมดำ: วนลูปลบทีละบรรทัด ตามระยะห้องที่คลุมไว้
+      for (let r = minR; r <= maxR; r++) {
+        if (rowTypes[r] === 'page-break' || rowTypes[r] === 'text' || rowTypes[r] === 'annotation') continue;
+
+        let actualMinM = minM;
+        // ถ้าเป็นบรรทัดคู่ ห้ามลบห้องที่ 0 (เพราะเป็นป้ายชื่อมือซ้าย/ขวา)
+        if (rowTypes[r].startsWith('double') && actualMinM === 0) actualMinM = 1;
+        if (actualMinM > maxM) continue;
+
+        const deleteCount = maxM - actualMinM + 1;
+        const minAllowed = rowTypes[r].startsWith('double') ? 2 : 1; // ต้องเหลืออย่างน้อย 1 ห้องเสมอ
+
+        if (rowTypes[r] === 'single' || rowTypes[r] === 'nathap') {
+          const canDelete = Math.min(deleteCount, newData[r].length - minAllowed);
+          if (canDelete > 0) newData[r].splice(actualMinM, canDelete);
+        } 
+        else if (rowTypes[r] === 'double-right') {
+          // ถ้าเป็นมือขวา ให้ลบมือซ้าย (บรรทัดล่าง) ไปพร้อมๆ กันเลยเพื่อรักษาความสมดุล
+          const canDelete = Math.min(deleteCount, newData[r].length - minAllowed);
+          if (canDelete > 0) {
+            newData[r].splice(actualMinM, canDelete);
+            if (newData[r + 1]) newData[r + 1].splice(actualMinM, canDelete);
+          }
+        } 
+        else if (rowTypes[r] === 'double-left') {
+          // ถ้าเป็นมือซ้าย จะทำงานต่อเมื่อตอนเริ่มลากคลุม ดันไปเริ่มลากเอามือซ้าย
+          if (r === minR) {
+            const canDelete = Math.min(deleteCount, newData[r].length - minAllowed);
+            if (canDelete > 0) {
+              newData[r].splice(actualMinM, canDelete);
+              if (newData[r - 1]) newData[r - 1].splice(actualMinM, canDelete);
+            }
+          }
+        }
+      }
+      
       commitChange(newData);
-      if (measIdx >= newData[rowIdx].length) setSelectedCell([rowIdx, newData[rowIdx].length - 1, 0]);
+      setSelectionRange(null);
+      // เลื่อนเคอร์เซอร์กลับมาอยู่ที่ห้องแรกสุดของบล็อกที่ถูกลบไป
+      setSelectedCell([minR, Math.min(minM, newData[minR].length - 1), 0]);
+
+    } else {
+      // 3. กรณีไม่ได้คลุมดำ: ทำงานลบแค่ 1 ห้อง (ตำแหน่งที่เคอร์เซอร์อยู่) แบบเดิม
+      setSelectionRange(null); 
+      const [rowIdx, measIdx] = selectedCell;
+      if (rowTypes[rowIdx] === 'page-break' || rowTypes[rowIdx] === 'text' || (rowTypes[rowIdx].startsWith('double') && measIdx === 0)) return; 
+      
+      if (sheetData[rowIdx].length > (rowTypes[rowIdx].startsWith('double') ? 2 : 1)) {
+        if (rowTypes[rowIdx] === 'single' || rowTypes[rowIdx] === 'nathap') newData[rowIdx].splice(measIdx, 1);
+        else if (rowTypes[rowIdx] === 'double-right') { newData[rowIdx].splice(measIdx, 1); newData[rowIdx + 1].splice(measIdx, 1); }
+        else if (rowTypes[rowIdx] === 'double-left') { newData[rowIdx].splice(measIdx, 1); newData[rowIdx - 1].splice(measIdx, 1); }
+        
+        commitChange(newData);
+        if (measIdx >= newData[rowIdx].length) setSelectedCell([rowIdx, newData[rowIdx].length - 1, 0]);
+      }
     }
   };
 
