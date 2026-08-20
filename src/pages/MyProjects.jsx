@@ -12,7 +12,9 @@ const MyProjects = ({ onNewProject }) => {
   const [projects, setProjects] = useState([]);
   const [searchQuery, setSearchQuery] = useState(""); 
   const [openMenuId, setOpenMenuId] = useState(null); 
-  const [isAdmin, setIsAdmin] = useState(false); 
+  
+  // ⭐ State สำหรับเก็บยศของผู้ใช้ (user, premium, admin)
+  const [userRole, setUserRole] = useState("user"); 
 
   const [sortOrder, setSortOrder] = useState('latest'); 
   const [isSortMenuOpen, setIsSortMenuOpen] = useState(false);
@@ -21,7 +23,6 @@ const MyProjects = ({ onNewProject }) => {
   const [projectToRename, setProjectToRename] = useState(null);
   const [newProjectName, setNewProjectName] = useState("");
 
-  // ⭐ State สำหรับป๊อปอัปแจ้งเตือนพื้นที่เต็ม
   const [storageLimitModalOpen, setStorageLimitModalOpen] = useState(false);
 
   useEffect(() => {
@@ -30,7 +31,7 @@ const MyProjects = ({ onNewProject }) => {
       if (uid) {
         try {
           const profile = await getUserProfile(uid);
-          if (profile?.role === 'admin') setIsAdmin(true);
+          setUserRole(profile?.role || 'user'); // ดึงยศมาเก็บไว้
 
           const q = query(
             collection(db, 'users', uid, 'projects'),
@@ -43,7 +44,6 @@ const MyProjects = ({ onNewProject }) => {
           }));
           setProjects(allProjects);
         } catch (error) {
-          console.error("Error loading all projects:", error);
           const data = await fetchRecentProjects(uid);
           setProjects(data);
         }
@@ -53,10 +53,7 @@ const MyProjects = ({ onNewProject }) => {
   }, []);
 
   useEffect(() => {
-    const handleClickOutside = () => {
-      setOpenMenuId(null);
-      setIsSortMenuOpen(false);
-    };
+    const handleClickOutside = () => { setOpenMenuId(null); setIsSortMenuOpen(false); };
     window.addEventListener('click', handleClickOutside);
     return () => window.removeEventListener('click', handleClickOutside);
   }, []);
@@ -64,25 +61,18 @@ const MyProjects = ({ onNewProject }) => {
   const formatTime = (timestamp) => {
     if (!timestamp?.seconds) return "ไม่ระบุเวลา";
     const date = new Date(timestamp.seconds * 1000);
-    return date.toLocaleDateString('th-TH', { 
-      year: '2-digit', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
-    });
+    return date.toLocaleDateString('th-TH', { year: '2-digit', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   };
 
   const formatTimeMobile = (timestamp) => {
     if (!timestamp?.seconds) return "ไม่ระบุเวลา";
     const date = new Date(timestamp.seconds * 1000);
-    return date.toLocaleDateString('th-TH', { 
-      month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
-    });
+    return date.toLocaleDateString('th-TH', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   };
 
   const calculateTotalStorageUsed = () => {
     let totalBytes = 0;
-    projects.forEach(project => {
-      const projectString = JSON.stringify(project);
-      totalBytes += new Blob([projectString]).size;
-    });
+    projects.forEach(project => { totalBytes += new Blob([JSON.stringify(project)]).size; });
     return totalBytes;
   };
 
@@ -92,7 +82,6 @@ const MyProjects = ({ onNewProject }) => {
     return (bytes / (1024 * 1024)).toFixed(2) + " MB";
   };
 
-  // ⭐ เติมฟังก์ชันนี้กลับคืนมา เพื่อใช้แสดงขนาดไฟล์ย่อยในมือถือ
   const formatSize = (data) => {
     if (!data) return "0 KB";
     const bytes = new Blob([typeof data === 'string' ? data : JSON.stringify(data)]).size;
@@ -100,34 +89,42 @@ const MyProjects = ({ onNewProject }) => {
     return (bytes / (1024 * 1024)).toFixed(2) + " MB";
   };
 
-  // ⭐ ด่านตรวจ: ก่อนสร้างโปรเจกต์ใหม่
-  const handleCreateNewProject = () => {
-    if (!isAdmin) {
+  // ⭐ ด่านตรวจก่อนสร้าง/อัปโหลดไฟล์ (ทำงานตามกฎใหม่)
+  const isCreationAllowed = (incomingFileSize = 0) => {
+    if (userRole === 'admin') return true;
+    
+    if (userRole === 'user') {
+      // สายฟรี: ห้ามมีไฟล์เกิน 10 ไฟล์
+      return projects.length < 10;
+    } 
+    
+    if (userRole === 'premium') {
+      // พรีเมียม: เช็กพื้นที่ 5 MB
       const usedBytes = calculateTotalStorageUsed();
-      const maxLimitBytes = 1 * 1024 * 1024; // 1 MB
-      // เผื่อบัฟเฟอร์ไว้ 10KB ป้องกันสร้างไฟล์แล้วเซฟไม่ได้
-      if (usedBytes + 10240 > maxLimitBytes) {
-        setStorageLimitModalOpen(true);
-        return;
-      }
+      const maxLimitBytes = 5 * 1024 * 1024; // 5 MB
+      const buffer = incomingFileSize > 0 ? incomingFileSize : 10240; 
+      return (usedBytes + buffer) <= maxLimitBytes;
+    }
+    return true;
+  };
+
+  const handleCreateNewProject = () => {
+    if (!isCreationAllowed()) {
+      setStorageLimitModalOpen(true);
+      return;
     }
     newProject(true);
     onNewProject();
   };
 
-  // ⭐ ด่านตรวจ: ก่อนอัปโหลดไฟล์จากเครื่อง
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
-    if (!isAdmin) {
-      const usedBytes = calculateTotalStorageUsed();
-      const maxLimitBytes = 1 * 1024 * 1024;
-      if (usedBytes + file.size > maxLimitBytes) {
-        setStorageLimitModalOpen(true);
-        e.target.value = null;
-        return;
-      }
+    if (!isCreationAllowed(file.size)) {
+      setStorageLimitModalOpen(true);
+      e.target.value = null;
+      return;
     }
 
     loadProject(file, true); 
@@ -136,70 +133,35 @@ const MyProjects = ({ onNewProject }) => {
   };
 
   const handleOpenProject = (project) => {
-    const parsedData = {
-      ...project,
-      sheetData: typeof project.sheetData === 'string' 
-                 ? JSON.parse(project.sheetData) 
-                 : project.sheetData
-    };
+    const parsedData = { ...project, sheetData: typeof project.sheetData === 'string' ? JSON.parse(project.sheetData) : project.sheetData };
     loadProjectFromFirebase(parsedData, true);
     onNewProject(); 
   };
 
-  const openRenameModal = (e, project) => {
-    e.stopPropagation();
-    setOpenMenuId(null); 
-    setProjectToRename(project);
-    setNewProjectName(project.name || "โปรเจกต์ไม่มีชื่อ");
-    setRenameModalOpen(true);
-  };
-
+  const openRenameModal = (e, project) => { e.stopPropagation(); setOpenMenuId(null); setProjectToRename(project); setNewProjectName(project.name || "โปรเจกต์ไม่มีชื่อ"); setRenameModalOpen(true); };
+  
   const confirmRename = async () => {
-    if (!newProjectName.trim() || newProjectName === projectToRename.name) {
-      setRenameModalOpen(false);
-      return;
-    }
-    
+    if (!newProjectName.trim() || newProjectName === projectToRename.name) { setRenameModalOpen(false); return; }
     try {
       const uid = auth.currentUser?.uid;
-      await updateDoc(doc(db, 'users', uid, 'projects', projectToRename.id), {
-        name: newProjectName.trim(),
-        updatedAt: serverTimestamp() 
-      });
-      
-      setProjects(prev => prev.map(p => 
-        p.id === projectToRename.id ? { ...p, name: newProjectName.trim(), updatedAt: { seconds: Date.now() / 1000 } } : p
-      ));
+      await updateDoc(doc(db, 'users', uid, 'projects', projectToRename.id), { name: newProjectName.trim(), updatedAt: serverTimestamp() });
+      setProjects(prev => prev.map(p => p.id === projectToRename.id ? { ...p, name: newProjectName.trim(), updatedAt: { seconds: Date.now() / 1000 } } : p));
       setRenameModalOpen(false);
-    } catch (error) {
-      console.error("Error renaming project:", error);
-      alert("เกิดข้อผิดพลาดในการเปลี่ยนชื่อครับ");
-    }
+    } catch (error) { alert("เกิดข้อผิดพลาดในการเปลี่ยนชื่อครับ"); }
   };
   
   const handleDeleteProject = async (e, projectId) => {
-    e.stopPropagation(); 
-    setOpenMenuId(null); 
-    
+    e.stopPropagation(); setOpenMenuId(null); 
     if (window.confirm("คุณต้องการลบโปรเจกต์นี้อย่างถาวรใช่หรือไม่?")) {
       try {
         const uid = auth.currentUser?.uid;
-        const projectRef = doc(db, 'users', uid, 'projects', projectId);
-        
-        await deleteDoc(projectRef);
+        await deleteDoc(doc(db, 'users', uid, 'projects', projectId));
         setProjects(prev => prev.filter(p => p.id !== projectId));
-        
-      } catch (error) {
-        console.error("Error deleting project:", error);
-        alert("เกิดข้อผิดพลาดในการลบไฟล์ครับ");
-      }
+      } catch (error) { alert("เกิดข้อผิดพลาดในการลบไฟล์ครับ"); }
     }
   };
 
-  let displayedProjects = projects.filter(p => 
-    (p.name || "โปรเจกต์ไม่มีชื่อ").toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
+  let displayedProjects = projects.filter(p => (p.name || "โปรเจกต์ไม่มีชื่อ").toLowerCase().includes(searchQuery.toLowerCase()));
   displayedProjects.sort((a, b) => {
     if (sortOrder === 'latest') return (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0);
     else if (sortOrder === 'oldest') return (a.updatedAt?.seconds || 0) - (b.updatedAt?.seconds || 0);
@@ -208,18 +170,10 @@ const MyProjects = ({ onNewProject }) => {
     return 0;
   });
 
-  const recentProjects = [...projects]
-    .sort((a, b) => (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0))
-    .slice(0, 5); 
+  const recentProjects = [...projects].sort((a, b) => (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0)).slice(0, 5); 
 
   const getSortLabel = () => {
-    switch(sortOrder) {
-      case 'latest': return 'ล่าสุด';
-      case 'oldest': return 'เก่าสุด';
-      case 'nameAsc': return 'ชื่อ ก - ฮ';
-      case 'nameDesc': return 'ชื่อ ฮ - ก';
-      default: return 'ล่าสุด';
-    }
+    switch(sortOrder) { case 'latest': return 'ล่าสุด'; case 'oldest': return 'เก่าสุด'; case 'nameAsc': return 'ชื่อ ก - ฮ'; case 'nameDesc': return 'ชื่อ ฮ - ก'; default: return 'ล่าสุด'; }
   };
 
   return (
@@ -236,9 +190,7 @@ const MyProjects = ({ onNewProject }) => {
               <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
             </div>
             <input 
-              type="text" 
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="ค้นหาโปรเจกต์" 
               className="w-full pl-9 pr-16 py-2.5 md:py-2 bg-white border border-slate-200 shadow-sm md:shadow-none rounded-xl text-sm focus:outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-400 transition-all placeholder:text-slate-400"
             />
@@ -249,7 +201,6 @@ const MyProjects = ({ onNewProject }) => {
       <input type="file" accept=".json,.tme,.thai" ref={fileInputRef} style={{ display: 'none' }} onChange={handleFileUpload} />
 
       <div className="grid grid-cols-3 gap-3 mb-8 md:hidden">
-        {/* ⭐ เปลี่ยนจากการใช้ onClick={() => newProject...} มาใช้ handleCreateNewProject */}
         <button onClick={handleCreateNewProject} className="bg-white rounded-2xl p-3 flex flex-col items-center justify-center gap-2 border border-slate-100 shadow-[0_2px_10px_rgba(0,0,0,0.02)] active:scale-95 transition-all">
           <div className="w-10 h-10 rounded-full bg-red-50 text-red-500 flex items-center justify-center"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" /></svg></div>
           <span className="text-[10px] font-bold text-slate-700">โปรเจกต์ใหม่</span>
@@ -265,36 +216,24 @@ const MyProjects = ({ onNewProject }) => {
       </div>
 
       <div className="hidden md:flex flex-wrap gap-4 mb-10">
-        {/* ⭐ เปลี่ยนจากการใช้ onClick={() => newProject...} มาใช้ handleCreateNewProject */}
         <button onClick={handleCreateNewProject} className="flex-1 min-w-[200px] bg-white border border-slate-200 rounded-2xl p-4 flex items-center gap-4 hover:border-sky-400 hover:shadow-sm transition-all text-left group">
           <div className="w-12 h-12 bg-slate-900 rounded-full flex items-center justify-center text-white shrink-0 group-hover:bg-sky-500 transition-colors shadow-sm"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" /></svg></div>
-          <div>
-            <h3 className="font-bold text-slate-800 text-sm">โปรเจกต์ใหม่</h3>
-            <p className="text-xs text-slate-400 font-medium mt-0.5">สร้างไฟล์เพลงใหม่</p>
-          </div>
+          <div><h3 className="font-bold text-slate-800 text-sm">โปรเจกต์ใหม่</h3><p className="text-xs text-slate-400 font-medium mt-0.5">สร้างไฟล์เพลงใหม่</p></div>
         </button>
         <button onClick={() => fileInputRef.current?.click()} className="flex-1 min-w-[200px] bg-white border border-slate-200 rounded-2xl p-4 flex items-center gap-4 hover:border-sky-400 hover:shadow-sm transition-all text-left group">
           <div className="w-12 h-12 bg-slate-50 border border-slate-100 rounded-full flex items-center justify-center text-slate-600 shrink-0 group-hover:text-sky-500 transition-colors"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg></div>
-          <div>
-            <h3 className="font-bold text-slate-800 text-sm">เปิดไฟล์</h3>
-            <p className="text-xs text-slate-400 font-medium mt-0.5">เปิดไฟล์จากเครื่อง</p>
-          </div>
+          <div><h3 className="font-bold text-slate-800 text-sm">เปิดไฟล์</h3><p className="text-xs text-slate-400 font-medium mt-0.5">เปิดไฟล์จากเครื่อง</p></div>
         </button>
         <div className="flex-1 min-w-[200px] hidden md:block"></div>
       </div>
 
       <div className="mb-8 md:mb-10">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-base font-bold text-slate-800">โปรเจกต์ล่าสุด</h3>
-        </div>
-        
+        <div className="flex items-center justify-between mb-4"><h3 className="text-base font-bold text-slate-800">โปรเจกต์ล่าสุด</h3></div>
         <div className="hidden md:grid md:grid-cols-3 lg:grid-cols-5 gap-4">
           {recentProjects.map((project) => (
             <button key={`grid-${project.id}`} onClick={() => handleOpenProject(project)} className="bg-white p-3.5 rounded-2xl border-2 border-slate-100 hover:border-sky-400 hover:shadow-xl hover:-translate-y-1 transition-all duration-300 flex flex-col group cursor-pointer relative text-left">
               <div className="absolute top-3 right-3 z-20">
-                <div onClick={(e) => { e.stopPropagation(); setOpenMenuId(openMenuId === project.id ? null : project.id); }} className="text-slate-400 hover:text-slate-700 transition-all p-1 bg-white hover:bg-slate-100 rounded-md shadow-sm border border-slate-100">
-                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg>
-                </div>
+                <div onClick={(e) => { e.stopPropagation(); setOpenMenuId(openMenuId === project.id ? null : project.id); }} className="text-slate-400 hover:text-slate-700 transition-all p-1 bg-white hover:bg-slate-100 rounded-md shadow-sm border border-slate-100"><svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg></div>
                 {openMenuId === project.id && (
                   <div className="absolute right-0 mt-1 w-32 bg-white border border-slate-100 rounded-xl shadow-[0_4px_20px_rgba(0,0,0,0.1)] py-1.5 z-50 animate-fadeIn">
                     <div onClick={(e) => openRenameModal(e, project)} className="w-full text-left px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer">เปลี่ยนชื่อ</div>
@@ -303,23 +242,18 @@ const MyProjects = ({ onNewProject }) => {
                 )}
               </div>
               <div className="w-4/5 mx-auto h-40 bg-gradient-to-b from-slate-50 to-slate-100 rounded-xl mb-4 flex items-center justify-center border-2 border-slate-200/50 group-hover:from-sky-50/50 group-hover:to-sky-100/50 transition-colors shadow-inner overflow-hidden">
-                 <div className="w-20 h-20 flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
-                    <img src={TmeIcon} alt="File Icon" className="w-full h-full object-contain drop-shadow-[0_10px_15px_rgba(0,0,0,0.15)]" />
-                 </div>
+                 <div className="w-20 h-20 flex items-center justify-center group-hover:scale-110 transition-transform duration-300"><img src={TmeIcon} alt="File Icon" className="w-full h-full object-contain drop-shadow-[0_10px_15px_rgba(0,0,0,0.15)]" /></div>
               </div>
               <h4 className="font-bold text-slate-900 text-sm w-full line-clamp-3 break-words mb-1">{project.name || "โปรเจกต์ไม่มีชื่อ"}</h4>
               <p className="text-[11px] text-slate-500 font-medium mb-3">{formatTime(project.updatedAt)}</p>
             </button>
           ))}
         </div>
-
         <div className="flex md:hidden overflow-x-auto gap-4 pb-4 snap-x hide-scrollbar -mx-5 px-5">
           {recentProjects.map((project) => (
             <div key={`hscroll-${project.id}`} className="snap-start shrink-0 w-[140px] bg-white p-3 rounded-2xl border border-slate-100 shadow-sm flex flex-col relative text-left" onClick={() => handleOpenProject(project)}>
               <div className="absolute top-2 right-2 z-20">
-                <button onClick={(e) => { e.stopPropagation(); setOpenMenuId(openMenuId === `h-${project.id}` ? null : `h-${project.id}`); }} className="text-slate-300 p-1">
-                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg>
-                </button>
+                <button onClick={(e) => { e.stopPropagation(); setOpenMenuId(openMenuId === `h-${project.id}` ? null : `h-${project.id}`); }} className="text-slate-300 p-1"><svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg></button>
                 {openMenuId === `h-${project.id}` && (
                   <div className="absolute right-0 mt-1 w-28 bg-white border border-slate-100 rounded-xl shadow-lg py-1.5 z-50">
                     <div onClick={(e) => openRenameModal(e, project)} className="px-3 py-2 text-[11px] font-semibold text-slate-600">เปลี่ยนชื่อ</div>
@@ -327,9 +261,7 @@ const MyProjects = ({ onNewProject }) => {
                   </div>
                 )}
               </div>
-              <div className="w-full h-24 bg-slate-50 rounded-xl mb-3 flex items-center justify-center border border-slate-100">
-                <img src={TmeIcon} alt="File Icon" className="w-12 h-12 object-contain" />
-              </div>
+              <div className="w-full h-24 bg-slate-50 rounded-xl mb-3 flex items-center justify-center border border-slate-100"><img src={TmeIcon} alt="File Icon" className="w-12 h-12 object-contain" /></div>
               <h4 className="font-bold text-slate-800 text-[11px] line-clamp-3 break-words w-[85%]">{project.name || "โปรเจกต์ไม่มีชื่อ"}</h4>
               <p className="text-[9px] text-slate-400 font-medium mt-0.5">{formatTimeMobile(project.updatedAt)}</p>
             </div>
@@ -341,14 +273,9 @@ const MyProjects = ({ onNewProject }) => {
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-base font-bold text-slate-800">ไฟล์ทั้งหมด</h3>
           <div className="relative z-30">
-            <button 
-              onClick={(e) => { e.stopPropagation(); setIsSortMenuOpen(!isSortMenuOpen); setOpenMenuId(null); }}
-              className="flex items-center justify-between w-auto min-w-[90px] gap-2 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-600 shadow-sm hover:border-slate-300 transition-colors"
-            >
-              {getSortLabel()}
-              <svg className={`w-3 h-3 text-slate-400 transition-transform ${isSortMenuOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" /></svg>
+            <button onClick={(e) => { e.stopPropagation(); setIsSortMenuOpen(!isSortMenuOpen); setOpenMenuId(null); }} className="flex items-center justify-between w-auto min-w-[90px] gap-2 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-600 shadow-sm hover:border-slate-300 transition-colors">
+              {getSortLabel()} <svg className={`w-3 h-3 text-slate-400 transition-transform ${isSortMenuOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" /></svg>
             </button>
-            
             {isSortMenuOpen && (
               <div className="absolute right-0 mt-1.5 w-36 bg-white border border-slate-100 rounded-xl shadow-[0_4px_24px_rgba(0,0,0,0.12)] py-1.5 z-50 animate-fadeIn">
                 <div onClick={() => { setSortOrder('latest'); setIsSortMenuOpen(false); }} className={`px-4 py-2 text-xs font-medium cursor-pointer transition-colors ${sortOrder === 'latest' ? 'bg-sky-50 text-sky-600' : 'text-slate-600 hover:bg-slate-50'}`}>ล่าสุด</div>
@@ -375,21 +302,12 @@ const MyProjects = ({ onNewProject }) => {
               <tbody>
                 {displayedProjects.map((file) => (
                   <tr key={`list-${file.id}`} onClick={() => handleOpenProject(file)} className="border-b border-slate-50 hover:bg-slate-50/80 transition-colors group cursor-pointer relative">
-                    <td className="py-3 px-5">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 flex items-center justify-center shrink-0">
-                          <img src={TmeIcon} alt="File Icon" className="w-full h-full object-contain" />
-                        </div>
-                        <span className="text-sm font-bold text-slate-700 line-clamp-3 break-words">{file.name || "โปรเจกต์ไม่มีชื่อ"}</span>
-                      </div>
-                    </td>
+                    <td className="py-3 px-5"><div className="flex items-center gap-3"><div className="w-8 h-8 flex items-center justify-center shrink-0"><img src={TmeIcon} alt="File Icon" className="w-full h-full object-contain" /></div><span className="text-sm font-bold text-slate-700 line-clamp-3 break-words">{file.name || "โปรเจกต์ไม่มีชื่อ"}</span></div></td>
                     <td className="py-3 px-5 text-xs font-medium text-slate-500 hidden sm:table-cell">Thai Music Editor</td>
                     <td className="py-3 px-5 text-xs font-medium text-slate-500 whitespace-nowrap">{formatTime(file.updatedAt)}</td>
                     <td className="py-3 px-5 text-right relative">
                       <div className="relative inline-block z-10">
-                        <button onClick={(e) => { e.stopPropagation(); setOpenMenuId(openMenuId === `list-${file.id}` ? null : `list-${file.id}`); }} className="text-slate-400 hover:text-slate-700 transition-all p-1 bg-white hover:bg-slate-100 rounded-md shadow-sm border border-slate-100">
-                          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg>
-                        </button>
+                        <button onClick={(e) => { e.stopPropagation(); setOpenMenuId(openMenuId === `list-${file.id}` ? null : `list-${file.id}`); }} className="text-slate-400 hover:text-slate-700 transition-all p-1 bg-white hover:bg-slate-100 rounded-md shadow-sm border border-slate-100"><svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg></button>
                         {openMenuId === `list-${file.id}` && (
                           <div className="absolute right-0 top-full mt-1 w-32 bg-white border border-slate-100 rounded-xl shadow-[0_4px_20px_rgba(0,0,0,0.1)] py-1.5 z-50 animate-fadeIn">
                             <div onClick={(e) => openRenameModal(e, file)} className="w-full text-left px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer">เปลี่ยนชื่อ</div>
@@ -408,9 +326,7 @@ const MyProjects = ({ onNewProject }) => {
         <div className="flex flex-col gap-3 md:hidden mb-6 flex-1 overflow-y-auto max-h-[500px] pr-1">
           {displayedProjects.map((file) => (
             <div key={`mlist-${file.id}`} onClick={() => handleOpenProject(file)} className="flex items-center p-3 bg-white border border-slate-100 shadow-sm rounded-2xl active:scale-[0.98] transition-transform w-full text-left relative">
-              <div className="w-12 h-14 bg-slate-50 rounded-xl flex items-center justify-center border border-slate-200/60 shrink-0 mr-3">
-                <img src={TmeIcon} alt="Icon" className="w-8 h-8 object-contain drop-shadow-sm" />
-              </div>
+              <div className="w-12 h-14 bg-slate-50 rounded-xl flex items-center justify-center border border-slate-200/60 shrink-0 mr-3"><img src={TmeIcon} alt="Icon" className="w-8 h-8 object-contain drop-shadow-sm" /></div>
               <div className="flex-1 overflow-hidden">
                 <h4 className="font-bold text-slate-800 text-sm line-clamp-3 break-words pr-4">{file.name || "โปรเจกต์ไม่มีชื่อ"}</h4>
                 <div className="flex items-center gap-2 mt-0.5">
@@ -419,9 +335,7 @@ const MyProjects = ({ onNewProject }) => {
                 </div>
               </div>
               <div className="relative pl-2 h-full flex items-center">
-                 <button onClick={(e) => { e.stopPropagation(); setOpenMenuId(openMenuId === `mlist-${file.id}` ? null : `mlist-${file.id}`); }} className="text-slate-300 p-2 -mr-2">
-                   <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg>
-                 </button>
+                 <button onClick={(e) => { e.stopPropagation(); setOpenMenuId(openMenuId === `mlist-${file.id}` ? null : `mlist-${file.id}`); }} className="text-slate-300 p-2 -mr-2"><svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg></button>
                  {openMenuId === `mlist-${file.id}` && (
                     <div className="absolute right-0 top-10 mt-1 w-28 bg-white border border-slate-100 rounded-xl shadow-lg py-1.5 z-50">
                       <div onClick={(e) => openRenameModal(e, file)} className="px-3 py-2 text-[11px] font-semibold text-slate-600">เปลี่ยนชื่อ</div>
@@ -434,41 +348,62 @@ const MyProjects = ({ onNewProject }) => {
         </div>
       </div>
 
+      {/* ⭐ 3. แถบแสดงสถานะอัปเดตตามยศ (User / Premium / Admin) */}
       {(() => {
         const usedBytes = calculateTotalStorageUsed();
-        const maxLimitBytes = 1 * 1024 * 1024; // 1 MB
-        const percentage = Math.min(Math.max((usedBytes / maxLimitBytes) * 100, 0.1), 100).toFixed(2);
-        const remainingBytes = Math.max(maxLimitBytes - usedBytes, 0);
-
-        if (isAdmin) {
+        
+        // 🚀 แถบของ Admin (ไม่จำกัด)
+        if (userRole === 'admin') {
            return (
              <div className="mt-auto flex flex-col items-center justify-between text-[10px] md:text-xs font-semibold text-slate-400 bg-white border border-slate-100 md:border-slate-200 rounded-xl px-4 md:px-5 py-3 shadow-sm shrink-0">
                <div className="flex items-center justify-between w-full">
-                 <div className="flex items-center gap-1.5">
-                    <svg className="w-3.5 h-3.5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" /></svg>
-                    <span className="text-amber-600 font-bold">สิทธิ์ Admin</span>
-                 </div>
-                 <span>ทั้งหมด {projects.length} ไฟล์ | ใช้ไป {formatStorageSize(usedBytes)} (ไม่จำกัดพื้นที่)</span>
+                 <div className="flex items-center gap-1.5"><svg className="w-3.5 h-3.5 text-violet-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" /></svg><span className="text-violet-600 font-bold">สิทธิ์ Admin</span></div>
+                 <span>ทั้งหมด {projects.length} ไฟล์ | พื้นที่ {formatStorageSize(usedBytes)} (ไม่จำกัด)</span>
                </div>
              </div>
            );
         }
 
+        // 🚀 แถบของ Premium (5 MB)
+        if (userRole === 'premium') {
+          const maxLimitBytes = 5 * 1024 * 1024; // 5 MB
+          const percentage = Math.min(Math.max((usedBytes / maxLimitBytes) * 100, 0.1), 100).toFixed(2);
+          const remainingBytes = Math.max(maxLimitBytes - usedBytes, 0);
+
+          return (
+            <div className="mt-auto flex flex-col items-center justify-between text-[10px] md:text-xs font-semibold text-slate-400 bg-white border border-amber-200 rounded-xl px-4 md:px-5 py-3 shadow-sm shrink-0">
+              <div className="flex items-center justify-between w-full mb-2">
+                <div className="flex items-center gap-1.5"><svg className="w-3.5 h-3.5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" /></svg><span className="text-amber-600 font-bold">Premium</span></div>
+                <span className={usedBytes >= maxLimitBytes ? "text-red-500 font-bold" : ""}>พื้นที่ใช้ไป {formatStorageSize(usedBytes)} จาก 5 MB</span>
+              </div>
+              <div className="flex items-center gap-3 w-full">
+                <div className="flex-1 h-1.5 bg-amber-50 rounded-full overflow-hidden"><div className={`h-full rounded-full transition-all duration-500 ${usedBytes >= maxLimitBytes ? 'bg-red-500' : 'bg-amber-400'}`} style={{ width: `${percentage}%` }}></div></div>
+                <span className={`whitespace-nowrap ${usedBytes >= maxLimitBytes ? "text-red-500 font-bold" : "text-amber-600"}`}>เหลือ {formatStorageSize(remainingBytes)}</span>
+              </div>
+            </div>
+          );
+        }
+
+        // 🚀 แถบของ สายฟรี User (10 ไฟล์)
+        const maxFiles = 10;
+        const currentFiles = projects.length;
+        const percentage = Math.min((currentFiles / maxFiles) * 100, 100).toFixed(2);
+        const remainingFiles = Math.max(maxFiles - currentFiles, 0);
+
         return (
-          <div className="mt-auto flex flex-col items-center justify-between text-[10px] md:text-xs font-semibold text-slate-400 bg-white border border-slate-100 md:border-slate-200 rounded-xl px-4 md:px-5 py-3 shadow-sm shrink-0">
+          <div className="mt-auto flex flex-col items-center justify-between text-[10px] md:text-xs font-semibold text-slate-400 bg-white border border-slate-200 rounded-xl px-4 md:px-5 py-3 shadow-sm shrink-0">
             <div className="flex items-center justify-between w-full mb-2">
               <div className="flex items-center gap-1.5">
                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
-                 <span>ทั้งหมด {projects.length} ไฟล์</span>
+                 <span>Free User</span>
               </div>
-              <span className={usedBytes >= maxLimitBytes ? "text-red-500 font-bold" : ""}>ใช้ไป {formatStorageSize(usedBytes)} จาก 1 MB</span>
+              <span className={currentFiles >= maxFiles ? "text-red-500 font-bold" : ""}>สร้างแล้ว {currentFiles} / 10 ไฟล์</span>
             </div>
-            
             <div className="flex items-center gap-3 w-full">
               <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                <div className={`h-full rounded-full transition-all duration-500 ${usedBytes >= maxLimitBytes ? 'bg-red-500' : 'bg-blue-500'}`} style={{ width: `${percentage}%` }}></div>
+                <div className={`h-full rounded-full transition-all duration-500 ${currentFiles >= maxFiles ? 'bg-red-500' : 'bg-sky-500'}`} style={{ width: `${percentage}%` }}></div>
               </div>
-              <span className={`whitespace-nowrap ${usedBytes >= maxLimitBytes ? "text-red-500 font-bold" : "text-sky-500"}`}>เหลือ {formatStorageSize(remainingBytes)}</span>
+              <span className={`whitespace-nowrap ${currentFiles >= maxFiles ? "text-red-500 font-bold" : "text-sky-500"}`}>สร้างได้อีก {remainingFiles} ไฟล์</span>
             </div>
           </div>
         );
@@ -479,50 +414,33 @@ const MyProjects = ({ onNewProject }) => {
            <div className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl scale-100 animate-slideUp">
              <h3 className="text-lg font-bold text-slate-800 mb-1">เปลี่ยนชื่อโปรเจกต์</h3>
              <p className="text-xs text-slate-500 mb-4">ตั้งชื่อที่สื่อความหมายเพื่อให้ค้นหาง่ายขึ้น</p>
-             
-             <input 
-               type="text" 
-               value={newProjectName}
-               onChange={(e) => setNewProjectName(e.target.value)}
-               className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500 focus:bg-white transition-all text-slate-700 font-medium mb-6"
-               autoFocus
-               onKeyDown={(e) => e.key === 'Enter' && confirmRename()}
-             />
-             
+             <input type="text" value={newProjectName} onChange={(e) => setNewProjectName(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500 focus:bg-white transition-all text-slate-700 font-medium mb-6" autoFocus onKeyDown={(e) => e.key === 'Enter' && confirmRename()} />
              <div className="flex gap-3">
-               <button 
-                 onClick={() => setRenameModalOpen(false)} 
-                 className="flex-1 py-3 font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors"
-               >
-                 ยกเลิก
-               </button>
-               <button 
-                 onClick={confirmRename} 
-                 className="flex-1 py-3 font-bold text-white bg-sky-500 hover:bg-sky-600 rounded-xl transition-colors shadow-sm shadow-sky-500/30"
-               >
-                 บันทึก
-               </button>
+               <button onClick={() => setRenameModalOpen(false)} className="flex-1 py-3 font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors">ยกเลิก</button>
+               <button onClick={confirmRename} className="flex-1 py-3 font-bold text-white bg-sky-500 hover:bg-sky-600 rounded-xl transition-colors shadow-sm shadow-sky-500/30">บันทึก</button>
              </div>
            </div>
         </div>
       )}
 
-      {/* ⭐ ด่านตรวจ: ป๊อปอัปแจ้งเตือนพื้นที่เต็มตอนกดสร้าง/เปิดไฟล์หน้า Dashboard */}
       {storageLimitModalOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fadeIn">
            <div className="bg-white rounded-3xl p-6 md:p-8 w-full max-w-sm shadow-2xl scale-100 animate-slideUp text-center">
              <div className="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
                 <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
              </div>
-             <h3 className="text-xl font-bold text-slate-800 mb-2">พื้นที่จัดเก็บเต็มแล้ว</h3>
-             <p className="text-sm text-slate-500 mb-6">คุณไม่สามารถสร้างหรืออัปโหลดโปรเจกต์ใหม่ได้ กรุณาลบไฟล์ที่ไม่ใช้งานออกเพื่อคืนพื้นที่ว่างครับ</p>
+             <h3 className="text-xl font-bold text-slate-800 mb-2">ถึงขีดจำกัดแล้ว</h3>
+             <p className="text-sm text-slate-500 mb-6">
+                {userRole === 'user' 
+                  ? "คุณสร้างไฟล์ครบ 10 ไฟล์ตามโควตาสายฟรีแล้ว กรุณาลบไฟล์ที่ไม่ใช้งานออกเพื่อสร้างไฟล์ใหม่ครับ" 
+                  : "พื้นที่ 5 MB ของคุณเต็มแล้ว กรุณาลบไฟล์ที่ไม่ใช้งานออกครับ"}
+             </p>
              <button onClick={() => setStorageLimitModalOpen(false)} className="w-full py-3 font-bold text-white bg-red-500 hover:bg-red-600 rounded-xl transition-all shadow-md shadow-red-500/20 active:scale-[0.98]">
                รับทราบ
              </button>
            </div>
         </div>
       )}
-
     </div>
   );
 };

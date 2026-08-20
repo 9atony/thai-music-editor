@@ -121,35 +121,48 @@ export const logoutUser = () => signOut(auth);
 
 export const saveProjectToDB = async (uid, projectId, projectData) => {
   try {
-    // ⭐ 1. ดึงข้อมูล Profile เพื่อเช็กยศ (Admin หรือ User)
+    // ⭐ 1. ดึงข้อมูล Profile เพื่อเช็กยศ
     const userProfile = await getUserProfile(uid);
-    const isAdmin = userProfile && userProfile.role === "admin";
+    const role = userProfile?.role || "user"; // ถ้าไม่มียศให้ถือว่าเป็นสายฟรี
+    const isAdmin = role === "admin";
+    const isPremium = role === "premium";
 
-    // ⭐ 2. ด่านตรวจพื้นที่ (ทำงานเฉพาะผู้ที่ ไม่ใช่ Admin)
+    // ⭐ 2. ด่านตรวจโควตา (ทำงานเฉพาะคนที่ ไม่ใช่ Admin)
     if (!isAdmin) {
       const projectsRef = collection(db, `users/${uid}/projects`);
       const querySnapshot = await getDocs(projectsRef);
       
       let totalBytes = 0;
+      let projectCount = 0;
+
       querySnapshot.docs.forEach(docSnap => {
         if (docSnap.id !== projectId) { // ไม่นับไฟล์เดิมที่กำลังจะเซฟทับ
           const docData = docSnap.data();
           totalBytes += new Blob([JSON.stringify(docData)]).size;
+          projectCount++;
         }
       });
 
-      // จำลองขนาดข้อมูลก้อนใหม่เพื่อนำไปคำนวณ
-      const dataToSaveForSize = {
-        ...projectData,
-        sheetData: JSON.stringify(projectData.sheetData), 
-        updatedAt: new Date() 
-      };
-      const newProjectBytes = new Blob([JSON.stringify(dataToSaveForSize)]).size;
-      const maxLimitBytes = 1 * 1024 * 1024; // ลิมิต 1 MB
+      // 🚦 กฎข้อที่ 1: สายฟรี (User) สร้างได้สูงสุด 10 โปรเจกต์
+      if (role === "user") {
+        // เช็กเฉพาะตอน "สร้างไฟล์ใหม่" (ถ้าไม่มี projectId แปลว่าสร้างใหม่)
+        if (!projectId && projectCount >= 10) {
+          throw new Error("STORAGE_LIMIT_EXCEEDED");
+        }
+      } 
+      // 🚦 กฎข้อที่ 2: สายเปย์ (Premium) สร้างกี่ไฟล์ก็ได้ แต่รวมกันห้ามเกิน 5 MB
+      else if (isPremium) {
+        const dataToSaveForSize = {
+          ...projectData,
+          sheetData: JSON.stringify(projectData.sheetData), 
+          updatedAt: new Date() 
+        };
+        const newProjectBytes = new Blob([JSON.stringify(dataToSaveForSize)]).size;
+        const maxLimitBytes = 5 * 1024 * 1024; // ลิมิต 5 MB
 
-      // ⭐ ลบ alert() ทิ้งไปเลย ให้โยนแค่ Error ออกไปเงียบๆ เพื่อให้ระบบ Modal ทำงานแทน
-      if (totalBytes + newProjectBytes > maxLimitBytes) {
-        throw new Error("STORAGE_LIMIT_EXCEEDED");
+        if (totalBytes + newProjectBytes > maxLimitBytes) {
+          throw new Error("STORAGE_LIMIT_EXCEEDED");
+        }
       }
     }
 
@@ -170,7 +183,9 @@ export const saveProjectToDB = async (uid, projectId, projectData) => {
       return newDocRef.id;
     }
   } catch (error) {
-    console.error("บันทึกไม่สำเร็จ:", error);
+    if (error.message !== "STORAGE_LIMIT_EXCEEDED") {
+      console.error("บันทึกไม่สำเร็จ:", error);
+    }
     throw error;
   }
 };
