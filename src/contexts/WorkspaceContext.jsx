@@ -17,9 +17,16 @@ const WorkspaceContext = createContext(null);
 
 const TRACK_COLORS = ['#ef4444', '#f59e0b', '#22c55e', '#3b82f6', '#8b5cf6', '#ec4899', '#14b8a6'];
 const DEFAULT_MEASURE_WIDTH = 90;
-const MIN_ZOOM = 50;
-const MAX_ZOOM = 200;
+const MIN_ZOOM = 10;
+const MAX_ZOOM = 240;
 const THAI_NOTE_COMBINER_PATTERN = /[ั-๎​]/;
+
+// ⭐ Single source of truth สำหรับความสูงของแทร็ก (ใช้ร่วมกันทั้ง Toolbar slider + Timeline lane + TrackPanel drag)
+export const MIN_TRACK_LANE_HEIGHT = 54;        // ⭐ ครึ่งหนึ่งของค่าเดิม (108/132 -> 54/66) ตามที่ผู้ใช้ต้องการเล็กที่สุด
+export const MAX_TRACK_LANE_HEIGHT = 320;
+export const DEFAULT_TRACK_LANE_HEIGHT = 66;    // ค่าเริ่มต้น = ครึ่งของ 132 (เล็กที่สุด)
+export const COLLAPSED_TRACK_HEIGHT = 44;
+export const MIN_VIEWPORT_FOR_NOTES = 80;       // ถ้าความสูง clip น้อยกว่านี้ ซ่อนตัวโน้ตไปเลย
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 const makeId = (prefix = 'id') => `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
@@ -64,6 +71,7 @@ const createEmptyTrack = (id, color) => ({
   isMuted: false,
   isSolo: false,
   isCollapsed: false,
+  isLocked: false, // ⭐ เพิ่มสถานะล็อคตั้งต้น
   sourceProjectName: '',
   clips: [],
 });
@@ -213,6 +221,7 @@ const buildPlaybackEvents = (parsedData, section, fallbackInstrumentId, loops = 
         note,
         instrumentId: ctx.instrumentId,
         volume: ctx.volume,
+        rowIndex: ctx.rowIndex, 
       });
     });
   };
@@ -248,12 +257,14 @@ const buildPlaybackEvents = (parsedData, section, fallbackInstrumentId, loops = 
               cellCount,
               instrumentId: topInstrumentId,
               volume: topVolume,
+              rowIndex: 0, 
             });
             pushTokenEvents(bottomToken, {
               measureOffset: baseMeasureOffset,
               cellCount,
               instrumentId: bottomInstrumentId,
               volume: bottomVolume,
+              rowIndex: 1, 
             });
           } else {
             pushTokenEvents(cells[c], {
@@ -261,10 +272,10 @@ const buildPlaybackEvents = (parsedData, section, fallbackInstrumentId, loops = 
               cellCount,
               instrumentId: topInstrumentId,
               volume: topVolume,
+              rowIndex: 0, 
             });
           }
         }
-
         measureCursor += 1;
       }
     }
@@ -375,7 +386,7 @@ export const WorkspaceProvider = ({ children }) => {
   const [totalTime, setTotalTime] = useState(0);
   const [snapGrid, setSnapGrid] = useState(1);
   const [zoomLevel, setZoomLevel] = useState(100);
-  const [trackLaneHeight, setTrackLaneHeight] = useState(132);
+  const [trackLaneHeight, setTrackLaneHeight] = useState(DEFAULT_TRACK_LANE_HEIGHT);
   const [tracks, setTracks] = useState([
     createEmptyTrack(1, TRACK_COLORS[0]),
     createEmptyTrack(2, TRACK_COLORS[1]),
@@ -386,7 +397,6 @@ export const WorkspaceProvider = ({ children }) => {
   const clipboardRef = useRef(null);
   const [hasClipboard, setHasClipboard] = useState(false);
   
-  // ⭐ เพิ่ม Ref เพื่อให้วงจรเล่นเพลงอ่านค่า Mute/Solo ได้แบบเรียลไทม์
   const tracksRef = useRef(tracks);
   useEffect(() => {
     tracksRef.current = tracks;
@@ -396,13 +406,11 @@ export const WorkspaceProvider = ({ children }) => {
   const startPlaybackRef = useRef(null);
   const stopPlaybackRef = useRef(null);
 
-  // ⭐ ตั้งค่าเวลา + เก็บค่าไว้ใน ref เพื่อให้ Playhead อ่านได้แบบเรียลไทม์โดยไม่ต้อง re-render
   const setCurrentTimeWrapper = (t) => {
     currentTimeRef.current = t;
     setCurrentTime(t);
   };
 
-  // ⭐ ตำแหน่งเล่นปัจจุบันจากนาฬิกาเสียง (AudioContext.currentTime) — ใช้ขับ Playhead ให้ลื่น
   const getPlaybackPosition = useCallback(() => {
     if (playbackRef.current.rafId && playbackRef.current.startAudioTime != null) {
       const start = playbackRef.current.startTime || 0;
@@ -430,6 +438,7 @@ export const WorkspaceProvider = ({ children }) => {
     return tracks.filter((track) => hasSolo ? track.isSolo && !track.isMuted : !track.isMuted);
   }, [tracks]);
 
+  // ⭐ เปลี่ยนระบบ: การกด Stop (หยุดด้วยมือ) เสียงต้องตัดขาดทันที อันนี้ทำงานถูกต้องแล้ว
   const stopPlayback = () => {
     setIsPlaying(false);
     if (playbackRef.current.rafId) cancelAnimationFrame(playbackRef.current.rafId);
@@ -438,7 +447,7 @@ export const WorkspaceProvider = ({ children }) => {
       clearInterval(schedulerIntervalRef.current);
       schedulerIntervalRef.current = null;
     }
-    stopAllScheduledNotes?.();
+    stopAllScheduledNotes?.(); 
   };
 
   useEffect(() => () => {
@@ -447,7 +456,6 @@ export const WorkspaceProvider = ({ children }) => {
     stopAllScheduledNotes?.();
   }, []);
 
-  // ⭐ เก็บสถานะการเล่นไว้ใน ref เพื่อให้ปุ่ม Spacebar อ่านค่าได้สด ๆ
   useEffect(() => {
     isPlayingRef.current = isPlaying;
   }, [isPlaying]);
@@ -457,7 +465,6 @@ export const WorkspaceProvider = ({ children }) => {
     stopPlaybackRef.current = stopPlayback;
   });
 
-  // ⭐ กด Spacebar เพื่อเล่น/หยุดได้ตลอดเวลา ไม่ว่าโฟกัสจะอยู่ตรงไหน
   useEffect(() => {
     const onKeyDown = (e) => {
       if (e.code !== 'Space' || e.repeat) return;
@@ -473,16 +480,24 @@ export const WorkspaceProvider = ({ children }) => {
   const animatePlayback = () => {
     const elapsedSec = (performance.now() - playbackRef.current.startedAt) / 1000;
     const start = playbackRef.current.startTime || 0;
-    if (elapsedSec >= playbackRef.current.durationSec) {
-      setCurrentTimeWrapper(start + playbackRef.current.durationSec);
-      stopPlayback();
+    const duration = playbackRef.current.durationSec || 0;
+
+    // ⭐ 1. แก้บั๊กเสียงขาดตอนจบ: เล่นเผื่อหางเสียงอีก 2.5 วินาที แล้วค่อยหยุดการอัปเดตหน้าจอ 
+    // โดยไม่ไปเรียกคำสั่ง stopAll() ทำให้เสียงกังวานต่อจนจบได้อย่างเป็นธรรมชาติ
+    if (elapsedSec >= duration + 2.5) {
+      setIsPlaying(false);
+      if (playbackRef.current.rafId) cancelAnimationFrame(playbackRef.current.rafId);
+      if (schedulerIntervalRef.current) clearInterval(schedulerIntervalRef.current);
+      playbackRef.current.rafId = null;
+      schedulerIntervalRef.current = null;
       return;
     }
-    // ⭐ อัปเดต state เฉพาะส่วนแสดงเวลา (UI) ถี่พอประมาณ ส่วน Playhead ขับด้วย rAF ใน Timeline เอง
+
     const now = performance.now();
     if (now - (playbackRef.current.lastUiUpdate || 0) > 80) {
       playbackRef.current.lastUiUpdate = now;
-      setCurrentTimeWrapper(start + elapsedSec);
+      // ล็อกเส้น Playhead ให้ไปหยุดสุดพอดีที่ขอบท้ายโปรเจกต์ (แม้ว่าจะรอหางเสียงอยู่ก็ตาม)
+      setCurrentTimeWrapper(Math.min(start + elapsedSec, start + duration));
     }
     playbackRef.current.rafId = requestAnimationFrame(animatePlayback);
   };
@@ -498,7 +513,7 @@ export const WorkspaceProvider = ({ children }) => {
     const usedInstruments = new Set();
     let totalDuration = 0;
 
-    // ⭐ สร้าง Gain ของทุก Track + ทุกแทรก แล้วตั้งค่าตาม Mute/Solo/ระดับเสียงแทรก
+    // สร้าง Gain ของทุก Track + ทุกแทรก 
     tracks.forEach((track) => {
       const trackGain = getTrackGainNode(track.id);
       track.clips.forEach((clip) => {
@@ -508,9 +523,8 @@ export const WorkspaceProvider = ({ children }) => {
         setClipGain(clip.id, clipVol / 100);
       });
     });
-    applyGains(tracks);
+    // โยนการอัปเดต Volume ไปให้ useEffect จัดการ
 
-    // ⭐ รวบรวมโน้ตทั้งหมดจาก Track ที่กำลังเล่น แล้วเรียงตามเวลา
     tracks.forEach((track) => {
       if (track.instrumentId) usedInstruments.add(track.instrumentId);
       track.clips.forEach((clip) => {
@@ -519,21 +533,21 @@ export const WorkspaceProvider = ({ children }) => {
         const clipGain = getClipGainNode(clip.id);
         const loops = Math.max(1, Number(clip.loops) || 1);
         const clipWidthSec = (clip.width || 0) * secPerMeasure;
-        // ⭐ ลำดับการเล่น (loops): เล่นซ้ำแทรกนี้กี่รอบ โดยแต่ละรอบเลื่อนไปตามความยาวของแทรก
+        
         for (let lp = 0; lp < loops; lp += 1) {
           const loopStartSec = clipStartSec + (lp * clipWidthSec);
           (clip.playback?.events || []).forEach((event) => {
             const offset = (event.measureOffset || 0) - trimOffset;
-            if (offset < 0) return; // ส่วนที่ถูกบีบออกทางซ้าย จะไม่เล่น
+            if (offset < 0) return; 
             const instrumentId = INSTRUMENT_CONFIG[event.instrumentId] ? event.instrumentId : (track.instrumentId || clip.sourceInstrumentId || 'ranat-ek');
             usedInstruments.add(instrumentId);
             events.push({
               whenSec: loopStartSec + (offset * secPerMeasure),
               instrumentId,
               note: event.note,
-              volume: clamp(Number(event.volume) || 100, 0, 200), // ⭐ ขยายความดังได้ถึง 200%
+              volume: clamp(Number(event.volume) || 100, 0, 200), 
               destination: clipGain,
-              trackId: track.id, // ⭐ แนบ ID ไปด้วยเพื่อเช็ก Mute ทีหลัง
+              trackId: track.id, 
             });
           });
         }
@@ -541,12 +555,10 @@ export const WorkspaceProvider = ({ children }) => {
       });
     });
 
-    // ⭐ โหลดเฉพาะเครื่องดนตรีที่ใช้จริงในเพลงนี้ (เร็วกว่าโหลดทุกตัว + ไม่กระตุกตอนเริ่ม)
     await Promise.allSettled([...usedInstruments].map((id) => preloadSounds(id)));
 
     events.sort((a, b) => a.whenSec - b.whenSec);
 
-    // ⭐ เล่นต่อจากตำแหน่งที่คลิกบนไม้บรรทัด (Seek): ข้ามโน้ตที่ผ่านไปแล้ว
     const playEvents = events.filter((ev) => ev.whenSec >= startTime);
     const durationSec = Math.max(0, totalDuration - startTime);
 
@@ -563,9 +575,6 @@ export const WorkspaceProvider = ({ children }) => {
 
     setIsPlaying(true);
 
-    // ⭐ ตัวจัดตารางเสียงแบบ Lookahead (เหมือนตัว Editor โน้ต):
-    //    ทุก 100ms จะจัดโน้ตที่อยู่ในช่วง 1.5 วินาทีข้างหน้าไว้ล่วงหน้า
-    //    ทำให้เสียงลื่น ไม่มีสะดุด ไม่มีโน้ตหลุด แม้โน้ตเยอะมาก
     schedulerIntervalRef.current = setInterval(() => {
       try {
         const audioNow = getAudioCurrentTime?.() || 0;
@@ -578,14 +587,9 @@ export const WorkspaceProvider = ({ children }) => {
           const whenSec = audioNow + Math.max(0, ev.whenSec - startTime - elapsedSec);
           if (whenSec > horizon) break;
 
-          // ⭐ ตรวจสอบสถานะ Mute/Solo สดๆ ณ เสี้ยววินาทีนั้น
-          const currentTracks = tracksRef.current || [];
-          const hasSolo = currentTracks.some(t => t.isSolo);
-          const trackState = currentTracks.find(t => t.id === ev.trackId);
-          const isMuted = trackState ? (trackState.isMuted || (hasSolo && !trackState.isSolo)) : false;
-
-          // ถ้าไม่ได้ถูก Mute ถึงจะยอมส่งโน้ตไปเล่น
-          if (ev.note && ev.note !== '-' && !isMuted) {
+          // ⭐ 2. แก้ปัญหาดีเลย์ Mute/Solo: โหลดตัวโน้ตลงไปจ่อใน AudioEngine เสมอ ห้ามบล็อก!
+          // แล้วให้ตัว Gain Node ที่รับหน้าที่คุมเสียง (ใน useEffect) หรี่/เปิดเสียงแทน จะทำงานได้เร็วระดับมิลลิวินาที
+          if (ev.note && ev.note !== '-') {
             scheduleNote(ev.instrumentId, ev.note, whenSec, ev.volume, ev.destination);
           }
           playbackRef.current.nextEventIdx += 1;
@@ -598,43 +602,40 @@ export const WorkspaceProvider = ({ children }) => {
     playbackRef.current.rafId = requestAnimationFrame(animatePlayback);
   };
 
-  // ⭐ ตั้งค่า Gain ของทุก Track ตามสถานะ Mute/Solo + ระดับเสียงแทร็ก (ใช้ได้ทันทีแม้กำลังเล่นอยู่)
- const applyGains = (trackList) => {
-    const hasSolo = trackList.some((t) => t.isSolo);
-    trackList.forEach((track) => {
+  // ⭐ 3. ระบบซิงค์ระดับเสียง (Gain) กับ AudioEngine ทันทีที่ State มีการเปลี่ยนแปลง
+  // ลดอาการหน่วง เพราะให้ React จับตาดู tracks แล้วอัปเดตตรงไปที่ระบบเสียงทันที
+  useEffect(() => {
+    const hasSolo = tracks.some((t) => t.isSolo);
+    tracks.forEach((track) => {
       const muted = track.isMuted || (hasSolo && !track.isSolo);
       const trackVolume = clamp(Number(track.volume) != null ? Number(track.volume) : 100, 0, 200) / 100;
       setTrackGain(track.id, muted ? 0 : trackVolume);
     });
-  };
+  }, [tracks]); 
 
   const toggleMute = (trackId) => {
-    setTracks((prev) => {
-      const next = prev.map((track) => track.id === trackId ? { ...track, isMuted: !track.isMuted } : track);
-      applyGains(next);
-      return next;
-    });
+    setTracks((prev) => prev.map((track) => track.id === trackId ? { ...track, isMuted: !track.isMuted } : track));
   };
 
   const toggleSolo = (trackId) => {
-    setTracks((prev) => {
-      const next = prev.map((track) => track.id === trackId ? { ...track, isSolo: !track.isSolo } : track);
-      applyGains(next);
-      return next;
-    });
+    setTracks((prev) => prev.map((track) => track.id === trackId ? { ...track, isSolo: !track.isSolo } : track));
   };
 
-  // ⭐ ตั้งระดับเสียงของ Track (ปรับได้ทันทีแม้กำลังเล่นอยู่)
   const setTrackVolume = (trackId, volume) => {
     const v = clamp(Number(volume) || 0, 0, 200);
-    setTracks((prev) => {
-      const next = prev.map((track) => (track.id === trackId ? { ...track, volume: v } : track));
-      applyGains(next);
-      return next;
-    });
+    setTracks((prev) => prev.map((track) => (track.id === trackId ? { ...track, volume: v } : track)));
   };
 
-  // ⭐ ตั้งระดับเสียงของแทรก (ปรับได้ทันทีแม้กำลังเล่นอยู่)
+  // ⭐ ทั้งค่า global และ custom ต้อง clamp ด้วย min/max ตัวเดียวกันเสมอ — เลิกใช้ magic number ลอยๆ
+  const setTrackLaneHeightClamped = (height) => {
+    const clamped = Math.min(MAX_TRACK_LANE_HEIGHT, Math.max(MIN_TRACK_LANE_HEIGHT, Number(height) || DEFAULT_TRACK_LANE_HEIGHT));
+    setTrackLaneHeight(clamped);
+  };
+  const setTrackCustomHeight = (trackId, height) => {
+    const clamped = Math.min(MAX_TRACK_LANE_HEIGHT, Math.max(MIN_TRACK_LANE_HEIGHT, Number(height) || DEFAULT_TRACK_LANE_HEIGHT));
+    setTracks((prev) => prev.map((track) => (track.id === trackId ? { ...track, customHeight: clamped } : track)));
+  };
+
   const setClipVolume = (clipId, volume) => {
     const v = clamp(Number(volume) || 0, 0, 200);
     setTracks((prev) => prev.map((track) => ({
@@ -644,7 +645,6 @@ export const WorkspaceProvider = ({ children }) => {
     setClipGain(clipId, v / 100);
   };
 
-  // ⭐ ตั้งลำดับการเล่น (จำนวนรอบที่เล่นซ้ำ) ของแทรก
   const setClipLoops = (clipId, loops) => {
     const l = Math.max(1, Math.floor(Number(loops) || 1));
     setTracks((prev) => prev.map((track) => ({
@@ -653,12 +653,15 @@ export const WorkspaceProvider = ({ children }) => {
     })));
   };
 
-  // ⭐ ย่อ/ขยายแทร็ก
   const toggleTrackCollapse = (trackId) => {
     setTracks((prev) => prev.map((track) => track.id === trackId ? { ...track, isCollapsed: !track.isCollapsed } : track));
   };
 
-  // ⭐ คัดลอก Track ทั้งหมด (เครื่องดนตรี + คลิป + โน้ต) เป็น Track ใหม่
+  // ⭐ เพิ่มคำสั่งล็อค/ปลดล็อค แทร็ก
+  const toggleTrackLock = (trackId) => {
+    setTracks((prev) => prev.map((track) => track.id === trackId ? { ...track, isLocked: !track.isLocked } : track));
+  };
+
   const duplicateTrack = (trackId) => {
     setTracks((prev) => {
       const source = prev.find((t) => t.id === trackId);
@@ -681,26 +684,96 @@ export const WorkspaceProvider = ({ children }) => {
     });
   };
 
-  // ⭐ ลบ Track ออกจากรายการ
   const removeTrack = (trackId) => {
     setTracks((prev) => prev.filter((t) => t.id !== trackId));
   };
 
-  // ⭐ สลับตำแหน่ง Track (ย้ายจากตำแหน่งต้นทาง ไปยังปลายทาง)
   const reorderTracks = (startIndex, endIndex) => {
     setTracks((prev) => {
       const result = Array.from(prev);
-      const [removed] = result.splice(startIndex, 1); // ดึงตัวต้นทางออก
-      result.splice(endIndex, 0, removed); // เอาไปแทรกในตำแหน่งเป้าหมาย
+      const [removed] = result.splice(startIndex, 1); 
+      result.splice(endIndex, 0, removed); 
       return result;
     });
   };
 
+  const reorderTrackClips = (trackId, startIndex, endIndex) => {
+    setTracks((prev) => prev.map((track) => {
+      if (track.id !== trackId) return track;
+      
+      const sortedClips = [...track.clips].sort((a, b) => (a.start || 0) - (b.start || 0));
+      
+      // ⭐ 1. จำตำแหน่งเวลา (start) เดิมของทุกคลิปบนไทม์ไลน์ไว้ก่อน เพื่อรักษาช่องว่าง
+      const originalStarts = sortedClips.map(c => c.start);
+      
+      // ⭐ 2. ดึงตัวที่ถูกลากย้ายออก แล้วนำไปแทรกในลำดับใหม่
+      const [removed] = sortedClips.splice(startIndex, 1);
+      sortedClips.splice(endIndex, 0, removed);
+
+      // ⭐ 3. แจกจ่ายตำแหน่งเวลาเดิม กลับคืนให้คลิปที่สลับที่กันแล้ว (สลับแค่ข้อมูล แต่คงช่องว่างเดิมเป๊ะๆ)
+      const newClips = sortedClips.map((clip, index) => ({
+        ...clip,
+        start: originalStarts[index]
+      }));
+
+      return { ...track, clips: newClips };
+    }));
+  };
   const addTrack = () => {
     setTracks((prev) => {
       const nextId = prev.length > 0 ? Math.max(...prev.map((track) => track.id)) + 1 : 1;
       return [...prev, createEmptyTrack(nextId, TRACK_COLORS[(nextId - 1) % TRACK_COLORS.length])];
     });
+  };
+
+  const importProjectFromWeb = (projectData, fileName = 'โปรเจกต์จากเว็บ.json') => {
+    try {
+      const serialized = typeof projectData === 'string' ? projectData : JSON.stringify(projectData);
+      const cleanFileName = safeDisplayName(fileName, safeDisplayName(projectData?.name, 'โปรเจกต์จากเว็บ.json'));
+      const parsed = parseTmeFile(serialized, cleanFileName);
+      const isWorkspaceEmpty = tracksRef.current.every((track) => track.clips.length === 0);
+
+      if (projectName === 'Arranger Workspace') {
+        setProjectName(parsed.projectName);
+      }
+
+      if (isWorkspaceEmpty) {
+        setBpm(parsed.sourceBpm || 120);
+      }
+
+      setTracks((prev) => {
+        const nextId = prev.length > 0 ? Math.max(...prev.map((track) => track.id)) + 1 : 1;
+        const importedClips = parsed.clips.map((clip, index) => ({
+          ...clip,
+          id: `${clip.id}_${index}_${Math.random().toString(36).slice(2, 7)}`,
+          sourceMeta: {
+            ...clip.sourceMeta,
+            sourceFileName: cleanFileName,
+            projectName: safeDisplayName(clip.sourceMeta?.projectName, parsed.projectName),
+            currentInstrument: normalizeInstrumentId(clip.sourceMeta?.currentInstrument || parsed.instrumentId, parsed.instrumentId),
+            currentInstrumentName: safeDisplayName(clip.sourceMeta?.currentInstrumentName, parsed.instrumentLabel),
+          },
+          instrumentLabel: safeDisplayName(clip.instrumentLabel, parsed.instrumentLabel),
+          name: safeDisplayName(clip.name, parsed.projectName),
+          sectionLabel: safeDisplayName(clip.sectionLabel, clip.name || parsed.projectName),
+        }));
+
+        return [
+          ...prev,
+          {
+            ...createEmptyTrack(nextId, TRACK_COLORS[(nextId - 1) % TRACK_COLORS.length]),
+            name: parsed.projectName,
+            type: `${safeDisplayName(parsed.instrumentLabel, getInstrumentNameById(parsed.instrumentId))} • ${cleanFileName}`,
+            instrumentId: parsed.instrumentId,
+            sourceProjectName: parsed.projectName,
+            clips: importedClips,
+          },
+        ];
+      });
+    } catch (error) {
+      console.error('เกิดข้อผิดพลาดในการนำเข้าโปรเจกต์จากเว็บ:', error);
+      alert('ไม่สามารถนำเข้าโปรเจกต์จากเว็บได้ครับ');
+    }
   };
 
   const renameTrack = (trackId, newName) => {
@@ -769,7 +842,6 @@ export const WorkspaceProvider = ({ children }) => {
     }));
   };
 
-  // ⭐ คัดลอกแทรก (เก็บลงคลิปบอร์ดภายใน)
   const copyClip = (clipId) => {
     const source = tracks.flatMap((track) => track.clips).find((clip) => clip.id === clipId);
     if (!source) return;
@@ -777,7 +849,6 @@ export const WorkspaceProvider = ({ children }) => {
     setHasClipboard(true);
   };
 
-  // ⭐ วางแทรก ลงบน Track ที่เลือก ณ ตำแหน่งที่กำหนด (หลบคลิปที่ซ้อนกันอัตโนมัติ)
   const pasteClipAt = (trackId, startPosition = 0) => {
     const source = clipboardRef.current;
     if (!source) return;
@@ -806,7 +877,6 @@ export const WorkspaceProvider = ({ children }) => {
     }));
   };
 
-  // ⭐ ปรับขนาด/บีบแทรก (ขอบซ้าย = เลื่อนจุดเริ่ม + ยืด/หด, ขอบขวา = ยืด/หดความยาว)
   const resizeClip = (trackId, clipId, patch) => {
     setTracks((prev) => prev.map((track) => {
       if (track.id !== trackId) return track;
@@ -819,16 +889,20 @@ export const WorkspaceProvider = ({ children }) => {
       if (track.id !== trackId) return track;
       const target = track.clips[clipIndex];
       if (!target) return track;
-      const localSplit = Math.max(0.25, Math.min(target.width - 0.25, splitPoint));
+
+      const baseTrimOffset = Number(target.trimOffset) || 0;
+      const localSplit = Math.max(0.25, Math.min(target.width - 0.25, Number(splitPoint) || 0));
       if (localSplit <= 0 || localSplit >= target.width) return track;
 
       const leftWidth = Number(localSplit.toFixed(2));
       const rightWidth = Number((target.width - leftWidth).toFixed(2));
+      const rightTrimOffset = Number((baseTrimOffset + leftWidth).toFixed(2));
 
       const leftClip = {
         ...target,
         id: makeId('clip'),
         width: leftWidth,
+        trimOffset: baseTrimOffset,
         name: `${target.name} A`,
       };
       const rightClip = {
@@ -836,6 +910,7 @@ export const WorkspaceProvider = ({ children }) => {
         id: makeId('clip'),
         start: Number((target.start + leftWidth).toFixed(2)),
         width: rightWidth,
+        trimOffset: rightTrimOffset,
         name: `${target.name} B`,
       };
 
@@ -854,8 +929,8 @@ export const WorkspaceProvider = ({ children }) => {
     });
   };
 
-  const zoomIn = () => setZoomLevel((prev) => clamp(prev + 10, MIN_ZOOM, MAX_ZOOM));
-  const zoomOut = () => setZoomLevel((prev) => clamp(prev - 10, MIN_ZOOM, MAX_ZOOM));
+  const zoomIn = () => setZoomLevel((prev) => clamp(prev + 5, MIN_ZOOM, MAX_ZOOM));
+  const zoomOut = () => setZoomLevel((prev) => clamp(prev - 5, MIN_ZOOM, MAX_ZOOM));
   const fitTimeline = () => setZoomLevel(100);
 
   const importTmeToTrack = (trackId, fileContent, fileName = 'เพลงที่นำเข้า.tme') => {
@@ -922,12 +997,10 @@ export const WorkspaceProvider = ({ children }) => {
     URL.revokeObjectURL(url);
   };
 
-// ⭐ เพิ่มฟังก์ชันสำหรับอ่านไฟล์โปรเจกต์ที่เคย Export ออกไป กลับเข้ามาใหม่
   const importWorkspace = (fileContent) => {
     try {
       const data = JSON.parse(fileContent);
       
-      // ดึงค่าต่างๆ กลับมาใส่ State
       if (data.name) setProjectName(data.name);
       if (data.bpm) setBpm(data.bpm);
       if (data.snapGrid !== undefined) setSnapGrid(data.snapGrid);
@@ -937,7 +1010,6 @@ export const WorkspaceProvider = ({ children }) => {
         setTracks(data.tracks);
       }
       
-      // รีเซ็ตเวลาและ Playhead
       stopPlayback();
       setCurrentTimeWrapper(0);
       
@@ -982,6 +1054,7 @@ export const WorkspaceProvider = ({ children }) => {
     fitTimeline,
     trackLaneHeight,
     setTrackLaneHeight,
+    setTrackLaneHeightClamped,
     measureWidth,
     totalMeasures,
     tracks,
@@ -989,14 +1062,17 @@ export const WorkspaceProvider = ({ children }) => {
     toggleMute,
     toggleSolo,
     setTrackVolume,
+    setTrackCustomHeight, // ⭐ ส่งคำสั่งนี้ออกไปให้ Track Panel ใช้
     setClipVolume,
     setClipLoops,
     toggleTrackCollapse,
+    toggleTrackLock, // ⭐ ส่งฟังก์ชันออกไปให้ปุ่มใน TrackPanel ใช้งาน
     addTrack,
     renameTrack,
     duplicateTrack,
     removeTrack,
-    reorderTracks, // ⭐ ส่งฟังก์ชันสลับแทร็กออกไป
+    reorderTracks, 
+    reorderTrackClips, // ⭐ มั่นใจ 100% ว่าฟังก์ชันสลับคลิปถูกส่งออกไปแล้วครับ!
     setTrackInstrument,
     deleteClip,
     removeClipById,
@@ -1008,8 +1084,9 @@ export const WorkspaceProvider = ({ children }) => {
     hasClipboard,
     splitClip,
     importTmeToTrack,
+    importProjectFromWeb,
     exportWorkspace,
-    importWorkspace, // ⭐ ส่งฟังก์ชันนำเข้าโปรเจกต์ออกไปให้ TopBar ใช้
+    importWorkspace, 
   };
 
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;
