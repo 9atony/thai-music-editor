@@ -242,16 +242,20 @@ export const MusicProvider = ({ children }) => {
     setPendingAction({ isOpen: false, type: null, payload: null });
   };
   
-  // ⭐ เพิ่ม currentProjectId เข้ามารับค่าโดยตรง
   const autoSaveToFirebase = async (data, currentProjectId) => {
     const uid = auth.currentUser?.uid;
     if (!uid) return;
     try {
-      // ใช้ currentProjectId ที่รับมาส่งให้ Firebase
       const id = await saveProjectToDB(uid, currentProjectId, data);
       if (!currentProjectId && id) setProjectId(id);
     } catch (err) {
-      console.error("Auto-save failed:", err);
+      // ⭐ ดักจับ Error พื้นที่เต็ม สั่งเปิด Modal โดยไม่ต้องแจ้งเตือนสีแดงใน Console
+      if (err.message === "STORAGE_LIMIT_EXCEEDED") {
+        setReadOnlyMode(true); // ⭐ ล็อกหน้าจอทันที! บล็อกไม่ให้พิมพ์หรือแก้ไขต่อ
+        setPendingAction({ isOpen: true, type: 'STORAGE_LIMIT', payload: null });
+      } else {
+        console.error("Auto-save failed:", err);
+      }
     }
   };
 
@@ -1375,7 +1379,7 @@ export const MusicProvider = ({ children }) => {
     commitChange(newData, rowTypes, sectionLabels, remainingSymbols, rowMargins);
     setSelectionRange(null); 
   };
-  
+
   const inputNote = (note) => {
     if (isReadOnlyRef.current) return; 
     const newData = sheetData.map(row => row.map(meas => [...meas]));
@@ -1987,7 +1991,6 @@ export const MusicProvider = ({ children }) => {
   };
 
   const saveProject = () => {
-    if (isReadOnlyRef.current) return;
     const projectData = { 
       name: projectName, 
       songName, 
@@ -2809,44 +2812,78 @@ export const MusicProvider = ({ children }) => {
       {pendingAction.isOpen && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fadeIn">
           <div className="bg-white rounded-3xl p-6 md:p-8 w-full max-w-md shadow-2xl scale-100 animate-slideUp text-center" style={{ fontFamily: 'Prompt, sans-serif' }}>
-            <div className="w-16 h-16 bg-amber-100 text-amber-500 rounded-full flex items-center justify-center mx-auto mb-4">
-              <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-            </div>
             
-            <h3 className="text-xl font-bold text-slate-800 mb-2">คุณมีงานที่ค้างอยู่</h3>
-            <p className="text-sm text-slate-500 mb-6">หากเปิดโปรเจกต์ใหม่ตอนนี้ ข้อมูลบนหน้าจอที่ยังไม่ได้บันทึกจะหายไป ต้องการบันทึกก่อนหรือไม่?</p>
+            {/* ⭐ กรณีที่ 1: พื้นที่เต็ม (ดึงให้ผู้ใช้ Export งานออกมาก่อน) */}
+            {/* ⭐ กรณีที่ 1: พื้นที่เต็ม (ดึงให้ผู้ใช้ Export งานออกมาก่อน) */}
+            {pendingAction.type === 'STORAGE_LIMIT' ? (
+              <>
+                <div className="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                </div>
+                <h3 className="text-xl font-bold text-slate-800 mb-2">พื้นที่จัดเก็บเต็มแล้ว!</h3>
+                <p className="text-sm text-slate-500 mb-6">
+                  ระบบไม่สามารถบันทึกอัตโนมัติได้และได้ทำการ <strong className="text-red-500">ล็อกการแก้ไข (Read-only)</strong> เพื่อป้องกันข้อมูลสูญหาย<br/><br/>
+                  กรุณา <strong>ส่งออก (Export)</strong> ไฟล์ลงเครื่องคอมพิวเตอร์ของคุณ จากนั้นกลับไปลบโปรเจกต์เก่าที่หน้าแรกครับ
+                </p>
+                
+                <div className="flex flex-col gap-3">
+                  <button 
+                    onClick={() => { saveProject(); setPendingAction({ isOpen: false, type: null, payload: null }); }} 
+                    className="w-full py-3 font-bold text-white bg-blue-500 hover:bg-blue-600 rounded-xl transition-all shadow-md shadow-blue-500/20 active:scale-[0.98]"
+                  >
+                    📥 ส่งออกไฟล์ .tme ลงเครื่อง
+                  </button>
+                  <button 
+                    onClick={() => setPendingAction({ isOpen: false, type: null, payload: null })} 
+                    className="w-full py-3 font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors active:scale-[0.98]"
+                  >
+                    ปิดแจ้งเตือน (ดูโน้ตได้อย่างเดียว)
+                  </button>
+                </div>
+              </>
+            ) : (
+              /* กรณีที่ 2: แจ้งเตือนทิ้งงานเก่า (โค้ดเดิมของคุณ) */
+              <>
+                <div className="w-16 h-16 bg-amber-100 text-amber-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                </div>
+                <h3 className="text-xl font-bold text-slate-800 mb-2">คุณมีงานที่ค้างอยู่</h3>
+                <p className="text-sm text-slate-500 mb-6">หากเปิดโปรเจกต์ใหม่ตอนนี้ ข้อมูลบนหน้าจอที่ยังไม่ได้บันทึกจะหายไป ต้องการบันทึกก่อนหรือไม่?</p>
+                
+                <div className="flex flex-col gap-3">
+                  <button 
+                    onClick={async () => {
+                      const projectData = { 
+                        name: projectName, songName, sheetData, rowTypes, sectionLabels, 
+                        symbols, layoutConfig, headerDetails, currentInstrument: currentInstrument.id, 
+                        rowMargins, playbackSequence 
+                      };
+                      await autoSaveToFirebase(projectData, projectId);
+                      executeAction(pendingAction.type, pendingAction.payload);
+                    }} 
+                    className="w-full py-3 font-bold text-white bg-sky-500 hover:bg-sky-600 rounded-xl transition-all shadow-md shadow-sky-500/20 active:scale-[0.98]"
+                  >
+                    บันทึกลงฐานข้อมูล
+                  </button>
+                  
+                  <div className="flex gap-3">
+                    <button 
+                      onClick={() => setPendingAction({ isOpen: false, type: null, payload: null })} 
+                      className="flex-1 py-3 font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors active:scale-[0.98]"
+                    >
+                      ยกเลิก
+                    </button>
+                    <button 
+                      onClick={() => executeAction(pendingAction.type, pendingAction.payload)} 
+                      className="flex-1 py-3 font-bold text-red-500 bg-red-50 hover:bg-red-100 rounded-xl transition-colors active:scale-[0.98]"
+                    >
+                      ไม่บันทึก (ทิ้งงาน)
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
             
-            <div className="flex flex-col gap-3">
-              <button 
-                onClick={async () => {
-                  const projectData = { 
-                    name: projectName, songName, sheetData, rowTypes, sectionLabels, 
-                    symbols, layoutConfig, headerDetails, currentInstrument: currentInstrument.id, 
-                    rowMargins, playbackSequence 
-                  };
-                  await autoSaveToFirebase(projectData);
-                  executeAction(pendingAction.type, pendingAction.payload);
-                }} 
-                className="w-full py-3 font-bold text-white bg-sky-500 hover:bg-sky-600 rounded-xl transition-all shadow-md shadow-sky-500/20 active:scale-[0.98]"
-              >
-                บันทึกลงฐานข้อมูล
-              </button>
-              
-              <div className="flex gap-3">
-                <button 
-                  onClick={() => setPendingAction({ isOpen: false, type: null, payload: null })} 
-                  className="flex-1 py-3 font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors active:scale-[0.98]"
-                >
-                  ยกเลิก
-                </button>
-                <button 
-                  onClick={() => executeAction(pendingAction.type, pendingAction.payload)} 
-                  className="flex-1 py-3 font-bold text-red-500 bg-red-50 hover:bg-red-100 rounded-xl transition-colors active:scale-[0.98]"
-                >
-                  ไม่บันทึก (ทิ้งงาน)
-                </button>
-              </div>
-            </div>
           </div>
         </div>
       )}

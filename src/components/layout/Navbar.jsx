@@ -19,7 +19,7 @@ const Navbar = ({ onPrint, onOpenSettings, onBack }) => {
   const { 
     saveProject, loadProject, newProject, undo, redo, 
     canUndo, canRedo, stopPlayback, projectName, setProjectName,
-    songName, setSongName
+    songName, setSongName, isReadOnly // ⭐ 1. ดึง isReadOnly มาใช้งาน
   } = useContext(MusicContext);
 
   return (
@@ -27,7 +27,6 @@ const Navbar = ({ onPrint, onOpenSettings, onBack }) => {
       <div className="px-5 py-3 flex items-center justify-between">
         
         <div className="flex items-center gap-4">
-          {/* ⭐ ปุ่มนี้แหละครับที่จะกดแล้วเปิด Popup */}
           <button 
             onClick={onOpenSettings} 
             className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 hover:text-slate-800 transition-all active:scale-95"
@@ -47,24 +46,32 @@ const Navbar = ({ onPrint, onOpenSettings, onBack }) => {
             <img src={logo} alt="Thai Music Editor Logo" className="h-10 w-auto object-contain" />
           </div>
 
-          <div className="hidden sm:flex items-center">
+          <div className="hidden sm:flex items-center gap-3"> {/* ⭐ 2. เพิ่ม gap-3 เพื่อเว้นระยะป้ายเตือน */}
             <input 
-              // ⭐ ครอบ getPlainText() เพื่อกรองแท็ก HTML ทิ้งก่อนแสดงผล
               type="text" 
               value={getPlainText(songName) || projectName || ''} 
               onChange={(e) => setSongName(e.target.value)}
               placeholder="โปรเจกต์ไม่มีชื่อ"
-              className="text-lg font-bold text-slate-700 bg-transparent border-b-2 border-transparent hover:border-slate-200 focus:border-sky-500 focus:outline-none focus:ring-0 placeholder:text-slate-300 w-40 md:w-64 truncate transition-colors px-1 py-0.5"
-              title="คลิกเพื่อเปลี่ยนชื่อเพลง"
+              disabled={isReadOnly} // ⭐ บล็อกไม่ให้เปลี่ยนชื่อเพลงถ้าความจำเต็ม
+              className={`text-lg font-bold text-slate-700 bg-transparent border-b-2 border-transparent focus:outline-none focus:ring-0 placeholder:text-slate-300 w-40 md:w-64 truncate transition-colors px-1 py-0.5 
+                ${isReadOnly ? 'opacity-60 cursor-not-allowed' : 'hover:border-slate-200 focus:border-sky-500'}`}
+              title={isReadOnly ? "ไม่สามารถแก้ไขชื่อได้ (อ่านได้อย่างเดียว)" : "คลิกเพื่อเปลี่ยนชื่อเพลง"}
             />
+
+            {/* ⭐ 3. ป้ายเตือนจะโชว์เมื่อ isReadOnly เป็น true เท่านั้น */}
+            {isReadOnly && (
+              <div className="px-2.5 py-1 rounded-md text-[10px] font-bold bg-red-50 text-red-500 border border-red-200 animate-pulse whitespace-nowrap shadow-sm">
+                ⚠️ พื้นที่เต็ม (อ่านได้อย่างเดียว)
+              </div>
+            )}
           </div>
         </div>
 
         <div className="flex items-center gap-1 sm:gap-2">
           {/* ปุ่มเครื่องมือขวาบน */}
           <div className="flex bg-slate-50/50 rounded-lg border border-slate-200 p-0.5 mr-2">
-            <button onClick={undo} disabled={!canUndo} className={`p-1.5 rounded-md flex items-center justify-center transition-all ${canUndo ? 'text-slate-600 hover:text-slate-900 hover:bg-white shadow-sm' : 'text-slate-300 cursor-not-allowed'}`} title="ย้อนกลับ (Undo)"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" /></svg></button>
-            <button onClick={redo} disabled={!canRedo} className={`p-1.5 rounded-md flex items-center justify-center transition-all ${canRedo ? 'text-slate-600 hover:text-slate-900 hover:bg-white shadow-sm' : 'text-slate-300 cursor-not-allowed'}`} title="ทำซ้ำ (Redo)"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 10h-10a8 8 0 00-8 8v2M21 10l-6 6m6-6l-6-6" /></svg></button>
+            <button onClick={undo} disabled={!canUndo || isReadOnly} className={`p-1.5 rounded-md flex items-center justify-center transition-all ${(canUndo && !isReadOnly) ? 'text-slate-600 hover:text-slate-900 hover:bg-white shadow-sm' : 'text-slate-300 cursor-not-allowed'}`} title="ย้อนกลับ (Undo)"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" /></svg></button>
+            <button onClick={redo} disabled={!canRedo || isReadOnly} className={`p-1.5 rounded-md flex items-center justify-center transition-all ${(canRedo && !isReadOnly) ? 'text-slate-600 hover:text-slate-900 hover:bg-white shadow-sm' : 'text-slate-300 cursor-not-allowed'}`} title="ทำซ้ำ (Redo)"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 10h-10a8 8 0 00-8 8v2M21 10l-6 6m6-6l-6-6" /></svg></button>
           </div>
 
           <button onClick={newProject} className="flex items-center gap-2 hover:bg-slate-100 px-3 py-1.5 rounded-lg text-sm font-semibold text-slate-600 hover:text-slate-900 transition-all active:scale-95" title="ล้างข้อมูลและเริ่มโปรเจกต์ใหม่"><img src={newIcon} alt="new" className="w-5 h-5" /> <span className="hidden md:inline">กระดาษใหม่</span></button>

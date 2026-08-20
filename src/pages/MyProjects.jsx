@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect, useContext } from 'react';
-import { auth, db } from '../utils/firebase'; 
+import { auth, db, getUserProfile } from '../utils/firebase'; 
 import { fetchRecentProjects } from '../utils/firebase'; 
 import { doc, deleteDoc, updateDoc, serverTimestamp, collection, query, orderBy, getDocs } from 'firebase/firestore';
 import { MusicContext } from '../contexts/MusicContext';
@@ -12,22 +12,26 @@ const MyProjects = ({ onNewProject }) => {
   const [projects, setProjects] = useState([]);
   const [searchQuery, setSearchQuery] = useState(""); 
   const [openMenuId, setOpenMenuId] = useState(null); 
+  const [isAdmin, setIsAdmin] = useState(false); 
 
-  // ⭐ 1. State สำหรับระบบจัดเรียง
-  const [sortOrder, setSortOrder] = useState('latest'); // 'latest', 'oldest', 'nameAsc', 'nameDesc'
+  const [sortOrder, setSortOrder] = useState('latest'); 
   const [isSortMenuOpen, setIsSortMenuOpen] = useState(false);
 
-  // ⭐ 2. State สำหรับป๊อปอัปเปลี่ยนชื่อ
   const [renameModalOpen, setRenameModalOpen] = useState(false);
   const [projectToRename, setProjectToRename] = useState(null);
   const [newProjectName, setNewProjectName] = useState("");
 
-useEffect(() => {
+  // ⭐ State สำหรับป๊อปอัปแจ้งเตือนพื้นที่เต็ม
+  const [storageLimitModalOpen, setStorageLimitModalOpen] = useState(false);
+
+  useEffect(() => {
     const loadProjects = async () => {
       const uid = auth.currentUser?.uid;
       if (uid) {
         try {
-          // ⭐ ดึงโปรเจกต์ทั้งหมดจาก collection ของ User คนนี้โดยตรง แบบไม่จำกัดจำนวน
+          const profile = await getUserProfile(uid);
+          if (profile?.role === 'admin') setIsAdmin(true);
+
           const q = query(
             collection(db, 'users', uid, 'projects'),
             orderBy('updatedAt', 'desc')
@@ -40,7 +44,6 @@ useEffect(() => {
           setProjects(allProjects);
         } catch (error) {
           console.error("Error loading all projects:", error);
-          // ถ้าเกิดข้อผิดพลาด ให้ fallback กลับไปใช้ฟังก์ชันเดิมสำรอง
           const data = await fetchRecentProjects(uid);
           setProjects(data);
         }
@@ -49,7 +52,6 @@ useEffect(() => {
     loadProjects();
   }, []);
 
-  // ปิดเมนูทั้งหมดเมื่อคลิกพื้นที่อื่น
   useEffect(() => {
     const handleClickOutside = () => {
       setOpenMenuId(null);
@@ -75,7 +77,6 @@ useEffect(() => {
     });
   };
 
-  // ⭐ ฟังก์ชันคำนวณพื้นที่จัดเก็บรวมทั้งหมดของโปรเจกต์ใน Firebase (หน่วยเป็น Bytes)
   const calculateTotalStorageUsed = () => {
     let totalBytes = 0;
     projects.forEach(project => {
@@ -85,21 +86,53 @@ useEffect(() => {
     return totalBytes;
   };
 
-  // ฟังก์ชันแปลงหน่วย Bytes เป็นขนาดที่อ่านง่าย (KB, MB)
   const formatStorageSize = (bytes) => {
     if (bytes === 0) return "0 KB";
-    if (bytes < 1024 * 1024) {
-      return (bytes / 1024).toFixed(1) + " KB";
-    } else {
-      return (bytes / (1024 * 1024)).toFixed(2) + " MB";
-    }
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+    return (bytes / (1024 * 1024)).toFixed(2) + " MB";
   };
 
+  // ⭐ เติมฟังก์ชันนี้กลับคืนมา เพื่อใช้แสดงขนาดไฟล์ย่อยในมือถือ
   const formatSize = (data) => {
     if (!data) return "0 KB";
     const bytes = new Blob([typeof data === 'string' ? data : JSON.stringify(data)]).size;
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
     return (bytes / (1024 * 1024)).toFixed(2) + " MB";
+  };
+
+  // ⭐ ด่านตรวจ: ก่อนสร้างโปรเจกต์ใหม่
+  const handleCreateNewProject = () => {
+    if (!isAdmin) {
+      const usedBytes = calculateTotalStorageUsed();
+      const maxLimitBytes = 1 * 1024 * 1024; // 1 MB
+      // เผื่อบัฟเฟอร์ไว้ 10KB ป้องกันสร้างไฟล์แล้วเซฟไม่ได้
+      if (usedBytes + 10240 > maxLimitBytes) {
+        setStorageLimitModalOpen(true);
+        return;
+      }
+    }
+    newProject(true);
+    onNewProject();
+  };
+
+  // ⭐ ด่านตรวจ: ก่อนอัปโหลดไฟล์จากเครื่อง
+  const handleFileUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    if (!isAdmin) {
+      const usedBytes = calculateTotalStorageUsed();
+      const maxLimitBytes = 1 * 1024 * 1024;
+      if (usedBytes + file.size > maxLimitBytes) {
+        setStorageLimitModalOpen(true);
+        e.target.value = null;
+        return;
+      }
+    }
+
+    loadProject(file, true); 
+    onNewProject(); 
+    e.target.value = null; 
   };
 
   const handleOpenProject = (project) => {
@@ -113,7 +146,6 @@ useEffect(() => {
     onNewProject(); 
   };
 
-  // ⭐ เปลี่ยนฟังก์ชัน Rename ให้มาเปิด Modal แทน
   const openRenameModal = (e, project) => {
     e.stopPropagation();
     setOpenMenuId(null); 
@@ -122,7 +154,6 @@ useEffect(() => {
     setRenameModalOpen(true);
   };
 
-  // ⭐ ฟังก์ชันบันทึกชื่อใหม่เมื่อกดตกลงใน Modal
   const confirmRename = async () => {
     if (!newProjectName.trim() || newProjectName === projectToRename.name) {
       setRenameModalOpen(false);
@@ -130,11 +161,7 @@ useEffect(() => {
     }
     
     try {
-      // 1. ดึง uid ออกมาใช้งาน
       const uid = auth.currentUser?.uid;
-      
-      // 2. แก้ไข path ให้เป็น users/{uid}/projects/{projectId} 
-      // เพื่อให้ตรงกับโครงสร้างฐานข้อมูลครับ
       await updateDoc(doc(db, 'users', uid, 'projects', projectToRename.id), {
         name: newProjectName.trim(),
         updatedAt: serverTimestamp() 
@@ -169,30 +196,22 @@ useEffect(() => {
     }
   };
 
-  // ⭐ การจัดเรียง (Sorting) สำหรับ "ไฟล์ทั้งหมด"
   let displayedProjects = projects.filter(p => 
     (p.name || "โปรเจกต์ไม่มีชื่อ").toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   displayedProjects.sort((a, b) => {
-    if (sortOrder === 'latest') {
-      return (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0);
-    } else if (sortOrder === 'oldest') {
-      return (a.updatedAt?.seconds || 0) - (b.updatedAt?.seconds || 0);
-    } else if (sortOrder === 'nameAsc') {
-      return (a.name || "").localeCompare(b.name || "", 'th');
-    } else if (sortOrder === 'nameDesc') {
-      return (b.name || "").localeCompare(a.name || "", 'th');
-    }
+    if (sortOrder === 'latest') return (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0);
+    else if (sortOrder === 'oldest') return (a.updatedAt?.seconds || 0) - (b.updatedAt?.seconds || 0);
+    else if (sortOrder === 'nameAsc') return (a.name || "").localeCompare(b.name || "", 'th');
+    else if (sortOrder === 'nameDesc') return (b.name || "").localeCompare(a.name || "", 'th');
     return 0;
   });
 
-  // ส่วนโปรเจกต์ล่าสุด (บังคับเรียงตามเวลาเสมอ)
   const recentProjects = [...projects]
     .sort((a, b) => (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0))
     .slice(0, 5); 
 
-  // เลเบลของปุ่มจัดเรียง
   const getSortLabel = () => {
     switch(sortOrder) {
       case 'latest': return 'ล่าสุด';
@@ -203,23 +222,8 @@ useEffect(() => {
     }
   };
 
-  const handleFileUpload = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    // ส่งไฟล์ให้ MusicContext จัดการ (แนบ true เพื่อข้ามการแจ้งเตือน)
-    loadProject(file, true); 
-    onNewProject(); 
-    
-    e.target.value = null; 
-  };
-
   return (
-    <div 
-      className="max-w-7xl mx-auto w-full animate-fadeIn text-slate-800 flex flex-col min-h-full pt-4 md:pt-10 px-5 md:px-8 pb-12"
-      style={{ fontFamily: 'Prompt, sans-serif' }}
-    >
-      {/* 1. ส่วน Header & Search */}
+    <div className="max-w-7xl mx-auto w-full animate-fadeIn text-slate-800 flex flex-col min-h-full pt-4 md:pt-10 px-5 md:px-8 pb-12" style={{ fontFamily: 'Prompt, sans-serif' }}>
       <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 md:mb-8 gap-4">
         <div className="hidden md:block">
           <h2 className="text-2xl font-extrabold text-slate-900 mb-1">โปรเจกต์ของฉัน</h2>
@@ -244,9 +248,9 @@ useEffect(() => {
 
       <input type="file" accept=".json,.tme,.thai" ref={fileInputRef} style={{ display: 'none' }} onChange={handleFileUpload} />
 
-      {/* 2. ส่วน Quick Actions */}
       <div className="grid grid-cols-3 gap-3 mb-8 md:hidden">
-        <button onClick={() => { newProject(true); onNewProject(); }} className="bg-white rounded-2xl p-3 flex flex-col items-center justify-center gap-2 border border-slate-100 shadow-[0_2px_10px_rgba(0,0,0,0.02)] active:scale-95 transition-all">
+        {/* ⭐ เปลี่ยนจากการใช้ onClick={() => newProject...} มาใช้ handleCreateNewProject */}
+        <button onClick={handleCreateNewProject} className="bg-white rounded-2xl p-3 flex flex-col items-center justify-center gap-2 border border-slate-100 shadow-[0_2px_10px_rgba(0,0,0,0.02)] active:scale-95 transition-all">
           <div className="w-10 h-10 rounded-full bg-red-50 text-red-500 flex items-center justify-center"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" /></svg></div>
           <span className="text-[10px] font-bold text-slate-700">โปรเจกต์ใหม่</span>
         </button>
@@ -261,7 +265,8 @@ useEffect(() => {
       </div>
 
       <div className="hidden md:flex flex-wrap gap-4 mb-10">
-        <button onClick={() => { newProject(true); onNewProject(); }} className="flex-1 min-w-[200px] bg-white border border-slate-200 rounded-2xl p-4 flex items-center gap-4 hover:border-sky-400 hover:shadow-sm transition-all text-left group">
+        {/* ⭐ เปลี่ยนจากการใช้ onClick={() => newProject...} มาใช้ handleCreateNewProject */}
+        <button onClick={handleCreateNewProject} className="flex-1 min-w-[200px] bg-white border border-slate-200 rounded-2xl p-4 flex items-center gap-4 hover:border-sky-400 hover:shadow-sm transition-all text-left group">
           <div className="w-12 h-12 bg-slate-900 rounded-full flex items-center justify-center text-white shrink-0 group-hover:bg-sky-500 transition-colors shadow-sm"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" /></svg></div>
           <div>
             <h3 className="font-bold text-slate-800 text-sm">โปรเจกต์ใหม่</h3>
@@ -278,7 +283,6 @@ useEffect(() => {
         <div className="flex-1 min-w-[200px] hidden md:block"></div>
       </div>
 
-      {/* 3. ส่วน โปรเจกต์ล่าสุด */}
       <div className="mb-8 md:mb-10">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-base font-bold text-slate-800">โปรเจกต์ล่าสุด</h3>
@@ -333,12 +337,9 @@ useEffect(() => {
         </div>
       </div>
 
-      {/* 4. ส่วน ไฟล์ทั้งหมด (All Files) */}
       <div className="flex-1 flex flex-col min-h-[250px]">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-base font-bold text-slate-800">ไฟล์ทั้งหมด</h3>
-          
-          {/* ⭐ เมนูจัดเรียง (Sorting Menu) */}
           <div className="relative z-30">
             <button 
               onClick={(e) => { e.stopPropagation(); setIsSortMenuOpen(!isSortMenuOpen); setOpenMenuId(null); }}
@@ -360,7 +361,6 @@ useEffect(() => {
           </div>
         </div>
 
-        {/* Desktop View: Table */}
         <div className="hidden md:block bg-white border border-slate-200 rounded-2xl overflow-hidden flex-1 mb-6">
           <div className="overflow-x-auto overflow-y-auto max-h-[500px]">
             <table className="w-full text-left border-collapse relative">
@@ -405,7 +405,6 @@ useEffect(() => {
           </div>
         </div>
 
-        {/* Mobile View: List Vertical */}
         <div className="flex flex-col gap-3 md:hidden mb-6 flex-1 overflow-y-auto max-h-[500px] pr-1">
           {displayedProjects.map((file) => (
             <div key={`mlist-${file.id}`} onClick={() => handleOpenProject(file)} className="flex items-center p-3 bg-white border border-slate-100 shadow-sm rounded-2xl active:scale-[0.98] transition-transform w-full text-left relative">
@@ -432,20 +431,28 @@ useEffect(() => {
               </div>
             </div>
           ))}
-          {displayedProjects.length === 0 && (
-            <div className="py-6 text-center text-slate-400 text-xs font-medium border border-dashed border-slate-200 rounded-2xl">ไม่พบโปรเจกต์ที่ค้นหา</div>
-          )}
         </div>
       </div>
 
-      {/* 5. ส่วน Storage Status (จำกัดโควตาคนละ 1 MB) */}
       {(() => {
         const usedBytes = calculateTotalStorageUsed();
-        const maxLimitBytes = 1 * 1024 * 1024; // ⭐ กำหนดโควต้าต่อคนไว้ที่ 1 MB
+        const maxLimitBytes = 1 * 1024 * 1024; // 1 MB
         const percentage = Math.min(Math.max((usedBytes / maxLimitBytes) * 100, 0.1), 100).toFixed(2);
-        
-        // คำนวณพื้นที่คงเหลือ
         const remainingBytes = Math.max(maxLimitBytes - usedBytes, 0);
+
+        if (isAdmin) {
+           return (
+             <div className="mt-auto flex flex-col items-center justify-between text-[10px] md:text-xs font-semibold text-slate-400 bg-white border border-slate-100 md:border-slate-200 rounded-xl px-4 md:px-5 py-3 shadow-sm shrink-0">
+               <div className="flex items-center justify-between w-full">
+                 <div className="flex items-center gap-1.5">
+                    <svg className="w-3.5 h-3.5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" /></svg>
+                    <span className="text-amber-600 font-bold">สิทธิ์ Admin</span>
+                 </div>
+                 <span>ทั้งหมด {projects.length} ไฟล์ | ใช้ไป {formatStorageSize(usedBytes)} (ไม่จำกัดพื้นที่)</span>
+               </div>
+             </div>
+           );
+        }
 
         return (
           <div className="mt-auto flex flex-col items-center justify-between text-[10px] md:text-xs font-semibold text-slate-400 bg-white border border-slate-100 md:border-slate-200 rounded-xl px-4 md:px-5 py-3 shadow-sm shrink-0">
@@ -454,20 +461,19 @@ useEffect(() => {
                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
                  <span>ทั้งหมด {projects.length} ไฟล์</span>
               </div>
-              <span>ใช้ไป {formatStorageSize(usedBytes)} จาก 1 MB</span>
+              <span className={usedBytes >= maxLimitBytes ? "text-red-500 font-bold" : ""}>ใช้ไป {formatStorageSize(usedBytes)} จาก 1 MB</span>
             </div>
             
             <div className="flex items-center gap-3 w-full">
               <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                <div className="h-full bg-blue-500 rounded-full transition-all duration-500" style={{ width: `${percentage}%` }}></div>
+                <div className={`h-full rounded-full transition-all duration-500 ${usedBytes >= maxLimitBytes ? 'bg-red-500' : 'bg-blue-500'}`} style={{ width: `${percentage}%` }}></div>
               </div>
-              <span className="whitespace-nowrap text-sky-500">เหลือ {formatStorageSize(remainingBytes)}</span>
+              <span className={`whitespace-nowrap ${usedBytes >= maxLimitBytes ? "text-red-500 font-bold" : "text-sky-500"}`}>เหลือ {formatStorageSize(remainingBytes)}</span>
             </div>
           </div>
         );
       })()}
 
-      {/* ⭐ 6. ป๊อปอัปเปลี่ยนชื่อ (Custom Rename Modal) */}
       {renameModalOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fadeIn">
            <div className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl scale-100 animate-slideUp">
@@ -497,6 +503,22 @@ useEffect(() => {
                  บันทึก
                </button>
              </div>
+           </div>
+        </div>
+      )}
+
+      {/* ⭐ ด่านตรวจ: ป๊อปอัปแจ้งเตือนพื้นที่เต็มตอนกดสร้าง/เปิดไฟล์หน้า Dashboard */}
+      {storageLimitModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fadeIn">
+           <div className="bg-white rounded-3xl p-6 md:p-8 w-full max-w-sm shadow-2xl scale-100 animate-slideUp text-center">
+             <div className="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+             </div>
+             <h3 className="text-xl font-bold text-slate-800 mb-2">พื้นที่จัดเก็บเต็มแล้ว</h3>
+             <p className="text-sm text-slate-500 mb-6">คุณไม่สามารถสร้างหรืออัปโหลดโปรเจกต์ใหม่ได้ กรุณาลบไฟล์ที่ไม่ใช้งานออกเพื่อคืนพื้นที่ว่างครับ</p>
+             <button onClick={() => setStorageLimitModalOpen(false)} className="w-full py-3 font-bold text-white bg-red-500 hover:bg-red-600 rounded-xl transition-all shadow-md shadow-red-500/20 active:scale-[0.98]">
+               รับทราบ
+             </button>
            </div>
         </div>
       )}

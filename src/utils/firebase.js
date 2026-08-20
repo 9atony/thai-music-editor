@@ -121,6 +121,39 @@ export const logoutUser = () => signOut(auth);
 
 export const saveProjectToDB = async (uid, projectId, projectData) => {
   try {
+    // ⭐ 1. ดึงข้อมูล Profile เพื่อเช็กยศ (Admin หรือ User)
+    const userProfile = await getUserProfile(uid);
+    const isAdmin = userProfile && userProfile.role === "admin";
+
+    // ⭐ 2. ด่านตรวจพื้นที่ (ทำงานเฉพาะผู้ที่ ไม่ใช่ Admin)
+    if (!isAdmin) {
+      const projectsRef = collection(db, `users/${uid}/projects`);
+      const querySnapshot = await getDocs(projectsRef);
+      
+      let totalBytes = 0;
+      querySnapshot.docs.forEach(docSnap => {
+        if (docSnap.id !== projectId) { // ไม่นับไฟล์เดิมที่กำลังจะเซฟทับ
+          const docData = docSnap.data();
+          totalBytes += new Blob([JSON.stringify(docData)]).size;
+        }
+      });
+
+      // จำลองขนาดข้อมูลก้อนใหม่เพื่อนำไปคำนวณ
+      const dataToSaveForSize = {
+        ...projectData,
+        sheetData: JSON.stringify(projectData.sheetData), 
+        updatedAt: new Date() 
+      };
+      const newProjectBytes = new Blob([JSON.stringify(dataToSaveForSize)]).size;
+      const maxLimitBytes = 1 * 1024 * 1024; // ลิมิต 1 MB
+
+      // ⭐ ลบ alert() ทิ้งไปเลย ให้โยนแค่ Error ออกไปเงียบๆ เพื่อให้ระบบ Modal ทำงานแทน
+      if (totalBytes + newProjectBytes > maxLimitBytes) {
+        throw new Error("STORAGE_LIMIT_EXCEEDED");
+      }
+    }
+
+    // ⭐ 3. บันทึกข้อมูลลงฐานข้อมูลตามปกติ
     const dataToSave = {
       ...projectData,
       sheetData: JSON.stringify(projectData.sheetData), 
