@@ -4,14 +4,19 @@ import { fetchRecentProjects } from '../utils/firebase';
 import { MusicContext } from '../contexts/MusicContext';
 import TmeIcon from '../assets/icon.png'; 
 
-const Home = ({ onNewProject, onPageChange }) => {
+const Home = ({ onNewProject, onPageChange, userProfile }) => {
   const { newProject, loadProjectFromFirebase, loadProject } = useContext(MusicContext);
   const [recentProjects, setRecentProjects] = useState([]);
   const fileInputRef = useRef(null);
   
-  // State สำหรับควบคุมการเปิด/ปิดหน้าต่างแจ้งเตือน (เฉพาะฝั่งคอมพิวเตอร์)
+  const isAdmin = userProfile?.role === 'admin';
+
+  // State สำหรับควบคุมกระดิ่งแจ้งเตือน
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const notifRef = useRef(null);
+
+  // ⭐ State สำหรับควบคุม Pop-up ประกาศอัปเดตเด้งขึ้นมาอัตโนมัติ
+  const [isPopupOpen, setIsPopupOpen] = useState(false);
 
   useEffect(() => {
     const loadProjects = async () => {
@@ -22,6 +27,10 @@ const Home = ({ onNewProject, onPageChange }) => {
       }
     };
     loadProjects();
+
+    // ⭐ สั่งให้ Pop-up ประกาศเด้งขึ้นมาทันทีเมื่อเข้ามาที่หน้า Home
+    // (หากต้องการให้เด้งแค่วันละครั้ง สามารถใช้ localStorage เช็กเงื่อนไขเพิ่มได้ครับ)
+    setIsPopupOpen(true);
   }, []);
 
   // ฟังก์ชันจัดรูปแบบเวลา
@@ -47,7 +56,6 @@ const Home = ({ onNewProject, onPageChange }) => {
 
     loadProject(file, true); 
     onNewProject(); 
-    
     e.target.value = null; 
   };
 
@@ -79,27 +87,81 @@ const Home = ({ onNewProject, onPageChange }) => {
       style={{ fontFamily: 'Prompt, sans-serif' }}
     >
       
-      {/* ส่วนหัวต้อนรับ และ กระดิ่งแจ้งเตือน */}
+      {/* ⭐ ระบบ Popup ประกาศอัปเดตเด้งขึ้นมาอัตโนมัติทุกครั้งที่เข้าหน้า Home */}
+      {isPopupOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm px-4 animate-fadeIn">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden border border-slate-100 animate-scaleUp">
+            
+            {/* หัวข้อประกาศ */}
+            <div className="bg-gradient-to-r from-sky-500 to-indigo-600 px-6 py-5 text-white flex justify-between items-center">
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">🎉</span>
+                <div>
+                  <h3 className="font-extrabold text-lg">ประกาศอัปเดตระบบใหม่</h3>
+                  <p className="text-xs text-sky-100">มีอะไรใหม่ใน Thai Music Editor ล่าสุด</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setIsPopupOpen(false)}
+                className="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center text-white transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* เนื้อหาการอัปเดต */}
+            <div className="p-6 space-y-4 max-h-[60vh] overflow-y-auto">
+              <div className="flex gap-3.5 items-start bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                <div className="w-8 h-8 rounded-xl bg-sky-100 text-sky-600 flex items-center justify-center shrink-0 font-bold">✨</div>
+                <div>
+                  <h4 className="font-bold text-slate-800 text-sm mb-1">อัปเกรด UI แผงควบคุมแทร็ก & มินิมอลโมเดิร์น</h4>
+                  <p className="text-xs text-slate-500 leading-relaxed">ปรับดีไซน์ Track Panel ใหม่ให้สะอาดตา เพิ่มปุ่มนำเข้าจากเว็บ (Cloud) และจากเครื่อง (Local) คู่กันอย่างลงตัว พร้อมระบบซิงค์เลื่อนขึ้น-ลงล็อกบรรทัดเป๊ะๆ</p>
+                </div>
+              </div>
+
+              <div className="flex gap-3.5 items-start bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                <div className="w-8 h-8 rounded-xl bg-teal-100 text-teal-600 flex items-center justify-center shrink-0 font-bold">🛠️</div>
+                <div>
+                  <h4 className="font-bold text-slate-800 text-sm mb-1">เพิ่มประสิทธิภาพเครื่องมือผู้ดูแลระบบ (Admin Tools)</h4>
+                  <p className="text-xs text-slate-500 leading-relaxed">แยกสิทธิ์การใช้งานเครื่องมือ AI และพจนานุกรมทางระนาดให้แอดมินจัดการได้อย่างเต็มรูปแบบ รองรับการใช้งานบนมือถืออย่างไร้รอยต่อ</p>
+                </div>
+              </div>
+            </div>
+
+            {/* ปุ่มปิด */}
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-end">
+              <button 
+                onClick={() => setIsPopupOpen(false)}
+                className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-sm font-bold shadow-sm transition-colors"
+              >
+                รับทราบและใช้งานต่อเลย 🚀
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ส่วนหัวต้อนรับ และ กระดิ่งแจ้งเตือน (รองรับทั้งมือถือและคอม) */}
       <div className="flex justify-between items-start mb-6 md:mb-8 px-1">
         <div>
           <h2 className="text-2xl md:text-3xl font-extrabold text-slate-900 mb-1 md:mb-2">ยินดีต้อนรับกลับมา 👋</h2>
           <p className="text-xs md:text-sm text-slate-500 font-medium">ใช้งาน Thai Music Editor อย่างสร้างสรรค์ในทุกจังหวะของคุณ</p>
         </div>
         
-        {/* ⭐ ใส่ class "hidden md:block" เพื่อให้ซ่อนในมือถือ และแสดงผลเฉพาะบนคอมพิวเตอร์ */}
-        <div className="relative hidden md:block" ref={notifRef}>
+        {/* กระดิ่งแจ้งเตือน (แสดงผลทั้งมือถือและคอมพิวเตอร์) */}
+        <div className="relative" ref={notifRef}>
           <button 
             onClick={() => setIsNotifOpen(!isNotifOpen)}
             className="w-10 h-10 rounded-full bg-white border border-slate-200 flex items-center justify-center text-slate-500 hover:text-sky-500 hover:border-sky-300 hover:shadow-sm transition-all relative group focus:outline-none"
           >
-            {/* จุดแดงแจ้งเตือน */}
             <span className="absolute top-2 right-2.5 w-2 h-2 bg-red-500 rounded-full border border-white"></span>
             <svg className="w-5 h-5 group-active:scale-95 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
             </svg>
           </button>
 
-          {/* หน้าต่าง Popup เมื่อกดปุ่มแจ้งเตือนบนคอมพิวเตอร์ */}
+          {/* หน้าต่าง Popup เมื่อกดปุ่มแจ้งเตือน */}
           {isNotifOpen && (
             <div className="absolute right-0 mt-3 w-80 bg-white border border-slate-200 rounded-2xl shadow-xl z-50 animate-fadeIn overflow-hidden">
               <div className="px-5 py-3 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
@@ -108,31 +170,20 @@ const Home = ({ onNewProject, onPageChange }) => {
               </div>
               <div className="max-h-[300px] overflow-y-auto">
                 
-                <div className="px-5 py-4 border-b border-slate-100 hover:bg-slate-50 transition-colors flex gap-3 cursor-pointer bg-sky-50/30">
+                <div onClick={() => setIsPopupOpen(true)} className="px-5 py-4 border-b border-slate-100 hover:bg-slate-50 transition-colors flex gap-3 cursor-pointer bg-sky-50/30">
                   <div className="w-8 h-8 rounded-full bg-sky-100 text-sky-500 flex items-center justify-center shrink-0">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                   </div>
                   <div>
-                    <h4 className="text-xs font-bold text-slate-800 mb-0.5">อัปเดตเวอร์ชัน 1.0.0 🎉</h4>
-                    <p className="text-[11px] text-slate-500 leading-tight">เพิ่มระบบเทมเพลต และเปิดใช้งานระบบบัญชีพรีเมียมแล้ววันนี้!</p>
-                    <span className="text-[9px] text-slate-400 mt-1 block">เมื่อ 2 ชั่วโมงที่แล้ว</span>
+                    <h4 className="text-xs font-bold text-slate-800 mb-0.5">อัปเดตเวอร์ชันล่าสุด 🎉</h4>
+                    <p className="text-[11px] text-slate-500 leading-tight">คลิกเพื่อดูรายละเอียดการอัปเดตฟีเจอร์ใหม่ทั้งหมด</p>
+                    <span className="text-[9px] text-slate-400 mt-1 block">ประกาศล่าสุด</span>
                   </div>
                 </div>
 
-                <div className="px-5 py-4 border-b border-slate-100 hover:bg-slate-50 transition-colors flex gap-3 cursor-pointer opacity-70 hover:opacity-100">
-                  <div className="w-8 h-8 rounded-full bg-purple-100 text-purple-500 flex items-center justify-center shrink-0">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
-                  </div>
-                  <div>
-                    <h4 className="text-xs font-bold text-slate-800 mb-0.5">ยินดีต้อนรับสู่ TME!</h4>
-                    <p className="text-[11px] text-slate-500 leading-tight">เริ่มสร้างโปรเจกต์ใหม่และเขียนโน้ตเพลงไทยของคุณได้เลย</p>
-                    <span className="text-[9px] text-slate-400 mt-1 block">เมื่อ 1 วันที่แล้ว</span>
-                  </div>
-                </div>
-                
               </div>
               <div className="p-2 border-t border-slate-100 text-center bg-slate-50">
-                <button className="text-[11px] font-bold text-slate-400 hover:text-sky-500 transition-colors">ทำเครื่องหมายว่าอ่านแล้วทั้งหมด</button>
+                <button onClick={() => setIsNotifOpen(false)} className="text-[11px] font-bold text-slate-400 hover:text-sky-500 transition-colors">ปิดหน้าต่าง</button>
               </div>
             </div>
           )}
@@ -268,7 +319,7 @@ const Home = ({ onNewProject, onPageChange }) => {
           <div className="relative z-10">
             <h3 className="text-lg md:text-xl font-bold text-slate-800 mb-0.5 md:mb-1">Thai Music Editor</h3>
             <p className="text-xs md:text-sm font-semibold text-slate-400 mb-3 md:mb-4">เวอร์ชัน 1.0.0</p>
-            <button className="text-xs md:text-sm font-bold text-sky-500 hover:text-sky-600 flex items-center gap-1">
+            <button onClick={() => setIsPopupOpen(true)} className="text-xs md:text-sm font-bold text-sky-500 hover:text-sky-600 flex items-center gap-1 cursor-pointer">
               ดูรายละเอียดการอัปเดต
               <svg className="w-3.5 h-3.5 md:w-4 md:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
             </button>
@@ -281,6 +332,10 @@ const Home = ({ onNewProject, onPageChange }) => {
 
     </div>
   );
+};
+
+Home.defaultProps = {
+  userProfile: null,
 };
 
 export default Home;

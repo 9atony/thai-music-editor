@@ -1,17 +1,13 @@
 import React, { useContext, useState } from 'react';
 import { MusicContext } from '../contexts/MusicContext';
-import { auth, fetchAllProjects } from '../utils/firebase'; // 👈 นำเข้า fetchAllProjects มาใช้
+import { auth, fetchAllProjects } from '../utils/firebase'; 
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 
 const Settings = () => {
   const { 
     layoutConfig, 
-    setLayoutConfig,
-    isOctaveMode,
-    setIsOctaveMode,
-    currentInstrument, 
-    changeInstrument
+    setLayoutConfig
   } = useContext(MusicContext);
 
   const [isExporting, setIsExporting] = useState(false);
@@ -34,7 +30,6 @@ const Settings = () => {
     setLayoutConfig({ ...layoutConfig, fontSize: newSize });
   };
 
-  // 💾 ฟังก์ชันดึงข้อมูลจาก Firebase และมัดรวมเป็นไฟล์ .zip
   const handleExportAllData = async () => {
     const user = auth.currentUser;
     if (!user) {
@@ -44,7 +39,6 @@ const Settings = () => {
 
     setIsExporting(true);
     try {
-      // 1. เรียกใช้งานฟังก์ชันที่ชี้ไปถูก Path (users/uid/projects)
       const allProjects = await fetchAllProjects(user.uid);
 
       if (allProjects.length === 0) {
@@ -53,20 +47,16 @@ const Settings = () => {
         return;
       }
 
-      // 2. สร้างไฟล์ Zip
       const zip = new JSZip();
 
       allProjects.forEach((projectData) => {
         const projectName = projectData.name || projectData.songName || "โปรเจกต์ไม่มีชื่อ";
-        // กรองอักขระพิเศษออกจากชื่อไฟล์ ป้องกัน error ตอนเซฟ
         const safeName = projectName.replace(/[^a-zA-Z0-9ก-๙\s]/g, "_").trim(); 
         const fileContent = JSON.stringify(projectData, null, 2);
         
-        // ยัดไฟล์ลงใน Zip
         zip.file(`${safeName}_${projectData.id.substring(0,5)}.tme`, fileContent);
       });
 
-      // 3. ประมวลผลและสั่งดาวน์โหลด
       const content = await zip.generateAsync({ type: "blob" });
       saveAs(content, "ThaiMusicEditor_Backup.zip");
 
@@ -129,19 +119,6 @@ const Settings = () => {
                 className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-sky-500" 
               />
             </div>
-            <hr className="border-slate-100" />
-            <div className="flex items-center justify-between">
-              <div>
-                <h4 className="text-sm font-bold text-slate-700">โหมดเล่นคู่ 8 (Octave Mode)</h4>
-                <p className="text-xs text-slate-500 mt-1">จำลองการตีเสียงคู่ขนานอัตโนมัติ (เฉพาะระนาดเอก)</p>
-              </div>
-              <button 
-                onClick={() => setIsOctaveMode?.(!isOctaveMode)}
-                className={`w-12 h-6 rounded-full p-1 transition-colors ${isOctaveMode ? 'bg-sky-500' : 'bg-slate-200'}`}
-              >
-                <div className={`w-4 h-4 bg-white rounded-full shadow-sm transform transition-transform ${isOctaveMode ? 'translate-x-6' : 'translate-x-0'}`}></div>
-              </button>
-            </div>
           </div>
         </section>
 
@@ -153,22 +130,6 @@ const Settings = () => {
             </h3>
           </div>
           <div className="p-5 md:p-6 space-y-6">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div>
-                <h4 className="text-sm font-bold text-slate-700">เครื่องดนตรีปัจจุบัน</h4>
-                <p className="text-xs text-slate-500 mt-1">เปลี่ยนประเภทเครื่องดนตรีสำหรับโน้ตชุดนี้</p>
-              </div>
-              <select 
-                value={currentInstrument?.id || 'ranat-ek'}
-                onChange={(e) => changeInstrument(e.target.value)}
-                className="bg-slate-50 border border-slate-200 text-slate-700 text-sm rounded-xl focus:ring-sky-500 focus:border-sky-500 block w-full md:w-48 p-2.5 font-medium outline-none cursor-pointer"
-              >
-                <option value="ranat-ek">ระนาดเอก</option>
-                <option value="khong-wong-yai">ฆ้องวงใหญ่</option>
-                <option value="ranat-tum">ระนาดทุ้ม</option>
-              </select>
-            </div>
-            <hr className="border-slate-100" />
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
                 <h4 className="text-sm font-bold text-slate-700">ขนาดตัวอักษรโน้ตเริ่มต้น</h4>

@@ -30,18 +30,12 @@ const MobileEditor = ({ onBack }) => {
     isLoopOne, setIsLoopOne,
     layoutConfig, setLayoutConfig,
     currentInstrument,
-    isOctaveMode, 
-    setIsOctaveMode
+    // ⭐ ดึง State ของโหมดลดเสียงเครื่องมาใช้งาน
+    isReduceMode, setIsReduceMode 
   } = useContext(MusicContext);
 
   const sheetContainerRef = useRef(null);
   const [isQueueOpen, setIsQueueOpen] = useState(false);
-
-  useEffect(() => {
-    if (setIsOctaveMode) {
-      setIsOctaveMode(true);
-    }
-  }, [setIsOctaveMode]);
 
   const isPlayingRef = useRef(isPlaying);
   useEffect(() => {
@@ -240,7 +234,7 @@ const MobileEditor = ({ onBack }) => {
         </div>
       </footer>
 
-      {/* 4. Bottom Sheet (คิวเพลง, BPM & โหมดคู่ 8) */}
+      {/* 4. Bottom Sheet (คิวเพลง, BPM) */}
       <div className={`fixed inset-0 z-[60] flex flex-col justify-end transition-all duration-300 ${isQueueOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}>
         <div className={`absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity duration-300 ${isQueueOpen ? 'opacity-100' : 'opacity-0'}`} onClick={() => setIsQueueOpen(false)} />
         
@@ -248,8 +242,8 @@ const MobileEditor = ({ onBack }) => {
           
           <div className="flex items-center justify-between p-5 border-b border-slate-100">
             <div>
-              <h3 className="font-bold text-slate-800 text-lg">การเล่น & ตั้งค่าเสียง</h3>
-              <p className="text-xs text-slate-400 font-medium mt-0.5">จัดการความเร็ว, คู่ 8 และคิวเพลง</p>
+              <h3 className="font-bold text-slate-800 text-lg">การเล่น & ตั้งค่า</h3>
+              <p className="text-xs text-slate-400 font-medium mt-0.5">จัดการคีย์บอร์ด, ความเร็ว และคิวเพลง</p>
             </div>
             <button onClick={() => setIsQueueOpen(false)} className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-full bg-slate-50 transition-colors">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" /></svg>
@@ -257,22 +251,23 @@ const MobileEditor = ({ onBack }) => {
           </div>
           
           <div className="flex-1 overflow-auto p-5 custom-scrollbar flex flex-col gap-5">
-            
+
+            {/* ⭐ เพิ่ม โหมดลดเสียงเครื่อง (Reduce Mode) เข้ามาแทน */}
             <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex items-center justify-between">
               <div className="flex items-center gap-3">
                  <div className="w-10 h-10 bg-white rounded-xl shadow-sm flex items-center justify-center text-sky-500 border border-slate-100">
-                   🎵
+                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                  </div>
                  <div>
-                   <div className="font-bold text-slate-700 text-sm">โหมดเล่นคู่ 8 (Octave)</div>
-                   <div className="text-xs text-slate-400">บรรเลงเสียงสูงคู่ขนานอัตโนมัติ</div>
+                   <div className="font-bold text-slate-700 text-sm">โหมดลดเสียงเครื่อง</div>
+                   <div className="text-xs text-slate-400">ลดระดับเสียงโน้ตบนแป้นพิมพ์ลง</div>
                  </div>
               </div>
               <button 
-                onClick={() => setIsOctaveMode(!isOctaveMode)}
-                className={`w-14 h-8 flex items-center rounded-full p-1 transition-colors duration-300 ${isOctaveMode ? 'bg-sky-500' : 'bg-slate-300'}`}
+                onClick={() => setIsReduceMode(!isReduceMode)}
+                className={`w-14 h-8 flex items-center rounded-full p-1 transition-colors duration-300 ${isReduceMode ? 'bg-sky-500' : 'bg-slate-300'}`}
               >
-                <div className={`bg-white w-6 h-6 rounded-full shadow-md transform transition-transform duration-300 ${isOctaveMode ? 'translate-x-6' : 'translate-x-0'}`} />
+                <div className={`bg-white w-6 h-6 rounded-full shadow-md transform transition-transform duration-300 ${isReduceMode ? 'translate-x-6' : 'translate-x-0'}`} />
               </button>
             </div>
 
@@ -313,7 +308,6 @@ const MobileEditor = ({ onBack }) => {
                           <span className={`w-8 h-8 flex items-center justify-center rounded-xl text-xs font-black shadow-sm ${isActive ? 'bg-sky-500 text-white shadow-sky-500/20' : 'bg-slate-100 text-slate-400 border border-slate-200'}`}>
                             {index + 1}
                           </span>
-                          {/* ⭐ ใช้ getPlainText เพื่อซ่อนโค้ด HTML และแสดงผลเฉพาะข้อความชื่อท่อน */}
                           <span className={`font-bold text-sm ${isActive ? 'text-sky-700' : 'text-slate-700'}`}>{getPlainText(seq.label)}</span>
                         </div>
                         

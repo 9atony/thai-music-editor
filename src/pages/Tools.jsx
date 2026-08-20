@@ -1,50 +1,56 @@
 import React, { useState } from 'react';
-// Import Component เครื่องมือใหม่ของเรา (ปรับ Path ให้ตรงกับโฟลเดอร์ของคุณ)
 import TunerDashboard from '../components/tools/TunerDashboard';
 import RanatDictionary from '../components/tools/RanatDictionary';
 import RanatGenerator from '../components/tools/RanatGenerator';
-
-// ⭐ 1. นำเข้า Tool Workspace ของเรา
 import ToolWorkspace from '../components/tools/ToolWorkspace';
 
-const Tools = ({ onPageChange }) => {
-  // สร้าง State สำหรับจดจำว่าผู้ใช้กำลังเปิดเครื่องมือไหนอยู่ (null = หน้าเมนูหลัก)
+// ⭐ 1. รับ userProfile เข้ามาทาง Props เพื่อใช้ตรวจสอบสิทธิ์
+const Tools = ({ onPageChange, userProfile }) => {
+  
+  // ⭐ 2. เช็กสถานะแอดมิน (เหมือนหน้า Samples)
+  const isAdmin = userProfile?.role === 'admin';
+
   const [activeTool, setActiveTool] = useState(null);
 
-  // ข้อมูลรายการเครื่องมือทั้งหมด (เหลือแค่ 3 ตัวใหม่ตามที่ต้องการ)
-  const toolsList = [
+  // ⭐ 3. แยกกลุ่มเครื่องมือ เพื่อให้จัดการสิทธิ์และแสดงผลเป็นหมวดหมู่ได้ง่าย
+  
+  // เครื่องมือสำหรับทุกคน
+  const publicTools = [
+    { 
+      id: 'workspace', 
+      name: 'จัดวงดนตรี (Arranger)', 
+      desc: 'เครื่องมือจัดการวงดนตรี ควบคุมไทม์ไลน์ และผูกเนื้อร้องเข้ากับโครงสร้างดนตรี', 
+      icon: '🎛️', 
+      color: 'bg-rose-50 text-rose-600',
+      borderColor: 'hover:border-rose-300 hover:ring-2 hover:ring-rose-50' 
+    }
+  ];
+
+  // เครื่องมือสำหรับแอดมินเท่านั้น
+  const adminTools = [
     { 
       id: 'generator', 
       name: 'AI สร้างทางระนาด', 
-      desc: 'แปลงทำนองหลัก (ฆ้องวงใหญ่) เป็นทางระนาดเอกอัตโนมัติ ตามระดับความยาก', 
+      desc: 'แปลงทำนองหลักจากฆ้องวงใหญ่เป็นทางระนาดเอกอัตโนมัติ ตามระดับความยากที่กำหนด', 
       icon: '✨', 
-      color: 'bg-indigo-50 text-indigo-500',
-      borderColor: 'hover:border-indigo-400' 
+      color: 'bg-sky-50 text-sky-600',
+      borderColor: 'hover:border-sky-300 hover:ring-2 hover:ring-sky-50' 
     },
     { 
       id: 'dictionary', 
       name: 'พจนานุกรมทางระนาด', 
-      desc: 'จัดการฐานข้อมูลทางระนาด จัดกลุ่มเลเวล และกำหนดโครงสร้างเป้าหมาย', 
+      desc: 'จัดการฐานข้อมูลวลีเพลง (Phrases) จัดกลุ่มระดับความยาก และกำหนดโครงสร้างเป้าหมาย', 
       icon: '📚', 
-      color: 'bg-teal-50 text-teal-500',
-      borderColor: 'hover:border-teal-400' 
+      color: 'bg-teal-50 text-teal-600',
+      borderColor: 'hover:border-teal-300 hover:ring-2 hover:ring-teal-50' 
     },
     { 
       id: 'tuner-ai', 
       name: 'AI จูนโครงสร้าง', 
-      desc: 'วิเคราะห์โครงสร้างทำนอง ตรวจสอบความถูกต้อง และจัดการ Dataset สำหรับสอนระบบ', 
+      desc: 'วิเคราะห์โครงสร้างทำนอง ตรวจสอบความถูกต้องของสัดส่วน และจัดการ Dataset สอนระบบ', 
       icon: '🧠', 
-      color: 'bg-violet-50 text-violet-500',
-      borderColor: 'hover:border-violet-400' 
-    },
-    // ⭐ 2. เพิ่มปุ่มกดใหม่เข้าหน้า Dashboard จัดวง
-    { 
-      id: 'workspace', 
-      name: 'จัดวงดนตรี (Arranger)', 
-      desc: 'เครื่องมือจัดการวง ควบคุมไทม์ไลน์ และผูกเนื้อร้องกับโครงสร้างดนตรี', 
-      icon: '🎛️', 
-      color: 'bg-rose-50 text-rose-500',
-      borderColor: 'hover:border-rose-400' 
+      color: 'bg-indigo-50 text-indigo-600',
+      borderColor: 'hover:border-indigo-300 hover:ring-2 hover:ring-indigo-50' 
     }
   ];
 
@@ -52,106 +58,119 @@ const Tools = ({ onPageChange }) => {
     setActiveTool(toolId);
   };
 
-  // ฟังก์ชันเรนเดอร์หน้าจอตามเครื่องมือที่เลือก
   const renderActiveTool = () => {
     switch (activeTool) {
-      case 'generator':
-        return <RanatGenerator />;
-      case 'dictionary':
-        return <RanatDictionary />;
-      case 'tuner-ai':
-        return <TunerDashboard />;
-      // ⭐ 3. เมื่อผู้ใช้คลิกปุ่มนี้ ให้เรนเดอร์ Tool Workspace
-      case 'workspace':
-        return <ToolWorkspace />;
-      default:
-        return (
-          <div className="flex flex-col items-center justify-center h-[60vh] text-slate-500">
-            <div className="text-6xl mb-4">🚧</div>
-            <h3 className="text-xl font-bold text-slate-700 mb-2">กำลังพัฒนาฟีเจอร์นี้</h3>
-            <p className="mb-6">อดใจรออีกนิด ระบบกำลังเตรียมความพร้อมครับ</p>
-            <button 
-              onClick={() => setActiveTool(null)} 
-              className="px-6 py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-medium transition-colors"
-            >
-              กลับหน้ารวมเครื่องมือ
-            </button>
-          </div>
-        );
+      case 'generator': return isAdmin ? <RanatGenerator /> : null;
+      case 'dictionary': return isAdmin ? <RanatDictionary /> : null;
+      case 'tuner-ai': return isAdmin ? <TunerDashboard /> : null;
+      case 'workspace': return <ToolWorkspace />;
+      default: return null;
     }
   };
 
   // --- กรณีที่เลือกเครื่องมือแล้ว (แสดง Component พร้อมปุ่มย้อนกลับ) ---
   if (activeTool) {
-    const currentToolInfo = toolsList.find(t => t.id === activeTool);
+    const currentToolInfo = [...publicTools, ...adminTools].find(t => t.id === activeTool);
     
     return (
-      <div className="min-h-screen bg-slate-50/50 flex flex-col animate-fadeIn" style={{ fontFamily: 'Prompt, sans-serif' }}>
-        <div className="bg-white border-b border-slate-200 px-6 py-4 flex items-center shadow-sm sticky top-0 z-50">
+      <div className="min-h-screen bg-[#0c1014] flex flex-col animate-fadeIn" style={{ fontFamily: 'Prompt, sans-serif' }}>
+        {/* Header สไตล์ Dark Mode ให้กลมกลืนกับ Workspace */}
+        <div className="bg-[#11151a] border-b border-white/10 px-4 py-3 flex items-center shadow-sm sticky top-0 z-50">
           <button 
             onClick={() => setActiveTool(null)}
-            className="flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-slate-900 transition-colors bg-slate-50 hover:bg-slate-100 px-4 py-2 rounded-lg border border-slate-100"
+            className="flex items-center gap-2 text-[11px] font-bold text-white/60 hover:text-white transition-colors bg-white/5 hover:bg-white/10 px-3 py-1.5 rounded-lg border border-white/10"
           >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
-            ย้อนกลับ
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+            กลับหน้ารวมเครื่องมือ
           </button>
           
-          <div className="ml-5 pl-5 border-l border-slate-200 flex items-center gap-2">
-            <span className="text-xl">{currentToolInfo?.icon}</span>
-            <span className="text-base font-bold text-slate-800">
+          <div className="ml-4 pl-4 border-l border-white/10 flex items-center gap-2.5">
+            <span className="text-lg leading-none">{currentToolInfo?.icon}</span>
+            <span className="text-sm font-semibold tracking-wide text-white/90">
               {currentToolInfo?.name}
             </span>
           </div>
         </div>
 
-        <div className="flex-1">
+        <div className="flex-1 overflow-hidden relative">
           {renderActiveTool()}
         </div>
       </div>
     );
   }
 
-  // --- กรณีหน้าเมนูหลัก (โค้ดดีไซน์เดิม) ---
+  // --- กรณีหน้าเมนูหลัก (Tools Dashboard) ---
   return (
     <div 
-      className="max-w-6xl mx-auto w-full animate-fadeIn text-slate-800 pt-6 md:pt-10 px-5 md:px-8 pb-24 md:pb-12"
+      className="max-w-6xl mx-auto w-full animate-fadeIn text-slate-800 pt-6 md:pt-10 px-5 md:px-8 pb-24 md:pb-12 min-h-screen"
       style={{ fontFamily: 'Prompt, sans-serif' }}
     >
-      <div className="mb-6 md:mb-8 px-1">
-        <h2 className="text-2xl md:text-3xl font-extrabold text-slate-900 mb-1 md:mb-2">เครื่องมือ 🔧</h2>
-        <p className="text-xs md:text-sm text-slate-500 font-medium">รวมตัวช่วยสำหรับการฝึกซ้อม สร้างสรรค์ผลงาน และประกอบการสอน</p>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
-        {toolsList.map((tool) => (
-          <button 
-            key={tool.id}
-            onClick={() => handleToolClick(tool.id)}
-            className={`bg-white border border-slate-200 rounded-2xl p-5 md:p-6 flex flex-col items-start gap-4 transition-all duration-300 shadow-sm hover:shadow-md group ${tool.borderColor} hover:-translate-y-1 text-left w-full active:scale-[0.98]`}
-          >
-            <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-2xl transition-transform group-hover:scale-110 ${tool.color} border border-white/50 shadow-sm`}>
-              {tool.icon}
-            </div>
-            <div>
-              <h3 className="font-bold text-slate-800 text-lg mb-1">{tool.name}</h3>
-              <p className="text-sm text-slate-500 font-medium leading-relaxed">{tool.desc}</p>
-            </div>
-          </button>
-        ))}
-      </div>
-
-      {/* กล่องข้อความแนะนำ */}
-      <div className="mt-8 md:mt-12 bg-sky-50 border border-sky-100 rounded-2xl p-5 md:p-6 flex items-start gap-4">
-        <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center text-sky-500 shrink-0 shadow-sm">
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-        </div>
+      <div className="mb-8 md:mb-10 px-1 border-b border-slate-200 pb-6 flex items-end justify-between">
         <div>
-          <h4 className="font-bold text-sky-800 text-sm md:text-base mb-1">ฟีเจอร์เพิ่มเติมกำลังมา!</h4>
-          <p className="text-xs md:text-sm text-sky-600 font-medium">หากต้องการเครื่องมือไหนเพิ่มเติมสำหรับการจัดทำสื่อการเรียนการสอน สามารถเพิ่มเข้าไปในหมวดหมู่นี้ได้เลยครับ</p>
+          <h2 className="text-2xl md:text-3xl font-extrabold text-slate-900 mb-1 md:mb-2 tracking-tight">เครื่องมือ 🔧</h2>
+          <p className="text-xs md:text-sm text-slate-500 font-medium">ศูนย์รวมตัวช่วยอัจฉริยะสำหรับการฝึกซ้อม สร้างสรรค์ผลงาน และจัดการข้อมูล</p>
+        </div>
+        {isAdmin && (
+          <span className="hidden md:inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-800 text-white text-[10px] font-bold tracking-wider uppercase">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+            Admin Mode
+          </span>
+        )}
+      </div>
+
+      {/* หมวดหมู่: เครื่องมือทั่วไป (เห็นทุกคน) */}
+      <div className="mb-10">
+        <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4 px-1">General Tools</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-5">
+          {publicTools.map((tool) => (
+            <button 
+              key={tool.id}
+              onClick={() => handleToolClick(tool.id)}
+              className={`bg-white border border-slate-200 rounded-2xl p-5 flex flex-col items-start gap-4 transition-all duration-300 shadow-sm hover:shadow-md group ${tool.borderColor} text-left w-full active:scale-[0.98]`}
+            >
+              <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-2xl transition-transform duration-300 group-hover:scale-110 group-hover:-rotate-3 ${tool.color} border border-white/50 shadow-sm`}>
+                {tool.icon}
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-800 text-[15px] mb-1.5">{tool.name}</h3>
+                <p className="text-[12px] text-slate-500 font-medium leading-relaxed">{tool.desc}</p>
+              </div>
+            </button>
+          ))}
         </div>
       </div>
+
+      {/* ⭐ หมวดหมู่: เครื่องมือผู้ดูแลระบบ (ซ่อนจากผู้ใช้ทั่วไป) */}
+      {isAdmin && (
+        <div className="mb-10">
+          <div className="flex items-center gap-3 mb-4 px-1">
+            <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest">Admin Tools</h3>
+            <div className="h-px bg-slate-200 flex-1"></div>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-5">
+            {adminTools.map((tool) => (
+              <button 
+                key={tool.id}
+                onClick={() => handleToolClick(tool.id)}
+                className={`bg-white border border-slate-200 rounded-2xl p-5 flex flex-col items-start gap-4 transition-all duration-300 shadow-sm hover:shadow-md group ${tool.borderColor} text-left w-full active:scale-[0.98] relative overflow-hidden`}
+              >
+                {/* แถบสีเล็กๆ ด้านบนเพื่อแยกให้รู้ว่าเป็นเครื่องมือพิเศษ */}
+                <div className="absolute top-0 left-0 right-0 h-1 bg-slate-800/10 group-hover:bg-sky-400/80 transition-colors"></div>
+                
+                <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-2xl transition-transform duration-300 group-hover:scale-110 group-hover:-rotate-3 ${tool.color} border border-white/50 shadow-sm mt-1`}>
+                  {tool.icon}
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-800 text-[15px] mb-1.5">{tool.name}</h3>
+                  <p className="text-[12px] text-slate-500 font-medium leading-relaxed">{tool.desc}</p>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };
