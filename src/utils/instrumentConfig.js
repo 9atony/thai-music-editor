@@ -130,8 +130,8 @@ export const INSTRUMENT_CONFIG = {
       { thai: 'จ๊ะ', eng: 'JA', audio: 'ja.wav' },
     ]
   },
-  "ching-chab": {
-    id: "ching-chab",
+  "ching": { // ⭐ เปลี่ยน key ตรงนี้เป็น ching
+    id: "ching", // ⭐ เปลี่ยน id ตรงนี้เป็น ching
     name: "ฉิ่ง",
     type: "percussion",
     keys: [

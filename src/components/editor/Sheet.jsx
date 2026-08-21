@@ -8,11 +8,22 @@ const getFlattenedCol = (row, rType, targetM, targetC) => {
   if (!row || rType === 'text' || rType === 'page-break') return 0; 
   let col = 0;
   for (let m = 0; m < row.length; m++) {
-    if (rType && rType.startsWith('double') && m === 0) continue;
+    // ⭐ ข้ามห้องที่ 0 เฉพาะเมื่อบรรทัดนั้นมีความยาว 9 ห้อง (บรรทัดคู่)
+    const isLabel = (rType.startsWith('double') || (rType === 'nathap' && row.length === 9)) && m === 0;
+    if (isLabel) continue;
     if (m === targetM) return col + targetC;
     col += row[m].length;
   }
   return col;
+};
+
+const getMeasureCountForRowType = (row = [], rType = '') => {
+  if (!Array.isArray(row)) return 0;
+  // ⭐ หักลบช่องป้ายชื่อออกเฉพาะเมื่อหน้าทับมีความยาว 9 ห้อง
+  if (rType && (rType.startsWith('double') || (rType === 'nathap' && row.length === 9))) {
+    return Math.max(0, row.length - 1);
+  }
+  return row.length;
 };
 
 const getVisualIndexForCalc = (rowIndex, types) => {
@@ -30,6 +41,8 @@ const getMarginPx = (val, unit) => {
 };
 
 const THAI_NOTE_COMBINER_PATTERN = /[ั-๎​]/;
+const MAIN_STAFF_MEASURE_COUNT = 8;
+const STAFF_LABEL_COLUMN_WIDTH = '65px';
 
 const splitThaiNoteToken = (token) => {
   if (!token || token === '-') return [];
@@ -284,7 +297,19 @@ const Sheet = forwardRef((props, ref) => {
     if (!targetCursor) return;
 
     const [r, m, c] = targetCursor;
-    const noteEl = document.getElementById(`note-${r}-${m}-${c}`);
+    // ⭐ Bug fix 1: ถ้า playbackCursor อยู่บน nathap/annotation ต้องหา parent row เพื่อ scroll/paint
+    let scrollR = r;
+    if (rowTypes[r] === 'nathap' || rowTypes[r] === 'annotation') {
+      let findMainR = r;
+      while (findMainR >= 0 && (rowTypes[findMainR] === 'nathap' || rowTypes[findMainR] === 'annotation')) {
+        findMainR -= 1;
+      }
+      if (findMainR >= 0) {
+        if (rowTypes[findMainR] === 'double-left') findMainR -= 1;
+        scrollR = findMainR;
+      }
+    }
+    const noteEl = document.getElementById(`note-${scrollR}-${m}-${c}`) || document.getElementById(`note-${r}-${m}-${c}`);
     const hContainer = document.getElementById('sheet-scroll-container');
     const page0 = document.getElementById('page-0');
 
@@ -471,18 +496,20 @@ const Sheet = forwardRef((props, ref) => {
       const isDoubleRight = rType === 'double-right';
       const isDoubleLeft = rType === 'double-left';
       const isDouble = isDoubleRight || isDoubleLeft;
-      const colsPerLine = isDouble ? 9 : 8; 
-      const visualLines = Math.ceil(row.length / colsPerLine); 
+      const isNathap = rType === 'nathap';
+      const measureCount = getMeasureCountForRowType(row, rType);
+      const visualLines = Math.max(1, Math.ceil(measureCount / MAIN_STAFF_MEASURE_COUNT));
       
-      const gridHeight = (layoutConfig.measureHeight * visualLines) + (layoutConfig.rowGap * (visualLines - 1));
-      const pb = isDoubleRight ? 0 : layoutConfig.rowGap; 
+      const gridHeight = (layoutConfig.measureHeight * visualLines) + (layoutConfig.rowGap * Math.max(0, visualLines - 1));
+      const pb = (isDoubleRight || isNathap) ? 0 : layoutConfig.rowGap; 
       const actualRowHeight = gridHeight + pb + rMarginTop + rMarginBot;
       let combinedHeight = actualRowHeight;
       
       if (isDoubleRight && i + 1 < sheetData.length && rowTypes[i + 1] === 'double-left') {
          const nextRow = sheetData[i + 1];
-         const nextVisualLines = Math.ceil(nextRow.length / 9);
-         const nextGridHeight = (layoutConfig.measureHeight * nextVisualLines) + (layoutConfig.rowGap * (nextVisualLines - 1));
+         const nextMeasureCount = getMeasureCountForRowType(nextRow, rowTypes[i + 1]);
+         const nextVisualLines = Math.max(1, Math.ceil(nextMeasureCount / 8));
+         const nextGridHeight = (layoutConfig.measureHeight * nextVisualLines) + (layoutConfig.rowGap * Math.max(0, nextVisualLines - 1));
          const nextRMarginTop = rowMargins[i+1]?.top || 0;
          const nextRMarginBot = rowMargins[i+1]?.bottom || 0;
          combinedHeight += nextGridHeight + layoutConfig.rowGap + nextRMarginTop + nextRMarginBot;
@@ -1194,7 +1221,9 @@ return (
                   
                   // ⭐ เช็กว่าบรรทัดถัดไปเป็นคำอธิบายหรือหน้าทับหรือไม่ เพื่อลดระยะห่างให้ติดกัน
                   const nextRType = rIndex + 1 < rowTypes.length ? rowTypes[rIndex + 1] : null;
-                  const pb = (isDoubleRight || nextRType === 'annotation' || nextRType === 'nathap') ? 0 : layoutConfig.rowGap;
+                  // ⭐ Bug fix 2: nathap row ลด padding ให้ชิดกับบรรทัดแม่
+                  const isNathapRow = rType === 'nathap';
+                  const pb = (isDoubleRight || isNathapRow || nextRType === 'annotation' || nextRType === 'nathap') ? 0 : layoutConfig.rowGap;
 
                   let visualRowNumber = displayRowNumbers[rIndex];
                   if (isDoubleLeft && rIndex > 0) visualRowNumber = displayRowNumbers[rIndex - 1]; 
@@ -1208,14 +1237,17 @@ return (
                       const isDoubleRightCurrent = actualRType === 'double-right';
                       const isDoubleLeftCurrent = actualRType === 'double-left';
                       const isAnnotationCurrent = actualRType === 'annotation';
-                      const isNathapCurrent = actualRType === 'nathap'; // ⭐ เพิ่มตัวแปรเช็กบรรทัดหน้าทับ
 
-                      const isLabelMeasure = isDoubleCurrent && localMIdx === 0;
+                      const isNathapCurrent = actualRType === 'nathap';
+                      // ⭐ เช็กว่าบรรทัดหน้าทับนี้ถูกสร้างให้มีความยาว 9 ห้อง (มีช่องซ้ายสุด) หรือไม่ ถ้ามี 8 ห้องห้ามแสดงป้ายกำกับ
+                      const nathapHasLabel = isNathapCurrent && chunkLength === 9;
+                      const isLabelMeasure = (isDoubleCurrent && localMIdx === 0) || (nathapHasLabel && localMIdx === 0);
+                      
                       const isTextMeasure = typeof measure[0] === 'string' && measure[0].startsWith('@TEXT_SPAN_');
                       const spanCount = isTextMeasure ? parseInt(measure[0].split('_')[2], 10) || 1 : 1;
 
-                      const colsPerLine = isDoubleCurrent ? 9 : 8;
-                      const isFirstInLine = localMIdx % colsPerLine === (isDoubleCurrent ? 1 : 0);
+                      const colsPerLine = (isDoubleCurrent || nathapHasLabel) ? MAIN_STAFF_MEASURE_COUNT + 1 : MAIN_STAFF_MEASURE_COUNT;
+                      const isFirstInLine = localMIdx % colsPerLine === ((isDoubleCurrent || nathapHasLabel) ? 1 : 0);
                       const isLastInLine = (localMIdx + spanCount - 1) % colsPerLine === colsPerLine - 1 || localMIdx === chunkLength - 1;
 
                       return (
@@ -1239,9 +1271,44 @@ return (
                           }}
                         >
                           {isLabelMeasure ? (
-                            <div className="flex items-center justify-center w-full h-full text-[13px] font-bold text-slate-700 tracking-wide select-none" style={{ fontFamily: noteFontFamily }}>
-                              {measure[0]}
-                            </div>
+                            isNathapCurrent ? (
+                              <div className="w-full h-full px-2 py-1 bg-white hover:bg-slate-50 transition-colors">
+                                <div
+                                  id={`annotation-${actualRIndex}-${actualMIndex}`}
+                                  contentEditable
+                                  suppressContentEditableWarning
+                                  className="w-full h-full outline-none cursor-text overflow-hidden break-words text-slate-600 text-center font-bold"
+                                  style={{ fontFamily: textFontFamily, fontSize: `${Math.max((layoutConfig.textFontSize || 16) * 0.85, 13)}px` }}
+                                  onMouseDown={(e) => {
+                                    e.stopPropagation();
+                                    if (selectedCell[0] !== actualRIndex || selectedCell[1] !== actualMIndex) {
+                                      setSelectedCell([actualRIndex, actualMIndex, 0]);
+                                    }
+                                  }}
+                                  onMouseUp={(e) => { e.stopPropagation(); if (setToolbarMode) setToolbarMode('text'); }}
+                                  onBlur={(e) => {
+                                    const isToolbar = e.relatedTarget && e.relatedTarget.closest('.playback-controls-container');
+                                    if (isToolbar) return;
+                                    updateMeasureText(actualRIndex, actualMIndex, e.target.innerHTML);
+                                  }}
+                                  onKeyDown={(e) => {
+                                    e.stopPropagation();
+                                    if (e.key === 'Enter') e.preventDefault();
+                                  }}
+                                  ref={(el) => {
+                                    const textValue = Array.isArray(measure) ? (measure[0] || '') : (measure || '');
+                                    if (el && document.activeElement !== el && el.innerHTML !== textValue) {
+                                      el.innerHTML = textValue;
+                                    }
+                                  }}
+                                  placeholder="พิมพ์ข้อความ..."
+                                />
+                              </div>
+                            ) : (
+                              <div className="flex items-center justify-center w-full h-full text-[13px] font-bold text-slate-700 tracking-wide select-none" style={{ fontFamily: noteFontFamily }}>
+                                {measure[0]}
+                              </div>
+                            )
                           ) : isTextMeasure ? (
                             <div className={`w-full h-full p-1 transition-colors ${isAnnotationCurrent ? 'bg-white hover:bg-slate-50' : 'bg-amber-50/30 hover:bg-amber-100/30'}`}>
                               <div
@@ -1349,8 +1416,43 @@ return (
                               const isCursorExact = selectedCell[0] === actualRIndex && selectedCell[1] === actualMIndex && selectedCell[2] === cIndex;
                               let isPlayingNow = false;
                               if (playbackCursor) {
-                                if (playbackCursor[0] === actualRIndex && playbackCursor[1] === actualMIndex && playbackCursor[2] === cIndex) isPlayingNow = true;
-                                if (rowTypes[playbackCursor[0]] === 'double-right' && actualRIndex === playbackCursor[0] + 1 && playbackCursor[1] === actualMIndex && playbackCursor[2] === cIndex) isPlayingNow = true;
+                                // 1. เช็กบรรทัดหลักที่กำลังเล่น
+                                if (playbackCursor[0] === actualRIndex && playbackCursor[1] === actualMIndex && playbackCursor[2] === cIndex) {
+                                  isPlayingNow = true;
+                                }
+                                // 2. เช็กมือซ้าย (กรณีเป็นบรรทัดคู่)
+                                else if (rowTypes[playbackCursor[0]] === 'double-right' && actualRIndex === playbackCursor[0] + 1 && playbackCursor[1] === actualMIndex && playbackCursor[2] === cIndex) {
+                                  isPlayingNow = true;
+                                }
+                                // 3. ⭐ เช็กบรรทัดหน้าทับ (กวาดสีเขียวลงมาคลุมให้ยาวเท่ากันพอดี)
+                                // ⭐ Bug fix 2: ข้าม label cell (m=0) ของบรรทัดหน้าทับ
+                                else if (isNathapCurrent && actualMIndex > 0 && playbackCursor[1] === actualMIndex) {
+                                  // คำนวณสัดส่วนความยาวช่อง เผื่อกรณีบรรทัดหลักกับหน้าทับมีจำนวนช่องแบ่งย่อยไม่เท่ากัน
+                                  const mainCellCount = sheetData[playbackCursor[0]][playbackCursor[1]].length;
+                                  const nathapCellCount = measure.length;
+                                  
+                                  const mainRatioStart = playbackCursor[2] / mainCellCount;
+                                  const mainRatioEnd = (playbackCursor[2] + 1) / mainCellCount;
+                                  const nathapRatioStart = cIndex / nathapCellCount;
+                                  const nathapRatioEnd = (cIndex + 1) / nathapCellCount;
+
+                                  // ตรวจสอบว่าช่องความยาวมันตรงกันไหม (Overlap)
+                                  const isOverlapping = Math.max(mainRatioStart, nathapRatioStart) < Math.min(mainRatioEnd, nathapRatioEnd);
+
+                                  if (isOverlapping) {
+                                    // ถอยกลับไปหาบรรทัดหลักที่เป็นเจ้าของหน้าทับนี้
+                                    let findMainR = actualRIndex - 1;
+                                    while (findMainR >= 0 && (rowTypes[findMainR] === 'nathap' || rowTypes[findMainR] === 'annotation')) {
+                                      findMainR--;
+                                    }
+                                    if (findMainR >= 0 && rowTypes[findMainR] === 'double-left') findMainR--;
+                                    
+                                    // ถ้าบรรทัดแม่ตรงกับบรรทัดที่เล่นอยู่ ให้ระบายสีเขียว
+                                    if (playbackCursor[0] === findMainR) {
+                                      isPlayingNow = true;
+                                    }
+                                  }
+                                }
                               }
                               
                               let cellBgClass = 'hover:bg-sky-50 print:bg-transparent';
@@ -1437,7 +1539,7 @@ return (
                       
                       // คำนวณว่ามันล้นไปกี่บรรทัดแล้ว (แบ่งบรรทัดละ 8 ช่อง)
                       const maxMeasures = Math.max(row.length, leftRow.length) - 1; 
-                      const totalChunks = Math.max(1, Math.ceil(maxMeasures / 8));
+                      const totalChunks = Math.max(1, Math.ceil(maxMeasures / MAIN_STAFF_MEASURE_COUNT));
 
                       // ⭐ เช็กว่าบรรทัดถัดจากมือซ้าย เป็นคำอธิบายหรือหน้าทับหรือไม่ ถ้าใช่ให้ระยะห่างเป็น 0 เพื่อดูดชิดกัน
                       const nextAfterDouble = leftRowIndex + 1 < rowTypes.length ? rowTypes[leftRowIndex + 1] : null;
@@ -1448,8 +1550,8 @@ return (
                       measuresContent = (
                           <div className="flex flex-col w-full">
                               {Array.from({ length: totalChunks }).map((_, chunkIdx) => {
-                                  const startM = chunkIdx * 8 + 1;
-                                  const endM = startM + 8;
+                                  const startM = chunkIdx * MAIN_STAFF_MEASURE_COUNT + 1;
+                                  const endM = startM + MAIN_STAFF_MEASURE_COUNT;
                                   
                                   // หั่นกล่องให้ความยาวเท่ากันทั้งสองมือ
                                   const rightChunk = [row[0], ...row.slice(startM, endM)];
@@ -1458,14 +1560,14 @@ return (
                                   return (
                                       <div key={chunkIdx} className="flex flex-col w-full" style={{ marginBottom: chunkIdx < totalChunks - 1 ? layoutConfig.rowGap : 0 }}>
                                           {/* แถวขวา */}
-                                          <div className="grid w-full" style={{ gridTemplateColumns: '65px repeat(8, minmax(0, 1fr))' }}>
+                                          <div className="grid w-full" style={{ gridTemplateColumns: `${STAFF_LABEL_COLUMN_WIDTH} repeat(${MAIN_STAFF_MEASURE_COUNT}, minmax(0, 1fr))` }}>
                                               {rightChunk.map((measure, localMIdx) => {
                                                   const actualMIndex = localMIdx === 0 ? 0 : startM + localMIdx - 1;
                                                   return renderMeasureBlock(measure, actualMIndex, localMIdx, rIndex, 'double-right', rightChunk.length);
                                               })}
                                           </div>
                                           {/* แถวซ้าย (ประกบคู่กันเสมอ) */}
-                                          <div className="grid w-full" style={{ gridTemplateColumns: '65px repeat(8, minmax(0, 1fr))' }}>
+                                          <div className="grid w-full" style={{ gridTemplateColumns: `${STAFF_LABEL_COLUMN_WIDTH} repeat(${MAIN_STAFF_MEASURE_COUNT}, minmax(0, 1fr))` }}>
                                               {leftChunk.map((measure, localMIdx) => {
                                                   const actualMIndex = localMIdx === 0 ? 0 : startM + localMIdx - 1;
                                                   return renderMeasureBlock(measure, actualMIndex, localMIdx, leftRowIndex, 'double-left', leftChunk.length);
@@ -1476,9 +1578,53 @@ return (
                               })}
                           </div>
                       );
+                  } else if (rType === 'nathap') {
+                      // ⭐ ตรวจสอบว่าหน้าทับนี้เป็นแบบ 9 ห้อง (บรรทัดคู่) หรือ 8 ห้อง (บรรทัดเดี่ยว)
+                      const isUnderDouble = row.length === 9;
+                      
+                      if (isUnderDouble) {
+                          const totalChunks = Math.max(1, Math.ceil(Math.max(0, row.length - 1) / MAIN_STAFF_MEASURE_COUNT));
+                          measuresContent = (
+                              <div className="flex flex-col w-full">
+                                  {Array.from({ length: totalChunks }).map((_, chunkIdx) => {
+                                      const startM = chunkIdx * MAIN_STAFF_MEASURE_COUNT + 1;
+                                      const endM = startM + MAIN_STAFF_MEASURE_COUNT;
+                                      const chunk = [row[0], ...row.slice(startM, endM)];
+                                      return (
+                                          <div key={chunkIdx} className="grid w-full" style={{ gridTemplateColumns: `${STAFF_LABEL_COLUMN_WIDTH} repeat(${MAIN_STAFF_MEASURE_COUNT}, minmax(0, 1fr))`, marginBottom: chunkIdx < totalChunks - 1 ? layoutConfig.rowGap : 0 }}>
+                                              {chunk.map((measure, localMIdx) => {
+                                                  const actualMIndex = localMIdx === 0 ? 0 : startM + localMIdx - 1;
+                                                  return renderMeasureBlock(measure, actualMIndex, localMIdx, rIndex, 'nathap', chunk.length);
+                                              })}
+                                          </div>
+                                      );
+                                  })}
+                              </div>
+                          );
+                      } else {
+                          // ⭐ สร้างหน้าทับสำหรับบรรทัดเดี่ยว (ไม่มีช่องว่างด้านหน้า)
+                          const totalChunks = Math.max(1, Math.ceil(row.length / MAIN_STAFF_MEASURE_COUNT));
+                          measuresContent = (
+                              <div className="flex flex-col w-full">
+                                  {Array.from({ length: totalChunks }).map((_, chunkIdx) => {
+                                      const startM = chunkIdx * MAIN_STAFF_MEASURE_COUNT;
+                                      const endM = startM + MAIN_STAFF_MEASURE_COUNT;
+                                      const chunk = row.slice(startM, endM);
+                                      return (
+                                          <div key={chunkIdx} className="grid w-full" style={{ gridTemplateColumns: `repeat(${MAIN_STAFF_MEASURE_COUNT}, minmax(0, 1fr))`, marginBottom: chunkIdx < totalChunks - 1 ? layoutConfig.rowGap : 0 }}>
+                                              {chunk.map((measure, localMIdx) => {
+                                                  const actualMIndex = startM + localMIdx;
+                                                  return renderMeasureBlock(measure, actualMIndex, localMIdx, rIndex, 'nathap', chunk.length);
+                                              })}
+                                          </div>
+                                      );
+                                  })}
+                              </div>
+                          );
+                      }
                   } else {
                       measuresContent = (
-                          <div className="grid w-full" style={{ rowGap: `${layoutConfig.rowGap}px`, gridTemplateColumns: 'repeat(8, minmax(0, 1fr))' }}>
+                          <div className="grid w-full" style={{ rowGap: `${layoutConfig.rowGap}px`, gridTemplateColumns: `repeat(${MAIN_STAFF_MEASURE_COUNT}, minmax(0, 1fr))` }}>
                               {row.map((measure, mIndex) => renderMeasureBlock(measure, mIndex, mIndex, rIndex, 'single', row.length))}
                           </div>
                       );

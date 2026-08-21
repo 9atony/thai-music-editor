@@ -22,14 +22,63 @@ const getFlattenedCol = (row, rType, targetM, targetC) => {
   if (!row || rType === 'text' || rType === 'page-break') return 0;
   let col = 0;
   for (let m = 0; m < row.length; m++) {
-    if (rType && rType.startsWith('double') && m === 0) continue;
+    if (rType && (rType.startsWith('double') || rType === 'nathap') && m === 0) continue;
     if (m === targetM) return col + targetC;
     col += row[m].length;
   }
   return col;
 };
 
-const THAI_NOTE_COMBINER_PATTERN = /[ั-๎​]/;
+const NATHAP_LABEL_DEFAULT = 'เครื่องประกอบ';
+const createEmptyMeasureRow = (measureCount = 8, cellCount = 4) => Array.from({ length: measureCount }, () => Array(cellCount).fill('-'));
+
+// ⭐ ปรับให้รับ isUnderDouble เพื่อดูว่าจะใส่ป้ายกำกับหรือไม่
+const normalizeNathapRowData = (row, isUnderDouble = false) => {
+  const emptyMeasures = createEmptyMeasureRow();
+  
+  if (!Array.isArray(row) || row.length === 0) {
+      return isUnderDouble ? [[NATHAP_LABEL_DEFAULT], ...emptyMeasures] : emptyMeasures;
+  }
+
+  const normalizedRow = row.map((measure) => {
+    if (Array.isArray(measure)) return [...measure];
+    if (typeof measure === 'string') return [measure];
+    return ['-'];
+  });
+
+  // ตรวจจับว่าแถวเดิมมีป้ายชื่อหรือไม่
+  const hasLeadingLabel = normalizedRow[0].length === 1 && typeof normalizedRow[0][0] === 'string';
+  
+  // ตัดป้ายชื่อทิ้งไปก่อนเพื่อดึงแค่โน้ต 8 ห้อง
+  const rawMeasures = hasLeadingLabel ? normalizedRow.slice(1) : normalizedRow;
+  
+  const measures = Array.from({ length: 8 }, (_, index) => {
+    const source = rawMeasures[index];
+    return Array.isArray(source) && source.length > 0 ? [...source] : ['-', '-', '-', '-'];
+  });
+
+  // ถ้าอยู่ใต้บรรทัดคู่ ให้มีป้ายชื่อ (9 ห้อง) ถ้าอยู่ใต้บรรทัดเดี่ยว ให้เป็นโน้ตล้วน (8 ห้อง)
+  if (isUnderDouble) {
+      const labelText = hasLeadingLabel ? normalizedRow[0][0] : NATHAP_LABEL_DEFAULT;
+      return [[labelText], ...measures];
+  } else {
+      return measures;
+  }
+};
+// ⭐ ระบบตัดคำอัจฉริยะ: ดึงคำที่เป็นเครื่องประกอบจังหวะทั้งหมดมารวมไว้เพื่อกันไม่ให้โดนหั่นผิด
+const getPercussionWords = () => {
+  const words = ['มือขวา', 'มือซ้าย'];
+  Object.values(INSTRUMENT_CONFIG).forEach(inst => {
+    if (inst.type === 'percussion') {
+      inst.keys.forEach(k => words.push(k.thai));
+    }
+  });
+  return Array.from(new Set(words)).sort((a, b) => b.length - a.length);
+};
+
+const PERC_PATTERN = getPercussionWords().join('|');
+const NOTE_PATTERN = '[ก-ฮA-Za-z0-9][ั-๎\\u200B]*';
+const TOKEN_REGEX = new RegExp(`(${PERC_PATTERN}|${NOTE_PATTERN})`, 'g');
 
 const normalizeCellToken = (value) => {
   if (typeof value !== 'string') return value && value !== '-' ? String(value) : '-';
@@ -40,16 +89,8 @@ const normalizeCellToken = (value) => {
 const splitThaiNoteToken = (token) => {
   const normalized = normalizeCellToken(token);
   if (!normalized || normalized === '-') return [];
-
-  return Array.from(normalized).reduce((parts, char) => {
-    if (char === '-' || char.trim() === '') return parts;
-    if (THAI_NOTE_COMBINER_PATTERN.test(char) && parts.length > 0) {
-      parts[parts.length - 1] += char;
-    } else {
-      parts.push(char);
-    }
-    return parts;
-  }, []);
+  // ⭐ ใช้ Regex ตัดแยกคำหน้าทับเป็น 1 ก้อน ไม่ถูกหั่นเป็นตัวอักษรย่อยๆ
+  return normalized.match(TOKEN_REGEX) || [];
 };
 
 const parseCellToken = (token, sabatStyle = 'crescendo', customVels = []) => {
@@ -72,8 +113,13 @@ const parseCellToken = (token, sabatStyle = 'crescendo', customVels = []) => {
   });
 };
 
+// ⭐ แก้ไขให้รองรับเครื่องประกอบจังหวะ (ไม่มีตัวเลขกำกับ)
 const formatInstrumentNote = (key) => {
-  const octave = parseInt(key.eng.replace(/\D/g, ''), 10);
+  if (!key.eng) return key.thai;
+  const numMatch = key.eng.match(/\d+/);
+  if (!numMatch) return key.thai; // ป้องกัน Error หากเป็นคำหน้าทับที่ไม่มีตัวเลข
+  
+  const octave = parseInt(numMatch[0], 10);
   if (octave >= 5) return key.thai + '\u0E4D';
   if (octave === 2) return key.thai + '\u0E3A\u200B';
   if (octave === 3) return key.thai + '\u0E3A';
@@ -150,7 +196,7 @@ const createDefaultRowTypes = () => Array(4).fill('single');
 const createDefaultRowMargins = (length = 4) => Array.from({ length }, () => ({ top: 0, bottom: 0, left: 0 }));
 const createDefaultHeaderDetails = () => ([
   { id: 1, label: "อัตราจังหวะ", value: "๒ ชั้น" },
-  { id: 2, label: "หน้าทับ", value: "สองไม้" },
+  { id: 2, label: "เครื่องประกอบ", value: "สองไม้" },
   { id: 3, label: "บันไดเสียง", value: "ทางเพียงออ" },
   { id: 4, label: "ผู้บันทึก", value: "9atony" }
 ]);
@@ -249,9 +295,8 @@ export const MusicProvider = ({ children }) => {
       const id = await saveProjectToDB(uid, currentProjectId, data);
       if (!currentProjectId && id) setProjectId(id);
     } catch (err) {
-      // ⭐ ดักจับ Error พื้นที่เต็ม สั่งเปิด Modal โดยไม่ต้องแจ้งเตือนสีแดงใน Console
       if (err.message === "STORAGE_LIMIT_EXCEEDED") {
-        setReadOnlyMode(true); // ⭐ ล็อกหน้าจอทันที! บล็อกไม่ให้พิมพ์หรือแก้ไขต่อ
+        setReadOnlyMode(true); 
         setPendingAction({ isOpen: true, type: 'STORAGE_LIMIT', payload: null });
       } else {
         console.error("Auto-save failed:", err);
@@ -328,7 +373,6 @@ export const MusicProvider = ({ children }) => {
     return { defaultSheet, defaultTypes, defaultMargins };
   };
 
-
   useEffect(() => { layoutConfigRef.current = layoutConfig; }, [layoutConfig]);
   useEffect(() => { currentInstrumentRef.current = currentInstrument; }, [currentInstrument]); 
   useEffect(() => { sheetDataRef.current = sheetData; }, [sheetData]);
@@ -392,12 +436,18 @@ export const MusicProvider = ({ children }) => {
     const { bypassOctaveLayer = false, hand = 'single', overrideInstId = null } = options;
     const actualNoteToPlay = isReduceModeRef.current ? shiftNoteString(noteStr, -1) : noteStr;
     
-    // ⭐ เช็กว่ามีการระบุเครื่องดนตรีเฉพาะกิจมาไหม ถ้ามีใช้ตัวนั้น ถ้าไม่มีค่อยใช้ของทั้งเพลง
-    const inst = overrideInstId && INSTRUMENT_CONFIG[overrideInstId] ? INSTRUMENT_CONFIG[overrideInstId] : currentInstrumentRef.current;
+    let inst = overrideInstId && INSTRUMENT_CONFIG[overrideInstId] ? INSTRUMENT_CONFIG[overrideInstId] : currentInstrumentRef.current;
+    
+    // ⭐ ตรวจจับอัตโนมัติ: ถ้าคำที่พิมพ์ตรงกับเครื่องประกอบจังหวะ ให้ดึงเสียงเครื่องนั้นมาเล่นแทน
+    if (!overrideInstId) {
+       const percInst = Object.values(INSTRUMENT_CONFIG).find(i => i.type === 'percussion' && i.keys.some(k => k.thai === actualNoteToPlay));
+       if (percInst) inst = percInst;
+    }
     
     const safeWhen = Math.max((getAudioCurrentTime ? getAudioCurrentTime() : 0) + 0.015, whenSec ?? 0);
 
-    if (!bypassOctaveLayer && intervalModeRef.current !== 'off') {
+    // ⭐ ข้ามการตีคู่ 8 หากโน้ตตัวนั้นเป็นเสียงของเครื่องประกอบจังหวะ
+    if (!bypassOctaveLayer && intervalModeRef.current !== 'off' && inst.type !== 'percussion') {
       const { left, right } = getIntervalPair(inst, actualNoteToPlay, intervalModeRef.current);
 
       if (left && right) {
@@ -428,7 +478,6 @@ export const MusicProvider = ({ children }) => {
     const events = parseCellToken(token, 'flat'); 
     if (events.length === 0) return;
 
-    // ⭐ ดึงเครื่องดนตรีเฉพาะกิจของช่องปัจจุบัน (ถ้ามี) มาใช้พรีวิวเสียง
     let overrideInstId = null;
     if (selectedCellRef.current) {
       const [r, m, c] = selectedCellRef.current;
@@ -439,7 +488,6 @@ export const MusicProvider = ({ children }) => {
       const delay = events.length === 1 ? 0 : Math.max(0, Math.floor(index * previewGapMs));
       const volume = Math.max(0, Math.round(baseVolume * (event.emphasis ?? 1)));
       
-      // ⭐ แนบเครื่องดนตรีเฉพาะกิจส่งไปให้ฟังก์ชันเล่นเสียงด้วย
       const playEvent = () => playResolvedInstrumentNote(event.note, volume, { hand: 'single', overrideInstId }); 
 
       if (delay <= 0) playEvent();
@@ -449,7 +497,7 @@ export const MusicProvider = ({ children }) => {
 
   const updateCellToken = (row, meas, cell, token, options = {}) => {
     if (isReadOnlyRef.current) return;
-    if (rowTypes[row] === 'page-break' || rowTypes[row] === 'text' || (rowTypes[row].startsWith('double') && meas === 0)) return;
+    if (rowTypes[row] === 'page-break' || rowTypes[row] === 'text' || (rowTypes[row].startsWith('double') && meas === 0) || (rowTypes[row] === 'nathap' && meas === 0 && sheetData[row].length === 9)) return;
 
     const normalizedToken = normalizeCellToken(token);
     const newData = sheetData.map((rowData) => rowData.map((measure) => [...measure]));
@@ -494,22 +542,22 @@ export const MusicProvider = ({ children }) => {
 
     if (isNext) {
       if (cell < sheetData[row][meas].length - 1) cell += 1;
-      else if (meas < sheetData[row].length - 1) { meas += 1; if (rowTypes[row].startsWith('double') && meas === 0) meas = 1; cell = 0; }
+      else if (meas < sheetData[row].length - 1) { meas += 1; if (rowTypes[row].startsWith('double') && meas === 0) meas = 1; if (rowTypes[row] === 'nathap' && meas === 0 && sheetData[row].length === 9) meas = 1; cell = 0; }
       else {
         let nextR = row + 1;
         while (nextR < sheetData.length && (rowTypes[nextR] === 'page-break' || rowTypes[nextR] === 'text')) nextR++;
         if (nextR >= sheetData.length) return;
-        row = nextR; meas = rowTypes[row].startsWith('double') ? 1 : 0; cell = 0;
+        row = nextR; meas = (rowTypes[row].startsWith('double') || (rowTypes[row] === 'nathap' && sheetData[row].length === 9)) ? 1 : 0; cell = 0;
       }
     } else {
       if (cell > 0) cell -= 1;
-      else if (meas > (rowTypes[row].startsWith('double') ? 1 : 0)) { meas -= 1; cell = sheetData[row][meas].length - 1; }
+      else if (meas > ((rowTypes[row].startsWith('double') || (rowTypes[row] === 'nathap' && sheetData[row].length === 9)) ? 1 : 0)) { meas -= 1; cell = sheetData[row][meas].length - 1; }
       else {
         let prevR = row - 1;
         while (prevR >= 0 && (rowTypes[prevR] === 'page-break' || rowTypes[prevR] === 'text')) prevR--;
         if (prevR < 0) return;
         row = prevR; meas = sheetData[row].length - 1;
-        if (rowTypes[row].startsWith('double') && meas === 0) meas = 1;
+        if ((rowTypes[row].startsWith('double') || (rowTypes[row] === 'nathap' && sheetData[row].length === 9)) && meas === 0) meas = 1;
         cell = sheetData[row][meas].length - 1;
       }
     }
@@ -524,7 +572,7 @@ export const MusicProvider = ({ children }) => {
   const appendNoteToCurrentCell = (note, options = {}) => {
     if (isReadOnlyRef.current || !selectedCell) return;
     const [row, meas, cell] = selectedCell;
-    if (rowTypes[row] === 'page-break' || rowTypes[row] === 'text' || (rowTypes[row].startsWith('double') && meas === 0)) return;
+    if (rowTypes[row] === 'page-break' || rowTypes[row] === 'text' || (rowTypes[row].startsWith('double') && meas === 0) || (rowTypes[row] === 'nathap' && meas === 0 && sheetData[row].length === 9)) return;
 
     const incomingParts = splitThaiNoteToken(note);
     if (incomingParts.length === 0) return;
@@ -566,7 +614,7 @@ export const MusicProvider = ({ children }) => {
   const trimCurrentCellToken = () => {
     if (isReadOnlyRef.current || !selectedCell) return;
     const [row, meas, cell] = selectedCell;
-    if (rowTypes[row] === 'page-break' || rowTypes[row] === 'text' || (rowTypes[row].startsWith('double') && meas === 0)) return;
+    if (rowTypes[row] === 'page-break' || rowTypes[row] === 'text' || (rowTypes[row].startsWith('double') && meas === 0) || (rowTypes[row] === 'nathap' && meas === 0 && sheetData[row].length === 9)) return;
 
     const currentToken = normalizeCellToken(sheetData[row][meas][cell]);
     if (currentToken === '-') return;
@@ -606,7 +654,6 @@ export const MusicProvider = ({ children }) => {
 
   const [headerDetails, setHeaderDetails] = useState(createDefaultHeaderDetails);
 
-  // preload เสียงของเครื่องดนตรีที่เลือกไว้ล่วงหน้า โดยไม่บังคับเปิดคู่ 8 อัตโนมัติ
   useEffect(() => {
     if (currentInstrument && currentInstrument.id) {
       preloadSounds(currentInstrument.id);
@@ -623,13 +670,10 @@ export const MusicProvider = ({ children }) => {
     return Array.from(labels);
   }, [sectionLabels]);
 
-
-
   const getCellId = (r, m, c) => r * 100000 + m * 1000 + c;
 
   const startPlayback = async () => {
     if (isPlayingRef.current) return;
-    // ยึดสิทธิ์เป็นเจ้าของเสียงตัวเดียว: ถ้า Arranger กำลังเล่นอยู่ จะถูกสั่งหยุดทันที กันเสียงซ้อน
     claimPlaybackOwnership(stopPlayback);
     if (initAudioContext) await initAudioContext();
 
@@ -652,7 +696,8 @@ export const MusicProvider = ({ children }) => {
     let lastProcessedVIdx = -1;
 
     for (let r = 0; r < currentSheetData.length; r++) {
-      if (currentRowTypes[r] === 'page-break' || currentRowTypes[r] === 'text' || currentRowTypes[r] === 'annotation' || currentRowTypes[r] === 'nathap') continue;
+      // ⭐ ข้ามหน้าทับตอนนับโครงสร้างท่อนเพลง
+      if (currentRowTypes[r] === 'page-break' || currentRowTypes[r] === 'text' || currentRowTypes[r] === 'annotation' || currentRowTypes[r] === 'nathap') continue; 
       const vIdx = getVisualIndex(r, currentRowTypes);
       const labels = currentSectionLabels[vIdx] || [];
       const validLabels = labels.filter(l => l.text && l.text.trim() !== '');
@@ -675,9 +720,12 @@ export const MusicProvider = ({ children }) => {
       if (section) {
         let sectionMs = 0;
         for (let r = section.startRow; r <= section.endRow; r++) {
-          if (currentRowTypes[r] === 'page-break' || currentRowTypes[r] === 'text' || currentRowTypes[r] === 'double-left' || currentRowTypes[r] === 'annotation' || currentRowTypes[r] === 'nathap') continue;
+          // ⭐ ข้ามหน้าทับตอนนับเวลา
+          if (currentRowTypes[r] === 'page-break' || currentRowTypes[r] === 'text' || currentRowTypes[r] === 'double-left' || currentRowTypes[r] === 'annotation' || currentRowTypes[r] === 'nathap') continue;          
           for (let m = 0; m < currentSheetData[r].length; m++) {
             if (currentRowTypes[r].startsWith('double') && m === 0) continue;
+            // ⭐ Bug fix 2: ข้ามห้องคำอธิบายของบรรทัดหน้าทับ (m=0)
+            if (currentRowTypes[r] === 'nathap' && m === 0) continue;
             const cellCount = currentSheetData[r][m].length;
             if (cellCount > 0) sectionMs += (15000 / currentBpm) * 4;
           }
@@ -710,8 +758,24 @@ export const MusicProvider = ({ children }) => {
     let currentCursor = [...selectedCellRef.current];
     let startR = currentCursor[0];
 
+    // ⭐ Bug fix 1: ถ้าเคอร์เซอร์อยู่บนบรรทัดหน้าทับ (nathap) หรือคำอธิบาย (annotation) ให้ถอยหลังไปหาบรรทัดหลักที่เป็นเจ้าของ
+    if (currentRowTypes[startR] === 'nathap' || currentRowTypes[startR] === 'annotation') {
+      let findMainR = startR;
+      while (findMainR >= 0 && (currentRowTypes[findMainR] === 'nathap' || currentRowTypes[findMainR] === 'annotation')) {
+        findMainR -= 1;
+      }
+      if (findMainR >= 0) {
+        // ถ้าเจอ double-left ให้ถอยต่อไปที่ double-right
+        if (currentRowTypes[findMainR] === 'double-left') findMainR -= 1;
+        startR = findMainR;
+        currentCursor[0] = startR;
+      }
+    }
+
     if (currentRowTypes[startR] === 'double-left') { startR -= 1; currentCursor[0] = startR; }
     if (currentRowTypes[startR]?.startsWith('double') && currentCursor[1] === 0) currentCursor[1] = 1;
+    // ⭐ Bug fix 2: สำหรับบรรทัดหน้าทับ ให้ข้ามห้องคำอธิบาย (m=0) และเริ่มที่ m=1
+    if (currentRowTypes[startR] === 'nathap' && currentCursor[1] === 0) currentCursor[1] = 1;
 
     let startSeqIdx = 0;
     const currentMappedSection = sheetSections.find(s => startR >= s.startRow && startR <= s.endRow);
@@ -751,7 +815,6 @@ export const MusicProvider = ({ children }) => {
       const tokenEvents = parseCellToken(tokenStr, 'flat');
       if (tokenEvents.length === 0) return;
 
-      // ⭐ แอบไปดูว่าโน้ตช่องนี้โดนคลุมดำแล้วเปลี่ยนเครื่องดนตรีฝังไว้หรือเปล่า
       const customStyles = layoutConfigRef.current.customStyles || {};
       const overrideInstId = customStyles[`${targetR}_${targetM}_${targetC}`]?.instrumentId || null;
 
@@ -759,7 +822,6 @@ export const MusicProvider = ({ children }) => {
         const eventDelayMs = Math.max(0, Math.floor(baseDelayMs + (cellDurationMs * (event.ratio ?? 0))));
         const eventVolume = getCellVolume(targetR, targetM, targetC, subIdx, baseVol);
         if (eventVolume > 0) {
-          // ⭐ แปะเครื่องดนตรีนี้ส่งไปให้ Audio Engine เล่นด้วย
           scheduleResolvedInstrumentNote(event.note, eventVolume, cellStartSec + (eventDelayMs / 1000), { ...options, overrideInstId });
         }
       });
@@ -771,7 +833,6 @@ export const MusicProvider = ({ children }) => {
         let noteLeftStr = null;
         const firstColNotes = events[0] || [];
 
-        // ⭐ ดึงเครื่องดนตรีเฉพาะกิจสำหรับลูกกรอ
         let overrideInstId = null;
         if (firstColNotes.length > 0) {
            const customStyles = layoutConfigRef.current.customStyles || {};
@@ -840,7 +901,8 @@ export const MusicProvider = ({ children }) => {
     };
 
     const scheduleCell = (r, m, c, cellStartSec) => {
-  if (currentRowTypes[r] === 'page-break' || currentRowTypes[r] === 'text' || currentRowTypes[r] === 'annotation' || currentRowTypes[r] === 'nathap') return 0;
+      // ⭐ บล็อกไม่ให้เคอร์เซอร์หลักมาวิ่งตกที่หน้าทับซ้ำสอง
+      if (currentRowTypes[r] === 'page-break' || currentRowTypes[r] === 'text' || currentRowTypes[r] === 'annotation' || currentRowTypes[r] === 'nathap') return 0;
 
       const cellCountInMeasure = currentSheetData[r][m].length;
       const standardMsPerCell = 15000 / (layoutConfigRef.current.bpm || 80);
@@ -848,12 +910,11 @@ export const MusicProvider = ({ children }) => {
 
       scheduleUiChange(() => schedulePlaybackCursorUpdate([r, m, c]), cellStartSec);
 
-      // ⭐ ดักจับ: ถ้าช่องนี้เป็นช่องสำหรับพิมพ์ข้อความ ให้ข้ามการเล่นเสียงไปเลย
       const firstItem = currentSheetData[r][m][0];
       const isTextMeasure = typeof firstItem === 'string' && (firstItem.startsWith('@TEXT_SPAN_') || firstItem === '@HIDDEN');
       
       if (isTextMeasure) {
-        return msPerCell; // คืนค่าเวลาเพื่อให้ Cursor เดินต่อไป แต่ข้ามการสร้างเสียง 100%
+        return msPerCell; 
       }
 
       const cellsToCheck = [[r, m, c]];
@@ -947,7 +1008,8 @@ export const MusicProvider = ({ children }) => {
               currM += 1;
               if (currM >= (currentSheetData[currR]?.length ?? 0)) {
                 let tempR = currR + 1;
-                while (tempR < currentSheetData.length && (currentRowTypes[tempR] === 'page-break' || currentRowTypes[tempR] === 'text' || currentRowTypes[tempR] === 'double-left')) tempR++;
+                // ⭐ ข้ามหน้าทับตอนกวาดสัญลักษณ์ข้ามบรรทัด
+                while (tempR < currentSheetData.length && (currentRowTypes[tempR] === 'page-break' || currentRowTypes[tempR] === 'text' || currentRowTypes[tempR] === 'double-left' || currentRowTypes[tempR] === 'nathap')) tempR++;
                 if (tempR >= currentSheetData.length) break;
                 currR = tempR;
                 currM = currentRowTypes[currR]?.startsWith('double') ? 1 : 0;
@@ -978,6 +1040,20 @@ export const MusicProvider = ({ children }) => {
         }
       } else if (!mutedCellsRef.current.has(getCellId(r, m, c))) {
         scheduleTokenPlayback(currentSheetData[r][m][c], layoutConfigRef.current.volume ?? 100, msPerCell, 0, { hand: 'single' }, r, m, c, cellStartSec);
+      }
+
+      // ⭐ ฟีเจอร์ใหม่: กวาดเล่นเสียงบรรทัด "หน้าทับ" ที่ซ้อนอยู่ด้านล่างทั้งหมดพร้อมกัน!
+      const isParentDouble = currentRowTypes[r] === 'double-right';
+      let scanR = isParentDouble ? r + 2 : r + 1;
+      while (scanR < currentSheetData.length && currentRowTypes[scanR] === 'nathap') {
+        if (!mutedCellsRef.current.has(getCellId(scanR, m, c))) {
+          // ⭐ เนื่องจากจำนวนห้องของหน้าทับ ถูกปรับให้เท่ากับบรรทัดแม่เป๊ะๆแล้ว (8 หรือ 9) จึงใช้ค่า m ตรงๆ ได้เลย!
+          if (m < currentSheetData[scanR].length) {
+            const nathapToken = currentSheetData[scanR][m][c];
+            scheduleTokenPlayback(nathapToken, layoutConfigRef.current.volume ?? 100, msPerCell, 0, { hand: 'single' }, scanR, m, c, cellStartSec);
+          }
+        }
+        scanR++;
       }
 
       return msPerCell;
@@ -1016,9 +1092,12 @@ export const MusicProvider = ({ children }) => {
 
               let sectionMs = 0;
               for (let sr = currentMappedSectionForAdvance.startRow; sr <= currentMappedSectionForAdvance.endRow; sr++) {
+                // ⭐ ข้ามหน้าทับตอนนับเวลาของท่อนเพลง
                 if (currentRowTypes[sr] === 'page-break' || currentRowTypes[sr] === 'text' || currentRowTypes[sr] === 'double-left' || currentRowTypes[sr] === 'annotation' || currentRowTypes[sr] === 'nathap') continue;
                 for (let sm = 0; sm < currentSheetData[sr].length; sm++) {
                   if (currentRowTypes[sr].startsWith('double') && sm === 0) continue;
+                  // ⭐ Bug fix 2: ข้ามห้องคำอธิบายของบรรทัดหน้าทับ
+                  if (currentRowTypes[sr] === 'nathap' && sm === 0) continue;
                   const cellCount = currentSheetData[sr][sm].length;
                   if (cellCount > 0) sectionMs += (15000 / currentBpm) * 4;
                 }
@@ -1031,7 +1110,7 @@ export const MusicProvider = ({ children }) => {
                 setActiveLoop(nextLoop);
               }, scheduledAtSec);
               nextR = currentMappedSectionForAdvance.startRow;
-              nextM = currentRowTypes[nextR] && currentRowTypes[nextR].startsWith('double') ? 1 : 0;
+              nextM = currentRowTypes[nextR] && (currentRowTypes[nextR].startsWith('double') || currentRowTypes[nextR] === 'nathap') ? 1 : 0;
               nextC = 0;
             } else {
               const nextSeqIdx = currSeqIdx + 1;
@@ -1045,7 +1124,7 @@ export const MusicProvider = ({ children }) => {
                 const nextMappedSection = map.find(s => s.label === seq[nextSeqIdx].label.trim());
                 if (nextMappedSection) {
                   nextR = nextMappedSection.startRow;
-                  nextM = currentRowTypes[nextR] && currentRowTypes[nextR].startsWith('double') ? 1 : 0;
+                  nextM = currentRowTypes[nextR] && (currentRowTypes[nextR].startsWith('double') || currentRowTypes[nextR] === 'nathap') ? 1 : 0;
                   nextC = 0;
                 } else {
                   return null;
@@ -1060,7 +1139,7 @@ export const MusicProvider = ({ children }) => {
                 const firstMappedSection = map.find(s => s.label === seq[0].label.trim());
                 if (firstMappedSection) {
                   nextR = firstMappedSection.startRow;
-                  nextM = currentRowTypes[nextR] && currentRowTypes[nextR].startsWith('double') ? 1 : 0;
+                  nextM = currentRowTypes[nextR] && (currentRowTypes[nextR].startsWith('double') || currentRowTypes[nextR] === 'nathap') ? 1 : 0;
                   nextC = 0;
                   seekOffsetRef.current = 0;
                   playbackStartTimeRef.current = performance.now();
@@ -1073,12 +1152,12 @@ export const MusicProvider = ({ children }) => {
             }
           } else {
             nextR = currentRowTypes[r] === 'double-right' ? r + 2 : r + 1;
-            // ⭐ สั่งให้กระโดดข้ามบรรทัดคำอธิบายและข้อความอัตโนมัติ ไม่ให้ Cursor ไปค้าง
+            // ⭐ สั่งให้เคอร์เซอร์กระโดดข้ามหน้าทับไปเลย
             while (nextR < currentSheetData.length && (currentRowTypes[nextR] === 'page-break' || currentRowTypes[nextR] === 'text' || currentRowTypes[nextR] === 'annotation' || currentRowTypes[nextR] === 'nathap')) {
               nextR++;
             }
             if (nextR >= currentSheetData.length) return null;
-            nextM = currentRowTypes[nextR] && currentRowTypes[nextR].startsWith('double') ? 1 : 0;
+            nextM = currentRowTypes[nextR] && (currentRowTypes[nextR].startsWith('double') || currentRowTypes[nextR] === 'nathap') ? 1 : 0;
           }
         }
       }
@@ -1224,9 +1303,8 @@ export const MusicProvider = ({ children }) => {
     });
 
     const payload = { block: copiedBlock, symbols: copiedSymbols };
-    setClipboardData(payload); // สำรองไว้ใน State
+    setClipboardData(payload); 
 
-    // ⭐ อัปเกรด: ส่งข้อมูลยัดลง System Clipboard ของเครื่องคอมพิวเตอร์
     try {
       const payloadString = JSON.stringify({ type: 'TME_CLIPBOARD', data: payload });
       await navigator.clipboard.writeText(payloadString);
@@ -1240,15 +1318,14 @@ export const MusicProvider = ({ children }) => {
   const pasteSelection = async () => {
     if (isReadOnlyRef.current) return; 
     
-    let payload = clipboardData; // ใช้ค่าเดิมใน State เป็นตัวสำรอง
+    let payload = clipboardData; 
 
-    // ⭐ อัปเกรด: พยายามดึงข้อมูลจาก System Clipboard ของเครื่องคอมพิวเตอร์ก่อน
     try {
       const text = await navigator.clipboard.readText();
       if (text) {
         const parsed = JSON.parse(text);
         if (parsed && parsed.type === 'TME_CLIPBOARD') {
-          payload = parsed.data; // ถ้าใช่โค้ดของ TME ให้ใช้ข้อมูลจากคอมพิวเตอร์
+          payload = parsed.data; 
         }
       }
     } catch (err) {
@@ -1343,7 +1420,6 @@ export const MusicProvider = ({ children }) => {
     if (isReadOnlyRef.current) return; 
     if (!selectionRange) return;
     
-    // ⭐ เซฟช่วงคลุมดำไว้ก่อน เพราะ copySelection จะทำการล้างค่าทิ้ง
     const currentRange = { ...selectionRange };
     
     await copySelection();
@@ -1436,11 +1512,10 @@ export const MusicProvider = ({ children }) => {
         return;
     }
 
-    setSelectionRange(null); 
+    setSelectionRange(null);
     const [row, meas, cell] = selectedCell;
-    if (rowTypes[row] === 'page-break' || rowTypes[row] === 'text' || (rowTypes[row].startsWith('double') && meas === 0)) return;
+    if (rowTypes[row] === 'page-break' || rowTypes[row] === 'text' || (rowTypes[row].startsWith('double') && meas === 0) || (rowTypes[row] === 'nathap' && meas === 0 && sheetData[row].length === 9)) return;
 
-    // ⭐ ดักจับ: ป้องกันไม่ให้แป้นพิมพ์คีย์บอร์ดดนตรี ส่งตัวโน้ตเข้าไปทับในช่องพิมพ์ข้อความ
     const firstItem = sheetData[row][meas][0];
     if (typeof firstItem === 'string' && (firstItem.startsWith('@TEXT_SPAN_') || firstItem === '@HIDDEN')) return;
 
@@ -1489,7 +1564,7 @@ export const MusicProvider = ({ children }) => {
       else if (meas < sheetData[row].length - 1) setSelectedCell([row, meas + 1, 0]);
       else {
           let nextR = row + 1; while (nextR < sheetData.length && (rowTypes[nextR] === 'page-break' || rowTypes[nextR] === 'text')) nextR++;
-          if (nextR < sheetData.length) setSelectedCell([nextR, rowTypes[nextR].startsWith('double') ? 1 : 0, 0]);
+          if (nextR < sheetData.length) setSelectedCell([nextR, (rowTypes[nextR].startsWith('double') || (rowTypes[nextR] === 'nathap' && sheetData[nextR].length === 9)) ? 1 : 0, 0]);
       }
     }
   };
@@ -1513,7 +1588,6 @@ export const MusicProvider = ({ children }) => {
       if (isFirstHalf && rowTypes[insertIdx] === 'double-left' && rowTypes[insertIdx - 1] === 'double-right') insertIdx -= 1; 
       else if (!isFirstHalf && rowTypes[insertIdx - 1] === 'double-right' && rowTypes[insertIdx] === 'double-left') insertIdx += 1; 
 
-      // ⭐ ดักจับ: ถ้ากดแทรกด้านล่าง ให้กระโดดข้ามบรรทัดคำอธิบาย (annotation) ลงไปต่อท้ายสุด
       if (!isFirstHalf) {
         while (insertIdx < rowTypes.length && (rowTypes[insertIdx] === 'annotation' || rowTypes[insertIdx] === 'nathap')) {
           insertIdx += 1;
@@ -1567,7 +1641,6 @@ export const MusicProvider = ({ children }) => {
       if (isFirstHalf && rowTypes[insertIdx] === 'double-left' && rowTypes[insertIdx - 1] === 'double-right') insertIdx -= 1;
       else if (!isFirstHalf && rowTypes[insertIdx - 1] === 'double-right' && rowTypes[insertIdx] === 'double-left') insertIdx += 1;
 
-      // ⭐ ดักจับ: ถ้ากดแทรกด้านล่าง ให้กระโดดข้ามบรรทัดคำอธิบาย (annotation) ลงไปต่อท้ายสุด
       if (!isFirstHalf) {
         while (insertIdx < rowTypes.length && (rowTypes[insertIdx] === 'annotation' || rowTypes[insertIdx] === 'nathap')) {
           insertIdx += 1;
@@ -1613,18 +1686,17 @@ export const MusicProvider = ({ children }) => {
     if (rowTypes[rIdx] === 'page-break') {
       insertIdx = rIdx + 1;
     } else {
-      const isDouble = rowTypes[rIdx]?.startsWith('double');
-      const isFirstHalf = typeof insertAtTop === 'boolean' ? insertAtTop : (isDouble ? mIdx < 5 : mIdx < 4);
-      insertIdx = isFirstHalf ? rIdx : rIdx + 1;
+      // ⭐ บังคับให้ตั้งค่า index เพื่อแทรกบรรทัดใหม่ไว้ด้านล่างเสมอ
+      insertIdx = rIdx + 1;
       
-      if (isFirstHalf && rowTypes[insertIdx] === 'double-left' && rowTypes[insertIdx - 1] === 'double-right') insertIdx -= 1;
-      else if (!isFirstHalf && rowTypes[insertIdx - 1] === 'double-right' && rowTypes[insertIdx] === 'double-left') insertIdx += 1;
+      // ถ้าบรรทัดปัจจุบันคือมือขวา ให้ข้ามมือซ้ายลงไปอีก
+      if (rowTypes[insertIdx - 1] === 'double-right' && rowTypes[insertIdx] === 'double-left') {
+        insertIdx += 1;
+      }
 
-      // ⭐ ดักจับ: กระโดดข้ามบรรทัดคำอธิบาย ไม่ให้แทรกผ่ากลาง
-      if (!isFirstHalf) {
-        while (insertIdx < rowTypes.length && (rowTypes[insertIdx] === 'annotation' || rowTypes[insertIdx] === 'nathap')) {
-          insertIdx += 1;
-        }
+      // กวาดข้ามบรรทัดคำอธิบายหรือหน้าทับอันอื่นๆ ที่มีอยู่แล้ว เพื่อไปต่อท้ายล่างสุดเสมอ
+      while (insertIdx < rowTypes.length && (rowTypes[insertIdx] === 'annotation' || rowTypes[insertIdx] === 'nathap')) {
+        insertIdx += 1;
       }
     }
 
@@ -1660,7 +1732,6 @@ export const MusicProvider = ({ children }) => {
       if (isFirstHalf && rowTypes[insertIdx] === 'double-left' && rowTypes[insertIdx - 1] === 'double-right') insertIdx -= 1;
       else if (!isFirstHalf && rowTypes[insertIdx - 1] === 'double-right' && rowTypes[insertIdx] === 'double-left') insertIdx += 1;
 
-      // ⭐ ดักจับ: กระโดดข้ามบรรทัดคำอธิบาย ไม่ให้แทรกผ่ากลาง
       if (!isFirstHalf) {
         while (insertIdx < rowTypes.length && (rowTypes[insertIdx] === 'annotation' || rowTypes[insertIdx] === 'nathap')) {
           insertIdx += 1;
@@ -1689,7 +1760,6 @@ export const MusicProvider = ({ children }) => {
     commitChange(newData);
   };
 
-  // ⭐ ฟังก์ชันใหม่: สร้างบรรทัดคำอธิบาย (ตาราง 8 ห้อง ห้องละ 4 จังหวะ แต่เอาไว้พิมพ์ข้อความ)
   const addAnnotationRow = (insertAtTop = null) => {
     if (isReadOnlyRef.current) return;
     if (isPlayingRef.current) stopPlayback(); 
@@ -1708,7 +1778,6 @@ export const MusicProvider = ({ children }) => {
       if (isFirstHalf && rowTypes[insertIdx] === 'double-left' && rowTypes[insertIdx - 1] === 'double-right') insertIdx -= 1;
       else if (!isFirstHalf && rowTypes[insertIdx - 1] === 'double-right' && rowTypes[insertIdx] === 'double-left') insertIdx += 1;
 
-      // ⭐ ดักจับ: กระโดดข้ามบรรทัดคำอธิบายเดิมลงไปต่อด้านล่างสุด
       if (!isFirstHalf) {
         while (insertIdx < rowTypes.length && (rowTypes[insertIdx] === 'annotation' || rowTypes[insertIdx] === 'nathap')) {
           insertIdx += 1;
@@ -1717,7 +1786,6 @@ export const MusicProvider = ({ children }) => {
     }
 
     const newData = [...sheetData], newRowTypes = [...rowTypes], newRowMargins = [...rowMargins];
-    // สร้างโครงสร้างให้ผสาน 8 ห้องรวดเดียวตั้งแต่เกิด (ไร้ขีดกั้น)
     newData.splice(insertIdx, 0, [
       ['@TEXT_SPAN_8', ''], ['@HIDDEN'], ['@HIDDEN'], ['@HIDDEN'],
       ['@HIDDEN'], ['@HIDDEN'], ['@HIDDEN'], ['@HIDDEN']
@@ -1733,9 +1801,7 @@ export const MusicProvider = ({ children }) => {
     commitChange(newData, newRowTypes, { ...sectionLabels }, newSymbols, newRowMargins);
     setTimeout(() => { setSelectedCell([insertIdx, 0, 0]); }, 10);
   };
-
-  // ⭐ ฟังก์ชันใหม่: สร้างบรรทัดหน้าทับกลอง (ตาราง 8 ห้องปกติ ไม่เล่นเสียง)
-  const addNathapRow = (insertAtTop = null) => {
+const addNathapRow = (insertAtTop = null) => {
     if (isReadOnlyRef.current) return;
     if (isPlayingRef.current) stopPlayback(); 
     setSelectionRange(null);
@@ -1743,26 +1809,39 @@ export const MusicProvider = ({ children }) => {
     const [rIdx,  mIdx] = selectedCell;
     let insertIdx;
 
+    // ⭐ หาบรรทัดหลักที่อยู่ด้านบนสุด เพื่อให้หน้าทับไปต่อท้ายที่ด้านล่างสุดเสมอ!
+    let parentRIdx = rIdx;
+    while (parentRIdx >= 0 && (rowTypes[parentRIdx] === 'annotation' || rowTypes[parentRIdx] === 'nathap')) {
+      parentRIdx--;
+    }
+    const isUnderDouble = parentRIdx >= 0 && rowTypes[parentRIdx]?.startsWith('double');
+
     if (rowTypes[rIdx] === 'page-break') {
       insertIdx = rIdx + 1;
     } else {
-      const isDouble = rowTypes[rIdx]?.startsWith('double');
-      const isFirstHalf = typeof insertAtTop === 'boolean' ? insertAtTop : (isDouble ? mIdx < 5 : mIdx < 4);
-      insertIdx = isFirstHalf ? rIdx : rIdx + 1;
+      // ⭐ บังคับให้ตั้งค่า index เพื่อแทรกบรรทัดใหม่ไว้ด้านล่างเสมอ (ลบระบบครึ่งหน้าทิ้ง)
+      insertIdx = parentRIdx + 1;
       
-      if (isFirstHalf && rowTypes[insertIdx] === 'double-left' && rowTypes[insertIdx - 1] === 'double-right') insertIdx -= 1;
-      else if (!isFirstHalf && rowTypes[insertIdx - 1] === 'double-right' && rowTypes[insertIdx] === 'double-left') insertIdx += 1;
+      // ข้ามบรรทัดมือซ้าย (กรณีเป็น double)
+      if (parentRIdx >= 0 && rowTypes[parentRIdx] === 'double-right' && rowTypes[insertIdx] === 'double-left') {
+        insertIdx += 1;
+      }
 
-      // กระโดดข้ามบรรทัดคำอธิบายหรือหน้าทับเดิมลงไปต่อด้านล่างสุด
-      if (!isFirstHalf) {
-        while (insertIdx < rowTypes.length && (rowTypes[insertIdx] === 'annotation' || rowTypes[insertIdx] === 'nathap')) {
-          insertIdx += 1;
-        }
+      // กวาดข้ามบรรทัดคำอธิบายหรือหน้าทับอันอื่นๆ เพื่อไปต่อท้ายล่างสุดเสมอ
+      while (insertIdx < rowTypes.length && (rowTypes[insertIdx] === 'annotation' || rowTypes[insertIdx] === 'nathap')) {
+        insertIdx += 1;
       }
     }
 
     const newData = [...sheetData], newRowTypes = [...rowTypes], newRowMargins = [...rowMargins];
-    newData.splice(insertIdx, 0, Array(8).fill().map(() => Array(4).fill('-'))); 
+    
+    // ⭐ ถ้าสร้างใต้บรรทัดคู่ ให้สร้าง 9 ห้อง | ถ้าสร้างใต้บรรทัดเดี่ยว ให้สร้าง 8 ห้องแบบเป๊ะๆ
+    if (isUnderDouble) {
+      newData.splice(insertIdx, 0, [[''], ...Array(8).fill().map(() => Array(4).fill('-'))]); 
+    } else {
+      newData.splice(insertIdx, 0, Array(8).fill().map(() => Array(4).fill('-'))); 
+    }
+    
     newRowTypes.splice(insertIdx, 0, 'nathap'); 
     newRowMargins.splice(insertIdx, 0, { top: 0, bottom: 0, left: 0 }); 
 
@@ -1771,16 +1850,16 @@ export const MusicProvider = ({ children }) => {
       start: [sym.start[0] >= insertIdx ? sym.start[0] + 1 : sym.start[0], sym.start[1], sym.start[2]],
       end: [sym.end[0] >= insertIdx ? sym.end[0] + 1 : sym.end[0], sym.end[1], sym.end[2]]
     }));
+    
     commitChange(newData, newRowTypes, { ...sectionLabels }, newSymbols, newRowMargins);
-    setTimeout(() => { setSelectedCell([insertIdx, 0, 0]); }, 10);
+    setTimeout(() => { setSelectedCell([insertIdx, isUnderDouble ? 1 : 0, 0]); }, 10);
   };
-  // ⭐ เพิ่มให้รับค่า targetIdx ได้
+  
   const removeRow = (targetIdx = null) => {
     if (isReadOnlyRef.current) return;
     if (isPlayingRef.current) stopPlayback();
     setSelectionRange(null); 
     
-    // ⭐ เช็กว่ามีการระบุบรรทัดมาตรงๆ ไหม ถ้ามีให้ยึดค่านี้ (ป้องกันลบผิดบรรทัด)
     const rowIdx = typeof targetIdx === 'number' ? targetIdx : selectedCell[0];
     
     let deleteCount = 1, startIndex = rowIdx;
@@ -1822,7 +1901,7 @@ export const MusicProvider = ({ children }) => {
 
     commitChange(newData, newRowTypes, newSectionLabels, newSymbols, newRowMargins);
     let nextRow = startIndex >= newData.length ? newData.length - 1 : startIndex;
-    setSelectedCell([nextRow, newRowTypes[nextRow].startsWith('double') ? 1 : 0, 0]);
+    setSelectedCell([nextRow, (newRowTypes[nextRow].startsWith('double') || (newRowTypes[nextRow] === 'nathap' && newData[nextRow].length === 9)) ? 1 : 0, 0]);
   };
 
   const removeMeasure = () => {
@@ -1831,7 +1910,6 @@ export const MusicProvider = ({ children }) => {
     let isBlockSelection = false;
     let minR, maxR, minM, maxM;
 
-    // 1. เช็กว่ามีการ "คลุมดำ" หลายช่อง/หลายห้องหรือไม่
     if (selectionRange && selectionRange.start && selectionRange.end) {
       const { start: [sr, sm], end: [er, em] } = selectionRange;
       if (sr !== er || sm !== em) {
@@ -1843,28 +1921,24 @@ export const MusicProvider = ({ children }) => {
       }
     }
 
-    // ทำการ Copy ข้อมูลกระดาษโน้ตทั้งหมด
     const newData = sheetData.map(row => row.map(meas => [...meas]));
 
     if (isBlockSelection) {
-      // 2. กรณีคลุมดำ: วนลูปลบทีละบรรทัด ตามระยะห้องที่คลุมไว้
       for (let r = minR; r <= maxR; r++) {
         if (rowTypes[r] === 'page-break' || rowTypes[r] === 'text' || rowTypes[r] === 'annotation') continue;
 
         let actualMinM = minM;
-        // ถ้าเป็นบรรทัดคู่ ห้ามลบห้องที่ 0 (เพราะเป็นป้ายชื่อมือซ้าย/ขวา)
         if (rowTypes[r].startsWith('double') && actualMinM === 0) actualMinM = 1;
         if (actualMinM > maxM) continue;
 
         const deleteCount = maxM - actualMinM + 1;
-        const minAllowed = rowTypes[r].startsWith('double') ? 2 : 1; // ต้องเหลืออย่างน้อย 1 ห้องเสมอ
+        const minAllowed = rowTypes[r].startsWith('double') ? 2 : 1; 
 
         if (rowTypes[r] === 'single' || rowTypes[r] === 'nathap') {
           const canDelete = Math.min(deleteCount, newData[r].length - minAllowed);
           if (canDelete > 0) newData[r].splice(actualMinM, canDelete);
         } 
         else if (rowTypes[r] === 'double-right') {
-          // ถ้าเป็นมือขวา ให้ลบมือซ้าย (บรรทัดล่าง) ไปพร้อมๆ กันเลยเพื่อรักษาความสมดุล
           const canDelete = Math.min(deleteCount, newData[r].length - minAllowed);
           if (canDelete > 0) {
             newData[r].splice(actualMinM, canDelete);
@@ -1872,7 +1946,6 @@ export const MusicProvider = ({ children }) => {
           }
         } 
         else if (rowTypes[r] === 'double-left') {
-          // ถ้าเป็นมือซ้าย จะทำงานต่อเมื่อตอนเริ่มลากคลุม ดันไปเริ่มลากเอามือซ้าย
           if (r === minR) {
             const canDelete = Math.min(deleteCount, newData[r].length - minAllowed);
             if (canDelete > 0) {
@@ -1885,14 +1958,12 @@ export const MusicProvider = ({ children }) => {
       
       commitChange(newData);
       setSelectionRange(null);
-      // เลื่อนเคอร์เซอร์กลับมาอยู่ที่ห้องแรกสุดของบล็อกที่ถูกลบไป
       setSelectedCell([minR, Math.min(minM, newData[minR].length - 1), 0]);
 
     } else {
-      // 3. กรณีไม่ได้คลุมดำ: ทำงานลบแค่ 1 ห้อง (ตำแหน่งที่เคอร์เซอร์อยู่) แบบเดิม
       setSelectionRange(null); 
       const [rowIdx, measIdx] = selectedCell;
-      if (rowTypes[rowIdx] === 'page-break' || rowTypes[rowIdx] === 'text' || (rowTypes[rowIdx].startsWith('double') && measIdx === 0)) return; 
+      if (rowTypes[rowIdx] === 'page-break' || rowTypes[rowIdx] === 'text' || (rowTypes[rowIdx].startsWith('double') && measIdx === 0) || (rowTypes[rowIdx] === 'nathap' && measIdx === 0 && sheetData[rowIdx].length === 9)) return; 
       
       if (sheetData[rowIdx].length > (rowTypes[rowIdx].startsWith('double') ? 2 : 1)) {
         if (rowTypes[rowIdx] === 'single' || rowTypes[rowIdx] === 'nathap') newData[rowIdx].splice(measIdx, 1);
@@ -1909,7 +1980,7 @@ export const MusicProvider = ({ children }) => {
     if (isReadOnlyRef.current) return;
     setSelectionRange(null); 
     const [rowIdx, measIdx, cellIdx] = selectedCell;
-    if (rowTypes[rowIdx] === 'page-break' || rowTypes[rowIdx] === 'text' || (rowTypes[rowIdx].startsWith('double') && measIdx === 0)) return; 
+    if (rowTypes[rowIdx] === 'page-break' || rowTypes[rowIdx] === 'text' || (rowTypes[rowIdx].startsWith('double') && measIdx === 0) || (rowTypes[rowIdx] === 'nathap' && measIdx === 0 && sheetData[rowIdx].length === 9)) return; 
     const newData = [...sheetData]; newData[rowIdx][measIdx].splice(cellIdx + 1, 0, '-');
     commitChange(newData);
   };
@@ -1918,7 +1989,7 @@ export const MusicProvider = ({ children }) => {
     if (isReadOnlyRef.current) return;
     setSelectionRange(null); 
     const [rowIdx, measIdx, cellIdx] = selectedCell;
-    if (rowTypes[rowIdx] === 'page-break' || rowTypes[rowIdx] === 'text' || (rowTypes[rowIdx].startsWith('double') && measIdx === 0)) return; 
+    if (rowTypes[rowIdx] === 'page-break' || rowTypes[rowIdx] === 'text' || (rowTypes[rowIdx].startsWith('double') && measIdx === 0) || (rowTypes[rowIdx] === 'nathap' && measIdx === 0 && sheetData[rowIdx].length === 9)) return; 
     if (sheetData[rowIdx][measIdx].length > 1) {
       const newData = [...sheetData]; newData[rowIdx][measIdx].splice(cellIdx, 1);
       commitChange(newData);
@@ -1932,7 +2003,7 @@ export const MusicProvider = ({ children }) => {
     const [rowIdx, measIdx] = selectedCell;
     if (rowTypes[rowIdx] === 'page-break' || rowTypes[rowIdx] === 'text') return;
     const newData = [...sheetData];
-    if (rowTypes[rowIdx] === 'single') newData[rowIdx].splice(measIdx + 1, 0, Array(4).fill('-'));
+    if (rowTypes[rowIdx] === 'single' || rowTypes[rowIdx] === 'nathap') newData[rowIdx].splice(measIdx + 1, 0, Array(4).fill('-'));
     else if (rowTypes[rowIdx] === 'double-right') { newData[rowIdx].splice(measIdx + 1, 0, Array(4).fill('-')); newData[rowIdx + 1].splice(measIdx + 1, 0, Array(4).fill('-')); }
     else if (rowTypes[rowIdx] === 'double-left') { newData[rowIdx].splice(measIdx + 1, 0, Array(4).fill('-')); newData[rowIdx - 1].splice(measIdx + 1, 0, Array(4).fill('-')); }
     commitChange(newData);
@@ -1957,7 +2028,7 @@ export const MusicProvider = ({ children }) => {
     }
 
     if (rowTypes[targetR] === 'page-break' || rowTypes[targetR] === 'text') return;
-    if (rowTypes[targetR].startsWith('double') && minM === 0) return;
+    if ((rowTypes[targetR].startsWith('double') || (rowTypes[targetR] === 'nathap' && sheetData[targetR].length === 9)) && minM === 0) return;
 
     const span = maxM - minM + 1;
     newData[targetR][minM] = [`@TEXT_SPAN_${span}`, ''];
@@ -2037,6 +2108,20 @@ export const MusicProvider = ({ children }) => {
         let parsedSheetData = data.sheetData;
         if (data.sheetData) {
           parsedSheetData = typeof data.sheetData === 'string' ? JSON.parse(data.sheetData) : data.sheetData;
+          // ⭐ อัปเดตช่องหน้าทับให้ตรงกับบรรทัดแม่ (มี 8 หรือ 9 ช่อง)
+          const migrateRowTypes = data.rowTypes || defaultTypes;
+          if (Array.isArray(parsedSheetData)) {
+            parsedSheetData = parsedSheetData.map((row, rIdx) => {
+              if (migrateRowTypes[rIdx] === 'nathap') {
+                let parentRIdx = rIdx - 1;
+                while (parentRIdx >= 0 && (migrateRowTypes[parentRIdx] === 'annotation' || migrateRowTypes[parentRIdx] === 'nathap')) parentRIdx--;
+                const isUnderDouble = parentRIdx >= 0 && migrateRowTypes[parentRIdx]?.startsWith('double');
+                
+                return normalizeNathapRowData(row, isUnderDouble);
+              }
+              return row;
+            });
+          }
           setSheetData(parsedSheetData);
         } else {
           parsedSheetData = defaultSheet;
@@ -2115,7 +2200,7 @@ export const MusicProvider = ({ children }) => {
     let lastValidRow = 0;
     let lastProcessedVIdx = -1;
     for (let r = 0; r < currentSheetData.length; r++) {
-            if (currentRowTypes[r] === 'page-break' || currentRowTypes[r] === 'text' || currentRowTypes[r] === 'annotation') continue;
+            if (currentRowTypes[r] === 'page-break' || currentRowTypes[r] === 'text' || currentRowTypes[r] === 'annotation' || currentRowTypes[r] === 'nathap') continue; 
             const vIdx = getVisualIndex(r, currentRowTypes);
             const labels = currentSectionLabels[vIdx] || [];
             const validLabels = labels.filter(l => l.text && l.text.trim() !== '');
@@ -2147,8 +2232,9 @@ export const MusicProvider = ({ children }) => {
       if (!section) continue;
       for (let loop = 1; loop <= seq[seqIdx].loops && !foundCell; loop++) {
         for (let r = section.startRow; r <= section.endRow && !foundCell; r++) {
-          if (currentRowTypes[r] === 'page-break' || currentRowTypes[r] === 'text' || currentRowTypes[r] === 'double-left' || currentRowTypes[r] === 'annotation') continue;
-          const startM = currentRowTypes[r].startsWith('double') ? 1 : 0;
+          if (currentRowTypes[r] === 'page-break' || currentRowTypes[r] === 'text' || currentRowTypes[r] === 'double-left' || currentRowTypes[r] === 'annotation' || currentRowTypes[r] === 'nathap') continue;
+          // ⭐ Bug fix 2: บรรทัดหน้าทับเริ่มที่ห้อง m=1 (ข้ามห้องคำอธิบาย m=0)
+          const startM = (currentRowTypes[r].startsWith('double') || currentRowTypes[r] === 'nathap') ? 1 : 0;
           for (let m = startM; m < currentSheetData[r].length && !foundCell; m++) {
             const cellCount = currentSheetData[r][m].length;
             if (cellCount > 0) {
@@ -2173,7 +2259,7 @@ export const MusicProvider = ({ children }) => {
     if (foundCell) {
       const newCursor = [foundCell.r, foundCell.m, 0];
       setSelectedCell(newCursor); 
-      selectedCellRef.current = newCursor; // ⭐ 1. บังคับอัปเดตตำแหน่งเคอร์เซอร์สดๆ ไม่ต้องรอ React
+      selectedCellRef.current = newCursor; 
       activeSequenceIdxRef.current = foundCell.seqIdx;
       activeLoopRef.current = foundCell.loop;
     }
@@ -2202,7 +2288,7 @@ export const MusicProvider = ({ children }) => {
     let lastValidRow = 0;
     let lastProcessedVIdx = -1;
     for (let r = 0; r < currentSheetData.length; r++) {
-        if (currentRowTypes[r] === 'page-break' || currentRowTypes[r] === 'text' || currentRowTypes[r] === 'annotation' || currentRowTypes[r] === 'nathap') continue;
+        if (currentRowTypes[r] === 'page-break' || currentRowTypes[r] === 'text' || currentRowTypes[r] === 'annotation' || currentRowTypes[r] === 'nathap') continue; 
         const vIdx = getVisualIndex(r, currentRowTypes);
         const labels = currentSectionLabels[vIdx] || [];
         const validLabels = labels.filter(l => l.text && l.text.trim() !== '');
@@ -2227,6 +2313,8 @@ export const MusicProvider = ({ children }) => {
             if (currentRowTypes[r] === 'page-break' || currentRowTypes[r] === 'text' || currentRowTypes[r] === 'double-left' || currentRowTypes[r] === 'annotation' || currentRowTypes[r] === 'nathap') continue;
             for (let m = 0; m < currentSheetData[r].length; m++) {
                 if (currentRowTypes[r].startsWith('double') && m === 0) continue;
+                // ⭐ Bug fix 2: ข้ามห้องคำอธิบายของบรรทัดหน้าทับ
+                if (currentRowTypes[r] === 'nathap' && m === 0) continue;
                 const cellCount = currentSheetData[r][m].length;
                 if (cellCount > 0) sectionMs += (15000 / currentBpm) * 4;
             }
@@ -2319,7 +2407,20 @@ export const MusicProvider = ({ children }) => {
         if (data.projectId !== undefined) setProjectId(data.projectId);
         if (data.name !== undefined) setProjectName(data.name);
         if (data.songName !== undefined) setSongName(data.songName);
-        if (data.sheetData) setSheetData(data.sheetData);
+        const restoredRowTypes = data.rowTypes || createDefaultRowTypes();
+        const restoredSheetData = Array.isArray(data.sheetData)
+          ? data.sheetData.map((row, rIdx) => {
+              if (restoredRowTypes[rIdx] === 'nathap') {
+                let parentRIdx = rIdx - 1;
+                while (parentRIdx >= 0 && (restoredRowTypes[parentRIdx] === 'annotation' || restoredRowTypes[parentRIdx] === 'nathap')) parentRIdx--;
+                const isUnderDouble = parentRIdx >= 0 && restoredRowTypes[parentRIdx]?.startsWith('double');
+                
+                return normalizeNathapRowData(row, isUnderDouble);
+              }
+              return row;
+            })
+          : data.sheetData;
+        if (restoredSheetData) setSheetData(restoredSheetData);
         if (data.rowTypes) setRowTypes(data.rowTypes);
         if (data.sectionLabels) setSectionLabels(data.sectionLabels);
         if (data.symbols) setSymbols(data.symbols); 
@@ -2327,7 +2428,7 @@ export const MusicProvider = ({ children }) => {
         if (data.headerDetails) setHeaderDetails(data.headerDetails);
         if (data.currentInstrument && INSTRUMENT_CONFIG[data.currentInstrument]) setCurrentInstrument(INSTRUMENT_CONFIG[data.currentInstrument]);
         if (data.playbackSequence) setPlaybackSequence(data.playbackSequence);
-        const loadedMargins = data.rowMargins || Array(data.sheetData?.length || 4).fill({ top: 0, bottom: 0, left: 0 });
+        const loadedMargins = data.rowMargins || Array(restoredSheetData?.length || 4).fill({ top: 0, bottom: 0, left: 0 });
         setRowMargins(loadedMargins);
         
         if (data.isLoopAll !== undefined) setIsLoopAll(data.isLoopAll);
@@ -2342,7 +2443,7 @@ export const MusicProvider = ({ children }) => {
         if (data.isReduceMode !== undefined) setIsReduceMode(data.isReduceMode);
         if (data.isShowPlayMode !== undefined) setIsShowPlayMode(data.isShowPlayMode); 
 
-        commitChange(data.sheetData || sheetData, data.rowTypes || rowTypes, data.sectionLabels || sectionLabels, data.symbols || symbols, loadedMargins);
+        commitChange(restoredSheetData || sheetData, data.rowTypes || rowTypes, data.sectionLabels || sectionLabels, data.symbols || symbols, loadedMargins);
       } catch (error) {
         commitChange(sheetData, rowTypes, sectionLabels, symbols, rowMargins);
       }
@@ -2359,8 +2460,8 @@ export const MusicProvider = ({ children }) => {
     const isFreshProject = !projectId && historyIndex <= 0 && projectName === "โปรเจกต์ไม่มีชื่อ" && songName === "เพลงใหม่";
 
     const projectData = { 
-      projectId: projectId, // ⭐ ฝัง ID ลงไปในข้อมูลเสมอ
-      id: projectId, // ⭐ ฝังเผื่อไว้อีกตัว
+      projectId: projectId, 
+      id: projectId, 
       name: projectName, songName, sheetData, rowTypes, sectionLabels, 
       symbols, layoutConfig, headerDetails, currentInstrument: currentInstrument.id, 
       rowMargins, playbackSequence,
@@ -2372,13 +2473,13 @@ export const MusicProvider = ({ children }) => {
     
     if (!isFreshProject) {
       const debounceTimer = setTimeout(() => {
-        // ⭐ โยน projectId ยัดใส่มือฟังก์ชันตรงๆ แก้ปัญหา Stale Closure!
         autoSaveToFirebase(projectData, projectId);
       }, 2000);
 
       return () => clearTimeout(debounceTimer);
     }
   }, [isLoaded, projectName, songName, sheetData, rowTypes, sectionLabels, symbols, layoutConfig, headerDetails, currentInstrument, rowMargins, playbackSequence, isLoopAll, isLoopOne, intervalMode, isReduceMode, isShowPlayMode, projectId, historyIndex, isReadOnly]);
+
   const updateRowMarginsList = (arg1, arg2, arg3) => {
     if (isReadOnlyRef.current) return;
     const newRowMargins = [...rowMargins];
@@ -2410,7 +2511,6 @@ export const MusicProvider = ({ children }) => {
   const changeInstrument = (instrumentId) => {
     if (isReadOnlyRef.current) return;
     
-    // ⭐ เช็กให้ชัวร์ว่าลาก "คลุมดำ" จริงๆ (จุดเริ่มต้นกับจุดสิ้นสุดต้องไม่ใช่อันเดียวกัน)
     let isBlockSelection = false;
     if (selectionRange && selectionRange.start && selectionRange.end) {
       const { start: [sr, sm, sc], end: [er, em, ec] } = selectionRange;
@@ -2444,7 +2544,6 @@ export const MusicProvider = ({ children }) => {
                 instrumentId: instrumentId 
               };
               
-              // ⭐ ถ้าเป็นบรรทัดคู่ ต้องแอบไปฝังให้อีกมือด้วย เสียงจะได้ตรงกัน
               if (rowTypes[r] === 'double-right') {
                  newCustomStyles[`${r+1}_${m}_${c}`] = { ...(newCustomStyles[`${r+1}_${m}_${c}`] || {}), instrumentId };
               } else if (rowTypes[r] === 'double-left') {
@@ -2465,7 +2564,35 @@ export const MusicProvider = ({ children }) => {
         setSelectionRange(null); 
       }
     } else {
-      // ⭐ ถ้าไม่ได้คลุมดำยาวๆ (แค่คลิกเฉยๆ) ให้เปลี่ยนเครื่องดนตรีหลักของเพลงตามปกติ
+      const activeCell = selectedCellRef.current || selectedCell;
+      const [r, m, c] = activeCell || [];
+      const isNathapRow = Number.isInteger(r) && rowTypesRef.current[r] === 'nathap';
+
+      if (isNathapRow) {
+        const newLayoutConfig = { ...layoutConfig };
+        const newCustomStyles = { ...(newLayoutConfig.customStyles || {}) };
+        
+        // ⭐ 1. อัปเดตเครื่องดนตรีให้ "ทุกช่อง" ในบรรทัดนั้นพร้อมกัน
+        for (let meas = 0; meas < sheetData[r].length; meas++) {
+          for (let cell = 0; cell < sheetData[r][meas].length; cell++) {
+            const cellKey = `${r}_${meas}_${cell}`;
+            newCustomStyles[cellKey] = {
+              ...(newCustomStyles[cellKey] || {}),
+              instrumentId
+            };
+          }
+        }
+        newLayoutConfig.customStyles = newCustomStyles;
+        setLayoutConfig(newLayoutConfig);
+
+        // ⭐ 2. เปลี่ยนป้ายชื่อด้านหน้าให้เป็นชื่อเครื่องดนตรีอัตโนมัติ (ถ้ามี 9 ห้อง)
+        const newData = sheetData.map(row => row.map(meas => [...meas]));
+        if (newData[r].length === 9) { 
+          newData[r][0][0] = INSTRUMENT_CONFIG[instrumentId]?.name || 'เครื่องประกอบ';
+        }
+        commitChange(newData, rowTypes, sectionLabels, symbols, rowMargins);
+      }
+
       setCurrentInstrument(INSTRUMENT_CONFIG[instrumentId]);
     }
   };
@@ -2481,9 +2608,21 @@ export const MusicProvider = ({ children }) => {
       if (projectData.name !== undefined) setProjectName(projectData.name);
       if (projectData.songName !== undefined) setSongName(projectData.songName);
 
-      setSheetData(parsedSheetData);
+      // ⭐ อัปเดตช่องหน้าทับให้ตรงกับบรรทัดแม่ (มี 8 หรือ 9 ช่อง) จาก Firebase
+      const migrateRowTypes = projectData.rowTypes || defaultTypes;
+      const migratedSheetData = Array.isArray(parsedSheetData) ? parsedSheetData.map((row, rIdx) => {
+        if (migrateRowTypes[rIdx] === 'nathap') {
+          let parentRIdx = rIdx - 1;
+          while (parentRIdx >= 0 && (migrateRowTypes[parentRIdx] === 'annotation' || migrateRowTypes[parentRIdx] === 'nathap')) parentRIdx--;
+          const isUnderDouble = parentRIdx >= 0 && migrateRowTypes[parentRIdx]?.startsWith('double');
+          
+          return normalizeNathapRowData(row, isUnderDouble);
+        }
+        return row;
+      }) : parsedSheetData;
+      setSheetData(migratedSheetData);
 
-      const loadedRowTypes = projectData.rowTypes || defaultTypes;
+      const loadedRowTypes = migrateRowTypes;
       const loadedSectionLabels = projectData.sectionLabels || {};
       const loadedSymbols = projectData.symbols || [];
       const loadedLayoutConfig = { ...createDefaultLayoutConfig(), ...(projectData.layoutConfig || {}) };
@@ -2574,22 +2713,19 @@ export const MusicProvider = ({ children }) => {
     let isCtrlCombination = false; 
 
     const handleKeyDown = (e) => {
-      // ⭐ 1. ดักจับ Spacebar เป็นอันดับแรกสุด!
       if (e.code === 'Space') {
         const tag = e.target?.tagName;
-        // ยกเว้นกรณีที่กำลังพิมพ์ชื่อเพลง หรือพิมพ์เนื้อร้องอยู่ (เราต้องอนุญาตให้เคาะวรรคได้)
         const isEditable = e.target?.isContentEditable || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
         
         if (!isEditable) {
-          e.preventDefault();   // กันหน้าจอเลื่อน
-          e.stopPropagation();  // ชิงตัดบท ไม่ให้คำสั่งทะลุไปกดปุ่มอื่นๆ
+          e.preventDefault();   
+          e.stopPropagation();  
           
-          // เคลียร์โฟกัสทิ้งทันที! เพื่อป้องกันปุ่มลั่นตอนจังหวะปล่อยนิ้ว (keyup)
           if (document.activeElement && document.activeElement.tagName !== 'BODY') {
             document.activeElement.blur();
           }
           
-          actionsRef.current.togglePlay(); // สั่งเล่น/หยุดเพลง
+          actionsRef.current.togglePlay(); 
           return;
         }
       }
@@ -2662,14 +2798,14 @@ export const MusicProvider = ({ children }) => {
              while (nextR < sheet.length && (rTypes[nextR] === 'page-break' || rTypes[nextR] === 'text')) nextR++;
              if (nextR < sheet.length) {
                 r = nextR;
-                m = rTypes[r].startsWith('double') ? 1 : 0;
+                m = (rTypes[r].startsWith('double') || (rTypes[r] === 'nathap' && sheet[r].length === 9)) ? 1 : 0;
                 c = 0;
              }
           }
         } else if (e.key === 'ArrowLeft') {
           if (c > 0) {
              c--;
-          } else if (m > (rTypes[r].startsWith('double') ? 1 : 0)) {
+          } else if (m > ((rTypes[r].startsWith('double') || (rTypes[r] === 'nathap' && sheet[r].length === 9)) ? 1 : 0)) {
              m--; c = sheet[r][m].length - 1;
           } else {
              let prevR = r - 1;
@@ -2686,7 +2822,7 @@ export const MusicProvider = ({ children }) => {
           if (nextR < sheet.length) {
              r = nextR;
              if (m >= sheet[r].length) m = sheet[r].length - 1;
-             if (rTypes[r].startsWith('double') && m === 0) m = 1; 
+             if ((rTypes[r].startsWith('double') || (rTypes[r] === 'nathap' && sheet[r].length === 9)) && m === 0) m = 1;
              if (c >= sheet[r][m].length) c = sheet[r][m].length - 1;
           }
         } else if (e.key === 'ArrowUp') {
@@ -2695,7 +2831,7 @@ export const MusicProvider = ({ children }) => {
           if (prevR >= 0) {
              r = prevR;
              if (m >= sheet[r].length) m = sheet[r].length - 1;
-             if (rTypes[r].startsWith('double') && m === 0) m = 1;
+             if ((rTypes[r].startsWith('double') || (rTypes[r] === 'nathap' && sheet[r].length === 9)) && m === 0) m = 1;
              if (c >= sheet[r][m].length) c = sheet[r][m].length - 1;
           }
         }
@@ -2711,21 +2847,18 @@ export const MusicProvider = ({ children }) => {
         else if (e.code === 'KeyC') { e.preventDefault(); actionsRef.current.copySelection(); }
         else if (e.code === 'KeyV') { e.preventDefault(); if (!isReadOnlyRef.current) actionsRef.current.pasteSelection(); }
         else if (e.code === 'KeyX') { e.preventDefault(); if (!isReadOnlyRef.current) actionsRef.current.cutSelection(); }
-        // ⭐ เพิ่ม Ctrl+A สำหรับคลุมดำตัวโน้ตทั้งหมด
         else if (e.code === 'KeyA') {
-          e.preventDefault(); // บล็อกไม่ให้เบราว์เซอร์คลุมดำทั้งหน้าเว็บ
+          e.preventDefault(); 
           
           const sheet = sheetDataRef.current;
           const rTypes = rowTypesRef.current;
           let firstCell = null;
           let lastCell = null;
           
-          // วนลูปหาโน้ตตัวแรกสุด และตัวสุดท้ายสุดของกระดาษ
           for (let r = 0; r < sheet.length; r++) {
             if (rTypes[r] === 'page-break' || rTypes[r] === 'text') continue;
             
-            // ข้ามคอลัมน์ 0 ถ้าเป็นบรรทัดคู่ (เพราะเป็นป้ายชื่อ มือซ้าย/ขวา)
-            const startM = rTypes[r].startsWith('double') ? 1 : 0;
+            const startM = (rTypes[r].startsWith('double') || (rTypes[r] === 'nathap' && sheet[r].length === 9)) ? 1 : 0;
             
             if (!firstCell && sheet[r] && sheet[r].length > startM) {
                firstCell = [r, startM, 0];
@@ -2737,10 +2870,9 @@ export const MusicProvider = ({ children }) => {
             }
           }
           
-          // สั่งคลุมดำตั้งแต่ตัวแรกถึงตัวสุดท้าย
           if (firstCell && lastCell) {
              actionsRef.current.setSelectionRange({ start: firstCell, end: lastCell });
-             actionsRef.current.setSelectedCell(lastCell); // ย้ายเคอร์เซอร์ไปไว้ที่ตัวสุดท้าย
+             actionsRef.current.setSelectedCell(lastCell); 
           }
         }
       }
@@ -2762,7 +2894,6 @@ export const MusicProvider = ({ children }) => {
       }
     };
     
-   // ⭐ เติม true เข้าไปด้านหลัง
     window.addEventListener('keydown', handleKeyDown, true);
     window.addEventListener('keyup', handleKeyUp, true); 
     
@@ -2817,8 +2948,6 @@ export const MusicProvider = ({ children }) => {
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fadeIn">
           <div className="bg-white rounded-3xl p-6 md:p-8 w-full max-w-md shadow-2xl scale-100 animate-slideUp text-center" style={{ fontFamily: 'Prompt, sans-serif' }}>
             
-            {/* ⭐ กรณีที่ 1: พื้นที่เต็ม (ดึงให้ผู้ใช้ Export งานออกมาก่อน) */}
-            {/* ⭐ กรณีที่ 1: พื้นที่เต็ม (ดึงให้ผู้ใช้ Export งานออกมาก่อน) */}
             {pendingAction.type === 'STORAGE_LIMIT' ? (
               <>
                 <div className="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -2846,7 +2975,6 @@ export const MusicProvider = ({ children }) => {
                 </div>
               </>
             ) : (
-              /* กรณีที่ 2: แจ้งเตือนทิ้งงานเก่า (โค้ดเดิมของคุณ) */
               <>
                 <div className="w-16 h-16 bg-amber-100 text-amber-500 rounded-full flex items-center justify-center mx-auto mb-4">
                   <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>

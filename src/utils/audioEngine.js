@@ -106,7 +106,8 @@ const loadSoundBuffer = async (instrumentId, key) => {
   if (!audioBufferPromiseCache[instrumentId][finalNoteStr]) {
     audioBufferPromiseCache[instrumentId][finalNoteStr] = (async () => {
       const ctx = getAudioContext();
-      const response = await fetch(`/sounds/${instrumentId}/${key.audio}`, { cache: 'force-cache' });
+      // ⭐ เพิ่มตัวล้าง Cache บังคับให้เบราว์เซอร์โหลดไฟล์เสียงใหม่ล่าสุดเสมอ
+      const response = await fetch(`/sounds/${instrumentId}/${key.audio}?v=${new Date().getTime()}`, { cache: 'no-store' });
       const arrayBuffer = await response.arrayBuffer();
       const audioBuffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
       audioBufferCache[instrumentId][finalNoteStr] = audioBuffer;

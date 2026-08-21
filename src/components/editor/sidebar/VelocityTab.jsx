@@ -1,5 +1,6 @@
 import React, { useContext, useState, useMemo, useEffect } from 'react';
 import { MusicContext } from '../../../contexts/MusicContext';
+import { INSTRUMENT_CONFIG } from '../../../utils/instrumentConfig';
 
 const getFlattenedCol = (row, rType, targetM, targetC) => {
   if (!row || rType === 'text' || rType === 'page-break') return 0;
@@ -18,19 +19,28 @@ const normalizeToken = (token) => {
   return compact === '' ? '-' : compact;
 };
 
+// ⭐ ระบบตัดคำอัจฉริยะ (ดึงเครื่องประกอบจังหวะมาเป็นคำๆ ป้องกันการหั่นผิด)
+const getPercussionWords = () => {
+  const words = ['มือขวา', 'มือซ้าย', 'ฉิ่ง', 'ฉับ', 'ทัง', 'ติง', 'โจ๊ะ', 'จ๊ะ'];
+  if (typeof INSTRUMENT_CONFIG !== 'undefined') {
+    Object.values(INSTRUMENT_CONFIG).forEach(inst => {
+      if (inst.type === 'percussion') {
+        inst.keys.forEach(k => words.push(k.thai));
+      }
+    });
+  }
+  return Array.from(new Set(words)).sort((a, b) => b.length - a.length);
+};
+
+const PERC_PATTERN = getPercussionWords().join('|');
+const NOTE_PATTERN = '[ก-ฮA-Za-z0-9][ั-๎\\u200B]*';
+const TOKEN_REGEX = new RegExp(`(${PERC_PATTERN}|${NOTE_PATTERN})`, 'g');
+
 const splitThaiNoteToken = (token) => {
   const normalized = normalizeToken(token);
   if (!normalized || normalized === '-') return [];
-  const THAI_NOTE_COMBINER_PATTERN = /[ั-๎​]/;
-  return Array.from(normalized).reduce((parts, char) => {
-    if (char === '-' || char.trim() === '') return parts;
-    if (THAI_NOTE_COMBINER_PATTERN.test(char) && parts.length > 0) {
-      parts[parts.length - 1] += char;
-    } else {
-      parts.push(char);
-    }
-    return parts;
-  }, []);
+  // ⭐ ใช้ Regex ตัดแยกคำหน้าทับเป็น 1 ก้อน
+  return normalized.match(TOKEN_REGEX) || [];
 };
 
 const VelocityTab = () => {
@@ -319,7 +329,6 @@ const VelocityTab = () => {
                 className="w-full h-1.5 bg-slate-300 rounded-lg accent-slate-500 cursor-pointer" 
               />
             </div>
-            {/* ❌ ตัดปุ่ม นำไปใช้ (Apply) ออกทั้งหมด */}
           </div>
         </div>
 

@@ -27,7 +27,7 @@ const Templates = ({ onNewProject, userProfile }) => {
     { 
       id: 'standard', 
       name: 'มาตรฐาน (Standard)', 
-      desc: 'หัวกระดาษสำหรับโน้ตเพลงทั่วไป ระบุจังหวะ หน้าทับ และทางเสียง', 
+      desc: 'หัวกระดาษสำหรับโน้ตเพลงทั่วไป ระบุจังหวะ เครื่องประกอบ และทางเสียง', 
       badge: 'แนะนำ',
       borderColor: 'hover:border-emerald-400 hover:shadow-emerald-200/50',
       previewImg: previewStandard,
@@ -35,7 +35,7 @@ const Templates = ({ onNewProject, userProfile }) => {
       detailsAlign: 'between',
       headerDetails: [
         { id: '1', label: "อัตราจังหวะ", value: ".........." },
-        { id: '2', label: "หน้าทับ", value: ".........." },
+        { id: '2', label: "เครื่องประกอบ", value: ".........." },
         { id: '3', label: "บันไดเสียง", value: ".........." },
         { id: '4', label: "ผู้บันทึก", value: "................" }
       ]
@@ -68,7 +68,7 @@ const Templates = ({ onNewProject, userProfile }) => {
       headerDetails: [
         { id: '1', label: "อัตราจังหวะ", value: "...................................." },
         { id: '2', label: "ผู้ประพันธ์ทำนอง", value: "...................................." },
-        { id: '3', label: "หน้าทับ", value: "...................................." },
+        { id: '3', label: "เครื่องประกอบ", value: "...................................." },
         { id: '4', label: "ผู้ถ่ายทอด", value: "...................................." },
         { id: '5', label: "ทางเสียง", value: "...................................." },
         { id: '6', label: "ผู้บันทึกโน้ต", value: "...................................." }
