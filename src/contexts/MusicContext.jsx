@@ -1,6 +1,6 @@
 import React, { createContext, useState, useMemo, useEffect, useRef } from 'react';
 import { INSTRUMENT_CONFIG } from '../utils/instrumentConfig';
-import { preloadSounds, preloadAllSounds, playNote, scheduleNote, initAudioContext, getAudioCurrentTime, stopAllScheduledNotes } from '../utils/audioEngine'; 
+import { preloadSounds, preloadAllSounds, playNote, scheduleNote, initAudioContext, getAudioCurrentTime, stopAllScheduledNotes, claimPlaybackOwnership, releasePlaybackOwnership } from '../utils/audioEngine'; 
 import { auth, saveProjectToDB } from '../utils/firebase';
 
 export const MusicContext = createContext();
@@ -629,6 +629,8 @@ export const MusicProvider = ({ children }) => {
 
   const startPlayback = async () => {
     if (isPlayingRef.current) return;
+    // ยึดสิทธิ์เป็นเจ้าของเสียงตัวเดียว: ถ้า Arranger กำลังเล่นอยู่ จะถูกสั่งหยุดทันที กันเสียงซ้อน
+    claimPlaybackOwnership(stopPlayback);
     if (initAudioContext) await initAudioContext();
 
     const currentInstId = currentInstrumentRef.current?.id;
@@ -1164,6 +1166,8 @@ export const MusicProvider = ({ children }) => {
     if (clearScheduled) {
       stopAllScheduledNotes?.();
     }
+
+    releasePlaybackOwnership(stopPlayback);
 
     if (!preserveSeek) {
       seekOffsetRef.current = 0;

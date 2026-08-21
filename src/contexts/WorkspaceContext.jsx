@@ -11,6 +11,8 @@ import {
   connectClipGain,
   setClipGain,
   stopAllScheduledNotes,
+  claimPlaybackOwnership,
+  releasePlaybackOwnership,
 } from '../utils/audioEngine';
 
 const WorkspaceContext = createContext(null);
@@ -448,12 +450,14 @@ export const WorkspaceProvider = ({ children }) => {
       schedulerIntervalRef.current = null;
     }
     stopAllScheduledNotes?.(); 
+    releasePlaybackOwnership(stopPlayback);
   };
 
   useEffect(() => () => {
     if (playbackRef.current.rafId) cancelAnimationFrame(playbackRef.current.rafId);
     if (schedulerIntervalRef.current) clearInterval(schedulerIntervalRef.current);
     stopAllScheduledNotes?.();
+    releasePlaybackOwnership(stopPlayback);
   }, []);
 
   useEffect(() => {
@@ -504,6 +508,9 @@ export const WorkspaceProvider = ({ children }) => {
 
   const startPlayback = async () => {
     stopPlayback();
+    // ⭐ ยึดสิทธิ์เป็นเจ้าของเสียงตัวเดียว: ถ้าตัวเล่นตัวโน้ต (Music Editor) ยังค้างเล่นอยู่
+    //    จะถูกสั่งหยุดทันที ไม่ให้เสียงซ้อนจากโปรเจกต์อื่นเบื้องหลัง
+    claimPlaybackOwnership(stopPlayback);
 
     await initAudioContext();
 

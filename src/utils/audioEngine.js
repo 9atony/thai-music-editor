@@ -247,6 +247,22 @@ export const stopAllScheduledNotes = () => {
   activeSources.clear();
 };
 
+// ⭐ ระบบ "เจ้าของเสียงเพียงหนึ่งเดียว" (single-owner playback)
+//    ตัวเล่น 2 ตัว (Music Editor กับ Arranger) ใช้ AudioEngine ตัวเดียวกัน
+//    ถ้าตัวไหนเริ่มเล่น ตัวก่อนหน้าต้องถูกสั่งหยุดทันที กันเสียงซ้อนจากโปรเจกต์อื่น
+let playbackOwnerStop = null;
+
+export const claimPlaybackOwnership = (stopFn) => {
+  if (playbackOwnerStop && playbackOwnerStop !== stopFn) {
+    try { playbackOwnerStop(); } catch (_) {}
+  }
+  playbackOwnerStop = stopFn;
+};
+
+export const releasePlaybackOwnership = (stopFn) => {
+  if (playbackOwnerStop === stopFn) playbackOwnerStop = null;
+};
+
 if (typeof document !== 'undefined') {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
