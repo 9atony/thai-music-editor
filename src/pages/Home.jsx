@@ -1,22 +1,51 @@
 import React, { useState, useEffect, useContext, useRef } from 'react';
 import { auth } from '../utils/firebase'; 
 import { fetchRecentProjects } from '../utils/firebase'; 
+import { db } from '../utils/firebase';
+import { collection, getDocs, query, orderBy, limit } from 'firebase/firestore';
+
 import { MusicContext } from '../contexts/MusicContext';
 import TmeIcon from '../assets/icon.png'; 
+import AdminUpdateForm from '../components/AdminUpdateForm'; // 👈 นำเข้าฟอร์มแอดมิน
 
 const Home = ({ onNewProject, onPageChange, userProfile }) => {
   const { newProject, loadProjectFromFirebase, loadProject } = useContext(MusicContext);
   const [recentProjects, setRecentProjects] = useState([]);
   const fileInputRef = useRef(null);
   
+  // เช็กว่าผู้ใช้เป็น admin หรือไม่
   const isAdmin = userProfile?.role === 'admin';
 
-  // State สำหรับควบคุมกระดิ่งแจ้งเตือน
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const notifRef = useRef(null);
 
-  // ⭐ State สำหรับควบคุม Pop-up ประกาศอัปเดตเด้งขึ้นมาอัตโนมัติ
   const [isPopupOpen, setIsPopupOpen] = useState(false);
+  const [latestUpdate, setLatestUpdate] = useState(null);
+  
+  // ⭐ State สำหรับเปิด/ปิดฟอร์มโพสต์แอดมิน
+  const [isAdminFormOpen, setIsAdminFormOpen] = useState(false);
+
+  const fetchLatestUpdate = async () => {
+    try {
+      const q = query(collection(db, "updates"), orderBy("date", "desc"), limit(1));
+      const querySnapshot = await getDocs(q);
+      
+      if (!querySnapshot.empty) {
+        const updateData = {
+          id: querySnapshot.docs[0].id,
+          ...querySnapshot.docs[0].data()
+        };
+        setLatestUpdate(updateData);
+
+        const lastSeenId = localStorage.getItem('lastSeenUpdateId');
+        if (lastSeenId !== updateData.id) {
+          setIsPopupOpen(true);
+        }
+      }
+    } catch (error) {
+      console.error("Error fetching latest update:", error);
+    }
+  };
 
   useEffect(() => {
     const loadProjects = async () => {
@@ -26,23 +55,25 @@ const Home = ({ onNewProject, onPageChange, userProfile }) => {
         setRecentProjects(data); 
       }
     };
+    
     loadProjects();
-
-    // ⭐ สั่งให้ Pop-up ประกาศเด้งขึ้นมาทันทีเมื่อเข้ามาที่หน้า Home
-    // (หากต้องการให้เด้งแค่วันละครั้ง สามารถใช้ localStorage เช็กเงื่อนไขเพิ่มได้ครับ)
-    setIsPopupOpen(true);
+    fetchLatestUpdate(); // เรียกใช้ตอนโหลดหน้าแรก
   }, []);
 
-  // ฟังก์ชันจัดรูปแบบเวลา
+  const handleClosePopup = () => {
+    setIsPopupOpen(false);
+    if (latestUpdate) {
+      localStorage.setItem('lastSeenUpdateId', latestUpdate.id);
+    }
+  };
+
+  // ... (ฟังก์ชัน formatTime, formatSize, handleFileUpload, handleOpenProject เหมือนเดิม)
   const formatTime = (timestamp) => {
     if (!timestamp?.seconds) return "ไม่ระบุเวลา";
     const date = new Date(timestamp.seconds * 1000);
-    return date.toLocaleDateString('th-TH', { 
-      month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
-    });
+    return date.toLocaleDateString('th-TH', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   };
 
-  // ฟังก์ชันจัดรูปแบบขนาดไฟล์
   const formatSize = (data) => {
     if (!data) return "0 KB";
     const bytes = new Blob([typeof data === 'string' ? data : JSON.stringify(data)]).size;
@@ -53,7 +84,6 @@ const Home = ({ onNewProject, onPageChange, userProfile }) => {
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
-
     loadProject(file, true); 
     onNewProject(); 
     e.target.value = null; 
@@ -62,15 +92,12 @@ const Home = ({ onNewProject, onPageChange, userProfile }) => {
   const handleOpenProject = (project) => {
     const parsedData = {
       ...project,
-      sheetData: typeof project.sheetData === 'string' 
-                 ? JSON.parse(project.sheetData) 
-                 : project.sheetData
+      sheetData: typeof project.sheetData === 'string' ? JSON.parse(project.sheetData) : project.sheetData
     };
     loadProjectFromFirebase(parsedData, true);
     onNewProject(); 
   };
 
-  // ดักจับการคลิกนอกกรอบเพื่อปิดหน้าต่างแจ้งเตือน
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (notifRef.current && !notifRef.current.contains(event.target)) {
@@ -87,124 +114,145 @@ const Home = ({ onNewProject, onPageChange, userProfile }) => {
       style={{ fontFamily: 'Prompt, sans-serif' }}
     >
       
-      {/* ⭐ ระบบ Popup ประกาศอัปเดตเด้งขึ้นมาอัตโนมัติทุกครั้งที่เข้าหน้า Home */}
-      {isPopupOpen && (
+      {/* 🔴 เรนเดอร์ฟอร์มแอดมินถ้ากดเปิด */}
+      {isAdminFormOpen && (
+          <AdminUpdateForm 
+              onClose={() => setIsAdminFormOpen(false)} 
+              // พอแอดมินโพสต์เสร็จ ให้ดึงข้อมูลล่าสุดมาโชว์ทันที
+              onUpdateSuccess={fetchLatestUpdate} 
+          />
+      )}
+
+      {/* Popup ประกาศอัปเดต (ฝั่งผู้ใช้) */}
+      {isPopupOpen && latestUpdate && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm px-4 animate-fadeIn">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden border border-slate-100 animate-scaleUp">
+          {/* ... (โค้ด Popup เหมือนเดิม) ... */}
+           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden border border-slate-100 animate-scaleUp">
             
-            {/* หัวข้อประกาศ */}
-            <div className="bg-gradient-to-r from-sky-500 to-indigo-600 px-6 py-5 text-white flex justify-between items-center">
+            <div className={`px-6 py-5 text-white flex justify-between items-center ${
+              latestUpdate.type === 'feature' ? 'bg-gradient-to-r from-emerald-500 to-teal-600' :
+              latestUpdate.type === 'bug' ? 'bg-gradient-to-r from-red-500 to-rose-600' :
+              'bg-gradient-to-r from-sky-500 to-indigo-600'
+            }`}>
               <div className="flex items-center gap-3">
-                <span className="text-2xl">🎉</span>
+                <span className="text-2xl">
+                  {latestUpdate.type === 'feature' ? '🚀' : latestUpdate.type === 'bug' ? '🔧' : '🎉'}
+                </span>
                 <div>
                   <h3 className="font-extrabold text-lg">ประกาศอัปเดตระบบใหม่</h3>
-                  <p className="text-xs text-sky-100">มีอะไรใหม่ใน Thai Music Editor ล่าสุด</p>
+                  <p className="text-xs opacity-80">
+                    {latestUpdate.date?.toDate().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}
+                  </p>
                 </div>
               </div>
-              <button 
-                onClick={() => setIsPopupOpen(false)}
-                className="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center text-white transition-colors"
-              >
-                ✕
-              </button>
+              <button onClick={handleClosePopup} className="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center text-white transition-colors">✕</button>
             </div>
 
-            {/* เนื้อหาการอัปเดต */}
             <div className="p-6 space-y-4 max-h-[60vh] overflow-y-auto">
               <div className="flex gap-3.5 items-start bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                <div className="w-8 h-8 rounded-xl bg-sky-100 text-sky-600 flex items-center justify-center shrink-0 font-bold">✨</div>
-                <div>
-                  <h4 className="font-bold text-slate-800 text-sm mb-1">อัปเกรด UI แผงควบคุมแทร็ก & มินิมอลโมเดิร์น</h4>
-                  <p className="text-xs text-slate-500 leading-relaxed">ปรับดีไซน์ Track Panel ใหม่ให้สะอาดตา เพิ่มปุ่มนำเข้าจากเว็บ (Cloud) และจากเครื่อง (Local) คู่กันอย่างลงตัว พร้อมระบบซิงค์เลื่อนขึ้น-ลงล็อกบรรทัดเป๊ะๆ</p>
-                </div>
-              </div>
-
-              <div className="flex gap-3.5 items-start bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                <div className="w-8 h-8 rounded-xl bg-teal-100 text-teal-600 flex items-center justify-center shrink-0 font-bold">🛠️</div>
-                <div>
-                  <h4 className="font-bold text-slate-800 text-sm mb-1">เพิ่มประสิทธิภาพเครื่องมือผู้ดูแลระบบ (Admin Tools)</h4>
-                  <p className="text-xs text-slate-500 leading-relaxed">แยกสิทธิ์การใช้งานเครื่องมือ AI และพจนานุกรมทางระนาดให้แอดมินจัดการได้อย่างเต็มรูปแบบ รองรับการใช้งานบนมือถืออย่างไร้รอยต่อ</p>
+                <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 font-bold ${
+                  latestUpdate.type === 'feature' ? 'bg-emerald-100 text-emerald-600' :
+                  latestUpdate.type === 'bug' ? 'bg-red-100 text-red-600' :
+                  'bg-sky-100 text-sky-600'
+                }`}>✨</div>
+                <div className="w-full">
+                  <h4 className="font-bold text-slate-800 text-sm mb-2">{latestUpdate.title}</h4>
+                  <div className="text-xs text-slate-500 leading-relaxed space-y-1.5">
+                    {latestUpdate.content.split('\n').map((line, i) => (
+                      <p key={i} className="flex items-start">
+                        {line.trim().startsWith('-') ? (
+                          <><span className="mr-2 text-sky-400">•</span><span>{line.replace('-', '').trim()}</span></>
+                        ) : (
+                          <span>{line}</span>
+                        )}
+                      </p>
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>
 
-            {/* ปุ่มปิด */}
             <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-end">
-              <button 
-                onClick={() => setIsPopupOpen(false)}
-                className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-sm font-bold shadow-sm transition-colors"
-              >
+              <button onClick={handleClosePopup} className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-sm font-bold shadow-sm transition-colors">
                 รับทราบและใช้งานต่อเลย 🚀
               </button>
             </div>
-
           </div>
         </div>
       )}
 
-      {/* ส่วนหัวต้อนรับ และ กระดิ่งแจ้งเตือน (รองรับทั้งมือถือและคอม) */}
+      {/* หัวเว็บ */}
       <div className="flex justify-between items-start mb-6 md:mb-8 px-1">
         <div>
           <h2 className="text-2xl md:text-3xl font-extrabold text-slate-900 mb-1 md:mb-2">ยินดีต้อนรับกลับมา 👋</h2>
           <p className="text-xs md:text-sm text-slate-500 font-medium">ใช้งาน Thai Music Editor อย่างสร้างสรรค์ในทุกจังหวะของคุณ</p>
         </div>
         
-        {/* กระดิ่งแจ้งเตือน (แสดงผลทั้งมือถือและคอมพิวเตอร์) */}
-        <div className="relative" ref={notifRef}>
-          <button 
-            onClick={() => setIsNotifOpen(!isNotifOpen)}
-            className="w-10 h-10 rounded-full bg-white border border-slate-200 flex items-center justify-center text-slate-500 hover:text-sky-500 hover:border-sky-300 hover:shadow-sm transition-all relative group focus:outline-none"
-          >
-            <span className="absolute top-2 right-2.5 w-2 h-2 bg-red-500 rounded-full border border-white"></span>
-            <svg className="w-5 h-5 group-active:scale-95 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-            </svg>
-          </button>
+        <div className="flex items-center gap-3">
+            {/* 🔴 ปุ่มโพสต์ประกาศ จะเห็นเฉพาะถ้าเป็น Admin */}
+            {isAdmin && (
+                <button 
+                    onClick={() => setIsAdminFormOpen(true)}
+                    className="hidden md:flex items-center gap-2 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-full text-sm font-bold shadow-sm transition-colors cursor-pointer"
+                >
+                    <span className="text-sky-400">✨</span> สร้างประกาศ
+                </button>
+            )}
 
-          {/* หน้าต่าง Popup เมื่อกดปุ่มแจ้งเตือน */}
-          {isNotifOpen && (
-            <div className="absolute right-0 mt-3 w-80 bg-white border border-slate-200 rounded-2xl shadow-xl z-50 animate-fadeIn overflow-hidden">
-              <div className="px-5 py-3 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
-                <h3 className="text-sm font-bold text-slate-800">การแจ้งเตือน</h3>
-                <span className="text-[10px] bg-sky-100 text-sky-600 px-2 py-0.5 rounded-full font-bold">1 ใหม่</span>
-              </div>
-              <div className="max-h-[300px] overflow-y-auto">
-                
-                <div onClick={() => setIsPopupOpen(true)} className="px-5 py-4 border-b border-slate-100 hover:bg-slate-50 transition-colors flex gap-3 cursor-pointer bg-sky-50/30">
-                  <div className="w-8 h-8 rounded-full bg-sky-100 text-sky-500 flex items-center justify-center shrink-0">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                  </div>
-                  <div>
-                    <h4 className="text-xs font-bold text-slate-800 mb-0.5">อัปเดตเวอร์ชันล่าสุด 🎉</h4>
-                    <p className="text-[11px] text-slate-500 leading-tight">คลิกเพื่อดูรายละเอียดการอัปเดตฟีเจอร์ใหม่ทั้งหมด</p>
-                    <span className="text-[9px] text-slate-400 mt-1 block">ประกาศล่าสุด</span>
-                  </div>
+            {/* กระดิ่งแจ้งเตือน */}
+            <div className="relative" ref={notifRef}>
+            <button 
+                onClick={() => setIsNotifOpen(!isNotifOpen)}
+                className="w-10 h-10 rounded-full bg-white border border-slate-200 flex items-center justify-center text-slate-500 hover:text-sky-500 hover:border-sky-300 hover:shadow-sm transition-all relative group focus:outline-none"
+            >
+                {latestUpdate && localStorage.getItem('lastSeenUpdateId') !== latestUpdate.id && (
+                <span className="absolute top-2 right-2.5 w-2 h-2 bg-red-500 rounded-full border border-white"></span>
+                )}
+                <svg className="w-5 h-5 group-active:scale-95 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                </svg>
+            </button>
+
+            {isNotifOpen && (
+                <div className="absolute right-0 mt-3 w-80 bg-white border border-slate-200 rounded-2xl shadow-xl z-50 animate-fadeIn overflow-hidden">
+                {/* ... (โค้ดกระดิ่งเหมือนเดิม) ... */}
+                <div className="px-5 py-3 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
+                    <h3 className="text-sm font-bold text-slate-800">การแจ้งเตือน</h3>
+                    {latestUpdate && localStorage.getItem('lastSeenUpdateId') !== latestUpdate.id && (
+                    <span className="text-[10px] bg-sky-100 text-sky-600 px-2 py-0.5 rounded-full font-bold">1 ใหม่</span>
+                    )}
                 </div>
-
-              </div>
-              <div className="p-2 border-t border-slate-100 text-center bg-slate-50">
-                <button onClick={() => setIsNotifOpen(false)} className="text-[11px] font-bold text-slate-400 hover:text-sky-500 transition-colors">ปิดหน้าต่าง</button>
-              </div>
+                <div className="max-h-[300px] overflow-y-auto">
+                    {latestUpdate ? (
+                    <div onClick={() => { setIsPopupOpen(true); setIsNotifOpen(false); }} className="px-5 py-4 border-b border-slate-100 hover:bg-slate-50 transition-colors flex gap-3 cursor-pointer bg-sky-50/30">
+                        <div className="w-8 h-8 rounded-full bg-sky-100 text-sky-500 flex items-center justify-center shrink-0">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                        </div>
+                        <div>
+                        <h4 className="text-xs font-bold text-slate-800 mb-0.5">{latestUpdate.title} 🎉</h4>
+                        <p className="text-[11px] text-slate-500 leading-tight">คลิกเพื่อดูรายละเอียดการอัปเดตฟีเจอร์ใหม่ทั้งหมด</p>
+                        <span className="text-[9px] text-slate-400 mt-1 block">ประกาศล่าสุด</span>
+                        </div>
+                    </div>
+                    ) : (
+                    <div className="p-6 text-center text-slate-400 text-xs">ยังไม่มีการแจ้งเตือน</div>
+                    )}
+                </div>
+                <div className="p-2 border-t border-slate-100 text-center bg-slate-50">
+                    <button onClick={() => setIsNotifOpen(false)} className="text-[11px] font-bold text-slate-400 hover:text-sky-500 transition-colors">ปิดหน้าต่าง</button>
+                </div>
+                </div>
+            )}
             </div>
-          )}
         </div>
       </div>
 
-      {/* Input ซ่อนสำหรับเลือกไฟล์ */}
-      <input 
-        type="file" 
-        accept=".json, .thai, .tme" 
-        ref={fileInputRef} 
-        style={{ display: 'none' }} 
-        onChange={handleFileUpload} 
-      />
+      <input type="file" accept=".json, .thai, .tme" ref={fileInputRef} style={{ display: 'none' }} onChange={handleFileUpload} />
 
-      {/* Quick Actions */}
+      {/* Quick Actions (ปุ่ม 3 ปุ่ม สร้าง/เปิด/ล่าสุด) */}
       <div className="grid grid-cols-3 md:grid-cols-3 gap-3 md:gap-6 mb-8 md:mb-12">
-        <button 
-          onClick={() => { newProject(true); onNewProject(); }}
-          className="bg-white border border-slate-100 md:border-slate-200 rounded-2xl p-4 md:p-6 flex flex-col md:flex-row items-center md:items-start gap-3 md:gap-5 hover:border-blue-400 hover:shadow-md transition-all text-center md:text-left shadow-sm md:shadow-none group"
-        >
+          {/* ... โค้ดปุ่มเหมือนเดิมเป๊ะๆ ... */}
+        <button onClick={() => { newProject(true); onNewProject(); }} className="bg-white border border-slate-100 md:border-slate-200 rounded-2xl p-4 md:p-6 flex flex-col md:flex-row items-center md:items-start gap-3 md:gap-5 hover:border-blue-400 hover:shadow-md transition-all text-center md:text-left shadow-sm md:shadow-none group">
           <div className="w-12 h-12 md:w-14 md:h-14 bg-blue-50 text-blue-500 rounded-xl flex items-center justify-center transition-colors">
             <svg className="w-6 h-6 md:w-7 md:h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
           </div>
@@ -214,10 +262,7 @@ const Home = ({ onNewProject, onPageChange, userProfile }) => {
           </div>
         </button>
 
-        <button 
-          onClick={() => fileInputRef.current?.click()} 
-          className="bg-white border border-slate-100 md:border-slate-200 rounded-2xl p-4 md:p-6 flex flex-col md:flex-row items-center md:items-start gap-3 md:gap-5 hover:border-amber-400 hover:shadow-md transition-all text-center md:text-left shadow-sm md:shadow-none group"
-        >
+        <button onClick={() => fileInputRef.current?.click()} className="bg-white border border-slate-100 md:border-slate-200 rounded-2xl p-4 md:p-6 flex flex-col md:flex-row items-center md:items-start gap-3 md:gap-5 hover:border-amber-400 hover:shadow-md transition-all text-center md:text-left shadow-sm md:shadow-none group">
           <div className="w-12 h-12 md:w-14 md:h-14 bg-amber-50 text-amber-500 rounded-xl flex items-center justify-center transition-colors">
             <svg className="w-6 h-6 md:w-7 md:h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
           </div>
@@ -227,10 +272,7 @@ const Home = ({ onNewProject, onPageChange, userProfile }) => {
           </div>
         </button>
 
-        <button 
-          onClick={() => document.getElementById('recent-projects-section')?.scrollIntoView({ behavior: 'smooth' })}
-          className="bg-white border border-slate-100 md:border-slate-200 rounded-2xl p-4 md:p-6 flex flex-col md:flex-row items-center md:items-start gap-3 md:gap-5 hover:border-purple-400 hover:shadow-md transition-all text-center md:text-left shadow-sm md:shadow-none group"
-        >
+        <button onClick={() => document.getElementById('recent-projects-section')?.scrollIntoView({ behavior: 'smooth' })} className="bg-white border border-slate-100 md:border-slate-200 rounded-2xl p-4 md:p-6 flex flex-col md:flex-row items-center md:items-start gap-3 md:gap-5 hover:border-purple-400 hover:shadow-md transition-all text-center md:text-left shadow-sm md:shadow-none group">
           <div className="w-12 h-12 md:w-14 md:h-14 bg-purple-50 text-purple-500 rounded-xl flex items-center justify-center transition-colors">
             <svg className="w-6 h-6 md:w-7 md:h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
           </div>
@@ -241,14 +283,12 @@ const Home = ({ onNewProject, onPageChange, userProfile }) => {
         </button>
       </div>
 
-      {/* ส่วนโปรเจกต์ล่าสุด */}
+      {/* โปรเจกต์ล่าสุด */}
       <div id="recent-projects-section" className="mb-12 scroll-mt-8">
+          {/* ... (โค้ดแสดงโปรเจกต์เหมือนเดิม ไม่มีการแก้ไข) ... */}
         <div className="flex items-center justify-between mb-4 md:mb-5 px-1">
           <h3 className="text-base md:text-lg font-bold text-slate-800">โปรเจกต์ล่าสุด</h3>
-          <button 
-            onClick={() => onPageChange && onPageChange('my-projects')}
-            className="text-[11px] md:text-sm font-semibold text-slate-500 hover:text-sky-500 flex items-center gap-1 transition-colors cursor-pointer"
-          >
+          <button onClick={() => onPageChange && onPageChange('my-projects')} className="text-[11px] md:text-sm font-semibold text-slate-500 hover:text-sky-500 flex items-center gap-1 transition-colors cursor-pointer">
             ดูทั้งหมด
             <svg className="w-3 h-3 md:w-4 md:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
           </button>
@@ -256,11 +296,7 @@ const Home = ({ onNewProject, onPageChange, userProfile }) => {
         
         <div className="hidden md:grid md:grid-cols-4 lg:grid-cols-6 gap-5">
           {recentProjects.map((project) => (
-            <button 
-              key={`grid-${project.id}`} 
-              className="bg-white p-3.5 rounded-2xl border-2 border-slate-100 hover:border-sky-400 hover:shadow-xl hover:-translate-y-1 transition-all duration-300 flex flex-col group cursor-pointer relative text-center"
-              onClick={() => handleOpenProject(project)}
-            >
+            <button key={`grid-${project.id}`} className="bg-white p-3.5 rounded-2xl border-2 border-slate-100 hover:border-sky-400 hover:shadow-xl hover:-translate-y-1 transition-all duration-300 flex flex-col group cursor-pointer relative text-center" onClick={() => handleOpenProject(project)}>
               <div className="w-4/5 mx-auto h-40 bg-gradient-to-b from-slate-50 to-slate-100 rounded-xl mb-4 flex items-center justify-center border-2 border-slate-200/50 group-hover:from-sky-50/50 group-hover:to-sky-100/50 transition-colors shadow-inner overflow-hidden">
                  <div className="w-20 h-20 flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
                     <img src={TmeIcon} alt="File Icon" className="w-full h-full object-contain drop-shadow-[0_10px_15px_rgba(0,0,0,0.15)]" />
@@ -280,11 +316,7 @@ const Home = ({ onNewProject, onPageChange, userProfile }) => {
 
         <div className="flex flex-col gap-3 md:hidden">
           {recentProjects.map((project) => (
-            <button 
-              key={`list-${project.id}`}
-              onClick={() => handleOpenProject(project)}
-              className="flex items-center p-3 bg-white border border-slate-100 shadow-sm rounded-2xl active:scale-[0.98] transition-transform w-full text-left"
-            >
+            <button key={`list-${project.id}`} onClick={() => handleOpenProject(project)} className="flex items-center p-3 bg-white border border-slate-100 shadow-sm rounded-2xl active:scale-[0.98] transition-transform w-full text-left">
               <div className="w-12 h-14 bg-slate-50 rounded-xl flex items-center justify-center border border-slate-200/60 shrink-0 mr-3">
                 <img src={TmeIcon} alt="Icon" className="w-8 h-8 object-contain drop-shadow-sm" />
               </div>
@@ -310,16 +342,15 @@ const Home = ({ onNewProject, onPageChange, userProfile }) => {
              </div>
           )}
         </div>
-        
       </div>
       
-      {/* แถวล่างสุด */}
+      {/* ส่วนท้ายสุด (แสดงเวอร์ชัน) */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 md:gap-6">
         <div className="lg:col-span-3 bg-white border border-slate-100 md:border-slate-200 shadow-sm md:shadow-none rounded-3xl p-6 md:p-8 flex items-center justify-between relative overflow-hidden">
           <div className="relative z-10">
             <h3 className="text-lg md:text-xl font-bold text-slate-800 mb-0.5 md:mb-1">Thai Music Editor</h3>
             <p className="text-xs md:text-sm font-semibold text-slate-400 mb-3 md:mb-4">เวอร์ชัน 1.0.0</p>
-            <button onClick={() => setIsPopupOpen(true)} className="text-xs md:text-sm font-bold text-sky-500 hover:text-sky-600 flex items-center gap-1 cursor-pointer">
+            <button onClick={() => { setIsPopupOpen(true); setIsNotifOpen(false); }} className="text-xs md:text-sm font-bold text-sky-500 hover:text-sky-600 flex items-center gap-1 cursor-pointer">
               ดูรายละเอียดการอัปเดต
               <svg className="w-3.5 h-3.5 md:w-4 md:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
             </button>
