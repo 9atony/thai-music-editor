@@ -1,11 +1,10 @@
 import { initializeApp } from "firebase/app";
 import { getAnalytics } from "firebase/analytics";
-// 1. [เพิ่ม] นำเข้า createUserWithEmailAndPassword สำหรับการสมัครสมาชิก
 import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from "firebase/auth";
 import { 
   getFirestore, collection, query, orderBy, limit, getDocs, 
   addDoc, doc, updateDoc, serverTimestamp, 
-  setDoc, getDoc // 2. [เพิ่ม] นำเข้า setDoc และ getDoc เพื่อจัดการแฟ้มประวัติผู้ใช้
+  setDoc, getDoc, Timestamp 
 } from 'firebase/firestore'; 
 import { getStorage } from "firebase/storage";
 
@@ -24,27 +23,24 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const analytics = getAnalytics(app);
 
-// 3. Export Auth และ DB (เอาไว้ใช้ที่อื่น)
+// 3. Export Auth และ DB
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const storage = getStorage(app);
 
 // ==========================================
-// 🌟 [ส่วนที่เพิ่มใหม่] ระบบสมัครสมาชิกและจัดการยศ
+// 🌟 ระบบสมัครสมาชิกและจัดการยศ
 // ==========================================
 
-// ฟังก์ชันสมัครสมาชิก พร้อมตั้งยศเริ่มต้นเป็น "user"
 export const registerUser = async (email, password, displayName = "") => {
   try {
-    // 1. สร้างบัญชีใน Authentication
     const userCredential = await createUserWithEmailAndPassword(auth, email, password);
     const user = userCredential.user;
 
-    // 2. สร้างแฟ้มประวัติใน Firestore (Collection: users, Document: UID)
     await setDoc(doc(db, "users", user.uid), {
       email: user.email,
       displayName: displayName,
-      role: "user", // <-- กำหนดยศเริ่มต้นที่นี่
+      role: "user", 
       createdAt: serverTimestamp()
     });
 
@@ -55,17 +51,32 @@ export const registerUser = async (email, password, displayName = "") => {
   }
 };
 
-// ฟังก์ชันสำหรับเช็กว่าผู้ใช้คนนี้มียศอะไร (ใช้ตอนหน้าเว็บโหลดเสร็จ)
+// ⭐ อัปเดตฟังก์ชันดึงโปรไฟล์ ให้เช็กวันหมดอายุและลดระดับอัตโนมัติ
 export const getUserProfile = async (uid) => {
   try {
     const docRef = doc(db, "users", uid);
     const docSnap = await getDoc(docRef);
     
     if (docSnap.exists()) {
-      return docSnap.data(); // จะคืนค่ากลับมาเป็น { role: "user", email: ... }
+      const userData = docSnap.data();
+      
+      // ตรวจสอบว่าถ้าเป็น premium แล้วเลยวันหมดอายุหรือยัง
+      if (userData.role === 'premium' && userData.premiumUntil) {
+          const expirationDate = userData.premiumUntil.toDate();
+          if (new Date() > expirationDate) {
+              console.log(`บัญชี Premium ของ ${uid} หมดอายุแล้ว ระบบกำลังลดระดับเป็น user ทั่วไป...`);
+              
+              // อัปเดตกลับเป็น user ในฐานข้อมูล
+              await updateDoc(docRef, { role: 'user' });
+              
+              // ส่งค่ากลับไปให้หน้าบ้านรู้ว่าเป็น user
+              return { ...userData, role: 'user' }; 
+          }
+      }
+      return userData; 
     } else {
       console.log("ไม่พบข้อมูลผู้ใช้");
-      return { role: "user" }; // ป้องกัน Error ให้มองเป็นผู้ใช้ทั่วไปไว้ก่อน
+      return { role: "user" }; 
     }
   } catch (error) {
     console.error("ดึงข้อมูลประวัติไม่สำเร็จ:", error);
@@ -74,7 +85,43 @@ export const getUserProfile = async (uid) => {
 };
 
 // ==========================================
-// ส่วนเดิมของคุณ
+// 🌟 ระบบจัดการ Premium โดย Admin
+// ==========================================
+
+export const upgradeUserToPremium = async (uid, months = 1) => {
+  try {
+    const userRef = doc(db, 'users', uid);
+    const docSnap = await getDoc(userRef);
+    
+    let currentExpiration = new Date(); 
+    
+    if (docSnap.exists()) {
+       const userData = docSnap.data();
+       if (userData.role === 'premium' && userData.premiumUntil) {
+           const existingExpiration = userData.premiumUntil.toDate();
+           if (existingExpiration > new Date()) {
+               currentExpiration = existingExpiration;
+           }
+       }
+    }
+
+    currentExpiration.setDate(currentExpiration.getDate() + (months * 30));
+
+    await updateDoc(userRef, {
+      role: 'premium',
+      premiumUntil: Timestamp.fromDate(currentExpiration)
+    });
+    
+    console.log(`อัปเกรด UID: ${uid} เป็น Premium สำเร็จ ถึงวันที่ ${currentExpiration.toLocaleDateString()}`);
+    return true;
+  } catch (error) {
+    console.error("เกิดข้อผิดพลาดในการอัปเกรด Premium:", error);
+    throw error;
+  }
+};
+
+// ==========================================
+// ส่วนจัดการโปรเจกต์
 // ==========================================
 
 export const fetchRecentProjects = async (uid) => {
@@ -121,13 +168,11 @@ export const logoutUser = () => signOut(auth);
 
 export const saveProjectToDB = async (uid, projectId, projectData) => {
   try {
-    // ⭐ 1. ดึงข้อมูล Profile เพื่อเช็กยศ
     const userProfile = await getUserProfile(uid);
-    const role = userProfile?.role || "user"; // ถ้าไม่มียศให้ถือว่าเป็นสายฟรี
+    const role = userProfile?.role || "user"; 
     const isAdmin = role === "admin";
     const isPremium = role === "premium";
 
-    // ⭐ 2. ด่านตรวจโควตา (ทำงานเฉพาะคนที่ ไม่ใช่ Admin)
     if (!isAdmin) {
       const projectsRef = collection(db, `users/${uid}/projects`);
       const querySnapshot = await getDocs(projectsRef);
@@ -136,21 +181,18 @@ export const saveProjectToDB = async (uid, projectId, projectData) => {
       let projectCount = 0;
 
       querySnapshot.docs.forEach(docSnap => {
-        if (docSnap.id !== projectId) { // ไม่นับไฟล์เดิมที่กำลังจะเซฟทับ
+        if (docSnap.id !== projectId) { 
           const docData = docSnap.data();
           totalBytes += new Blob([JSON.stringify(docData)]).size;
           projectCount++;
         }
       });
 
-      // 🚦 กฎข้อที่ 1: สายฟรี (User) สร้างได้สูงสุด 10 โปรเจกต์
-      if (role === "user") {
-        // เช็กเฉพาะตอน "สร้างไฟล์ใหม่" (ถ้าไม่มี projectId แปลว่าสร้างใหม่)
+      if (!isPremium) { 
         if (!projectId && projectCount >= 10) {
           throw new Error("STORAGE_LIMIT_EXCEEDED");
         }
       } 
-      // 🚦 กฎข้อที่ 2: สายเปย์ (Premium) สร้างกี่ไฟล์ก็ได้ แต่รวมกันห้ามเกิน 5 MB
       else if (isPremium) {
         const dataToSaveForSize = {
           ...projectData,
@@ -158,7 +200,7 @@ export const saveProjectToDB = async (uid, projectId, projectData) => {
           updatedAt: new Date() 
         };
         const newProjectBytes = new Blob([JSON.stringify(dataToSaveForSize)]).size;
-        const maxLimitBytes = 5 * 1024 * 1024; // ลิมิต 5 MB
+        const maxLimitBytes = 5 * 1024 * 1024; 
 
         if (totalBytes + newProjectBytes > maxLimitBytes) {
           throw new Error("STORAGE_LIMIT_EXCEEDED");
@@ -166,7 +208,6 @@ export const saveProjectToDB = async (uid, projectId, projectData) => {
       }
     }
 
-    // ⭐ 3. บันทึกข้อมูลลงฐานข้อมูลตามปกติ
     const dataToSave = {
       ...projectData,
       sheetData: JSON.stringify(projectData.sheetData), 

@@ -79,6 +79,10 @@ const createBufferedSource = (buffer, volumeLevel, whenSec, destination) => {
   source.connect(gainNode);
   gainNode.connect(destination || getOutputNode());
 
+  // ⭐ จำเวลาที่โน้ตจะเริ่มเล่นไว้ เพื่อให้คำสั่งหยุด (stopAllScheduledNotes)
+  //    หยุดโน้ตที่ยังไม่ทันเริ่ม (จองไว้ในอนาคต) ได้อย่างถูกต้อง
+  source._startAt = startAt;
+
   activeSources.add(source);
   source.onended = () => {
     activeSources.delete(source);
@@ -240,7 +244,12 @@ export const stopAllScheduledNotes = () => {
   const stopAt = ctx.currentTime;
   Array.from(activeSources).forEach((source) => {
     try {
-      source.stop(stopAt);
+      // ⭐ แก้บั๊กเสียงปนกัน: scheduler จองโน้ตล่วงหน้า ~1.5 วิ (lookahead)
+      //    ถ้าโน้ตยังไม่ทันเริ่ม (start ในอนาคต) แล้วเรียก stop(stopAt) จะ throw
+      //    ทำให้โน้ตนั้นไม่ถูกยกเลิก แล้วยังเล่นต่อเมื่อกดเล่นใหม่ → เสียงซ้อนกัน
+      //    วิธีแก้: หยุดที่เวลาหลัง start เสมอ (s + 0.001) เพื่อให้หยุดได้จริง
+      const s = source._startAt || stopAt;
+      source.stop(Math.max(stopAt, s + 0.001));
     } catch (_) {
       // ignore already-ended sources
     }

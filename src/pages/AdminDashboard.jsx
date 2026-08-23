@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { db } from '../utils/firebase'; 
+import { db, upgradeUserToPremium } from '../utils/firebase'; 
 import { collection, getDocs, doc, updateDoc } from 'firebase/firestore';
 
 const formatBytes = (bytes) => {
@@ -15,8 +15,25 @@ const formatDate = (timestamp) => {
   return date.toLocaleDateString('th-TH', { 
     year: 'numeric', 
     month: 'short', 
-    day: 'numeric' 
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
   });
+};
+
+// ⭐ ฟังก์ชันคำนวณเวลานับถอยหลัง (วัน/ชั่วโมง/นาที)
+const calculateTimeLeft = (premiumUntil, currentTime) => {
+  if (!premiumUntil) return null;
+  const expirationDate = premiumUntil.toDate();
+  const diffTime = expirationDate.getTime() - currentTime.getTime();
+
+  if (diffTime <= 0) return { expired: true };
+
+  const days = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+  const hours = Math.floor((diffTime / (1000 * 60 * 60)) % 24);
+  const minutes = Math.floor((diffTime / 1000 / 60) % 60);
+
+  return { expired: false, days, hours, minutes };
 };
 
 const AdminDashboard = ({ userProfile }) => {
@@ -28,15 +45,25 @@ const AdminDashboard = ({ userProfile }) => {
   const [searchQuery, setSearchQuery] = useState("");
   const [sortOrder, setSortOrder] = useState('latest'); 
   const [isSortMenuOpen, setIsSortMenuOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState('all'); // 'all', 'user', 'premium', 'admin'
+  const [activeTab, setActiveTab] = useState('all'); 
 
-  // ⭐ State สำหรับเปิด Modal ดูโปรเจกต์ของยูสเซอร์
   const [selectedUser, setSelectedUser] = useState(null);
   const [userProjects, setUserProjects] = useState([]);
   const [isLoadingProjects, setIsLoadingProjects] = useState(false);
 
+  // ⭐ State สำหรับเก็บเวลาปัจจุบัน เพื่อทำ Live Countdown
+  const [now, setNow] = useState(new Date());
+
   const isAdmin = userProfile?.role === 'admin';
   const SYSTEM_MAX_BYTES = 1024 * 1024 * 1024; 
+
+  // ⭐ อัปเดตเวลาปัจจุบันทุกๆ 1 นาทีเพื่อให้นับถอยหลังแบบเรียลไทม์
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setNow(new Date());
+    }, 60000); 
+    return () => clearInterval(timer);
+  }, []);
 
   const fetchUsers = async () => {
     setIsLoading(true);
@@ -83,9 +110,14 @@ const AdminDashboard = ({ userProfile }) => {
 
     setIsUpdating(true);
     try {
-      const userRef = doc(db, "users", userId);
-      await updateDoc(userRef, { role: newRole });
-      setUsers(users.map(user => user.id === userId ? { ...user, role: newRole } : user));
+      if (newRole === 'premium') {
+        await upgradeUserToPremium(userId, 1);
+        fetchUsers(); 
+      } else {
+        const userRef = doc(db, "users", userId);
+        await updateDoc(userRef, { role: newRole });
+        setUsers(users.map(user => user.id === userId ? { ...user, role: newRole } : user));
+      }
     } catch (error) {
       alert("เกิดข้อผิดพลาดในการเปลี่ยนยศ");
     } finally {
@@ -93,7 +125,19 @@ const AdminDashboard = ({ userProfile }) => {
     }
   };
 
-  // ⭐ ฟังก์ชันเปิด Modal และดึงรายการโปรเจกต์ของยูสเซอร์คนนั้น
+  const handleExtendPremium = async (userId) => {
+    if (!window.confirm(`ยืนยันการต่ออายุ Premium เพิ่ม 1 เดือน?`)) return;
+    setIsUpdating(true);
+    try {
+      await upgradeUserToPremium(userId, 1);
+      fetchUsers(); 
+    } catch(e) {
+      alert("เกิดข้อผิดพลาดในการต่ออายุ");
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
   const handleOpenUserModal = async (user) => {
     setSelectedUser(user);
     setIsLoadingProjects(true);
@@ -113,7 +157,6 @@ const AdminDashboard = ({ userProfile }) => {
     }
   };
 
-  // ⭐ ฟังก์ชันดาวน์โหลดโปรเจกต์ของยูสเซอร์เป็นไฟล์ .tme
   const handleDownloadProject = (project) => {
     try {
       let sheetDataParsed = project.sheetData;
@@ -255,7 +298,7 @@ const AdminDashboard = ({ userProfile }) => {
             <thead>
               <tr className="bg-slate-50 text-slate-500 text-sm border-b border-slate-200">
                 <th className="px-6 py-4 font-bold">ชื่อผู้ใช้ / อีเมล</th>
-                <th className="px-6 py-4 font-bold">โควตา / พื้นที่ที่ใช้ไป</th>
+                <th className="px-6 py-4 font-bold">โควตา / ข้อมูลพรีเมียม</th>
                 <th className="px-6 py-4 font-bold text-center">จัดการสิทธิ์</th>
               </tr>
             </thead>
@@ -271,6 +314,9 @@ const AdminDashboard = ({ userProfile }) => {
               ) : (
                 displayedUsers.map(user => {
                   const role = user.role || 'user';
+                  // ⭐ คำนวณเวลาที่เหลือแบบใหม่ โดยเปรียบเทียบกับตัวแปร now ที่วิ่งตลอดเวลา
+                  const timeLeft = calculateTimeLeft(user.premiumUntil, now);
+                  const isExpired = timeLeft !== null && timeLeft.expired;
                   
                   let usagePercent = 0;
                   if (role === 'user') usagePercent = Math.min((user.projectCount / 10) * 100, 100);
@@ -278,7 +324,6 @@ const AdminDashboard = ({ userProfile }) => {
 
                   return (
                     <tr key={user.id} className="border-b border-slate-100 hover:bg-sky-50/40 transition-colors">
-                      {/* ⭐ คลิกที่ชื่อเพื่อเปิดดูไฟล์ของยูสเซอร์คนนี้ */}
                       <td className="px-6 py-4 cursor-pointer" onClick={() => handleOpenUserModal(user)} title="คลิกเพื่อดูไฟล์ของยูสเซอร์นี้">
                         <div className="font-bold text-slate-800 hover:text-sky-600 transition-colors flex items-center gap-1.5">
                           {user.displayName || user.email?.split('@')[0] || 'ผู้ใช้งาน'}
@@ -290,7 +335,7 @@ const AdminDashboard = ({ userProfile }) => {
                       </td>
                       
                       <td className="px-6 py-4">
-                        <div className="flex flex-col gap-1 w-48">
+                        <div className="flex flex-col gap-1 w-52">
                           <div className="flex items-center justify-between text-xs font-bold text-slate-700">
                             {role === 'user' ? (
                               <><span>{user.projectCount} ไฟล์</span><span className="text-[10px] text-slate-400 font-normal">({formatBytes(user.storageUsed)})</span></>
@@ -302,14 +347,41 @@ const AdminDashboard = ({ userProfile }) => {
                           {role === 'user' ? (
                             <><div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden"><div className={`h-full rounded-full transition-all ${usagePercent >= 100 ? 'bg-red-500' : 'bg-sky-400'}`} style={{ width: `${Math.max(usagePercent, 1)}%` }}></div></div><div className="text-[9px] text-slate-400 text-right">จากโควตา 10 ไฟล์</div></>
                           ) : role === 'premium' ? (
-                            <><div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden"><div className={`h-full rounded-full transition-all ${usagePercent >= 100 ? 'bg-red-500' : 'bg-amber-400'}`} style={{ width: `${Math.max(usagePercent, 1)}%` }}></div></div><div className="text-[9px] text-slate-400 text-right">จากโควตา 5 MB</div></>
+                            <><div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden"><div className={`h-full rounded-full transition-all ${usagePercent >= 100 ? 'bg-red-500' : 'bg-amber-400'}`} style={{ width: `${Math.max(usagePercent, 1)}%` }}></div></div><div className="text-[9px] text-slate-400 text-right mb-1.5">จากโควตา 5 MB</div></>
                           ) : (
                             <div className="w-full h-1.5 bg-violet-100 rounded-full overflow-hidden mt-0.5"><div className="h-full bg-violet-400 rounded-full w-full"></div></div>
+                          )}
+
+                          {/* ⭐ ส่วนแสดงข้อมูลเวลานับถอยหลัง */}
+                          {role === 'premium' && (
+                            <div className="mt-1 pt-1.5 border-t border-slate-100">
+                              {timeLeft !== null ? (
+                                isExpired ? (
+                                  <div className="text-[11px] font-bold text-red-500 flex items-center gap-1">
+                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                    สิ้นสุดการใช้งานแล้ว
+                                  </div>
+                                ) : (
+                                  <div className="text-[11px] font-bold text-emerald-600 flex items-center gap-1">
+                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                    เหลือ {timeLeft.days} วัน {timeLeft.hours} ชม. {timeLeft.minutes} นาที
+                                  </div>
+                                )
+                              ) : (
+                                <div className="text-[11px] font-bold text-slate-400">ยังไม่ระบุวันหมดอายุ</div>
+                              )}
+                              
+                              {user.premiumUntil && (
+                                <div className="text-[10px] text-slate-400 font-medium mt-0.5">
+                                  (ถึง {formatDate(user.premiumUntil)})
+                                </div>
+                              )}
+                            </div>
                           )}
                         </div>
                       </td>
 
-                      <td className="px-6 py-4 text-center" onClick={(e) => e.stopPropagation()}>
+                      <td className="px-6 py-4 text-center align-top" onClick={(e) => e.stopPropagation()}>
                         <select 
                           value={role}
                           onChange={(e) => handleRoleChange(user.id, e.target.value)}
@@ -324,6 +396,17 @@ const AdminDashboard = ({ userProfile }) => {
                           <option value="premium">Premium (5 MB)</option>
                           <option value="admin">Admin (ไม่จำกัด)</option>
                         </select>
+
+                        {role === 'premium' && (
+                          <button
+                            onClick={() => handleExtendPremium(user.id)}
+                            disabled={isUpdating}
+                            className="mt-2 text-[11px] font-bold text-white bg-amber-500 hover:bg-amber-600 px-3 py-1.5 rounded-lg w-full transition-colors shadow-sm disabled:opacity-50 flex items-center justify-center gap-1"
+                          >
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
+                            ต่ออายุ 1 เดือน
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );
@@ -334,7 +417,6 @@ const AdminDashboard = ({ userProfile }) => {
         </div>
       </div>
 
-      {/* ⭐ Modal แสดงรายชื่อโปรเจกต์ของยูสเซอร์ที่ถูกคลิก */}
       {selectedUser && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-fadeIn">
           <div className="bg-white rounded-3xl p-6 md:p-8 w-full max-w-2xl shadow-2xl scale-100 animate-slideUp flex flex-col max-h-[85vh]">

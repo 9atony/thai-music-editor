@@ -42,6 +42,20 @@ const MobileEditor = ({ onBack }) => {
     isPlayingRef.current = isPlaying;
   }, [isPlaying]);
 
+  // ⭐ แก้บัก: ออกจากหน้าแก้ไขโน้ตแล้วเสียงยังเล่นต่อ
+  //    ใช้ ref กันไม่ให้หยุดเพลงทุกครั้งที่ MusicContext re-render
+  const stopPlaybackRef = useRef(stopPlayback);
+  useEffect(() => {
+    stopPlaybackRef.current = stopPlayback;
+  }, [stopPlayback]);
+
+  useEffect(() => {
+    // เมื่อ component ถูกถอดออก (ออกจากหน้า/เปลี่ยนหน้า) ให้หยุดเสียงทันที
+    return () => {
+      if (stopPlaybackRef.current) stopPlaybackRef.current();
+    };
+  }, []);
+
   // ⭐ ดักจับการกดปุ่ม Back
   useEffect(() => {
     window.history.pushState(null, null, window.location.href);

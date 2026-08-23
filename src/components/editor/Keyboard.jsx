@@ -247,6 +247,66 @@ const Keyboard = () => {
 
                     </div>
                   </>
+                )}{isInstMenuOpen && (
+                  <>
+                    <div className="fixed inset-0 z-[180]" onPointerDown={() => setIsInstMenuOpen(false)}></div>
+                    <div className="absolute left-0 bottom-[calc(100%+8px)] z-[220] min-w-[240px] w-max max-w-[280px] bg-white border border-amber-200 rounded-xl shadow-[0_18px_40px_rgba(15,23,42,0.18)] overflow-hidden py-1.5 flex flex-col">
+
+                      {/* ⭐ สร้างตัวแปรจำลองสิทธิ์ (เดี๋ยวเราค่อยดึงจาก Firebase Context ภายหลัง) */}
+                      {(() => {
+                        const userRole = 'user'; // ลองเปลี่ยนเป็น 'premium' เพื่อทดสอบดูได้ครับ
+
+                        // ฟังก์ชันตรวจสอบก่อนเปลี่ยนเครื่องดนตรี
+                        const handleInstrumentSelect = (inst) => {
+                          const isPremiumInst = inst.tier === 'premium';
+                          const hasAccess = userRole === 'premium' || userRole === 'admin';
+                          
+                          if (isPremiumInst && !hasAccess) {
+                            alert(`เครื่องดนตรี "${inst.name}" สำหรับสมาชิก Premium เท่านั้นครับ 🔒\nสนใจอัปเกรดเพื่อใช้งานฟังก์ชันขั้นสูงหรือไม่?`);
+                            setIsInstMenuOpen(false);
+                            return;
+                          }
+                          
+                          changeInstrument(inst.id);
+                          setIsInstMenuOpen(false);
+                        };
+
+                        return (
+                          <>
+                            <div className="px-3 pt-2 pb-1 text-[10px] font-black text-amber-500/80 uppercase tracking-widest select-none">เครื่องดำเนินทำนอง</div>
+                            {Object.values(INSTRUMENT_CONFIG).filter(i => i.type !== 'percussion').map(inst => {
+                              const isLocked = inst.tier === 'premium' && userRole !== 'premium' && userRole !== 'admin';
+                              return (
+                                <button
+                                  key={inst.id}
+                                  onPointerDown={() => handleInstrumentSelect(inst)}
+                                  className={`w-full flex justify-between items-center text-left px-4 py-2 text-[11px] font-bold hover:bg-amber-50 transition-colors ${displayInstrument.id === inst.id ? 'bg-amber-100 text-amber-900' : isLocked ? 'text-slate-400' : 'text-slate-600'}`}
+                                >
+                                  <span>{inst.name}</span>
+                                  {isLocked && <span title="สำหรับสมาชิก Premium">🔒</span>}
+                                </button>
+                              );
+                            })}
+
+                            <div className="px-3 pt-3 pb-1 mt-1 text-[10px] font-black text-amber-500/80 uppercase tracking-widest border-t border-amber-100 select-none">เครื่องประกอบจังหวะ</div>
+                            {Object.values(INSTRUMENT_CONFIG).filter(i => i.type === 'percussion').map(inst => {
+                              const isLocked = inst.tier === 'premium' && userRole !== 'premium' && userRole !== 'admin';
+                              return (
+                                <button
+                                  key={inst.id}
+                                  onPointerDown={() => handleInstrumentSelect(inst)}
+                                  className={`w-full flex justify-between items-center text-left px-4 py-2 text-[11px] font-bold hover:bg-amber-50 transition-colors ${displayInstrument.id === inst.id ? 'bg-amber-100 text-amber-900' : isLocked ? 'text-slate-400' : 'text-slate-600'}`}
+                                >
+                                  <span>{inst.name}</span>
+                                  {isLocked && <span title="สำหรับสมาชิก Premium">🔒</span>}
+                                </button>
+                              );
+                            })}
+                          </>
+                        );
+                      })()}
+                    </div>
+                  </>
                 )}
               </div>
 

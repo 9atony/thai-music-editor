@@ -206,6 +206,11 @@ export default function Timeline() {
       addClip(trackId, Number(startPosition.toFixed(2)));
     }
     if (activeTool === 'zoom') { e.shiftKey || e.altKey ? zoomOut() : zoomIn(); }
+    // ⭐ ให้กดที่ไทม์ไลน์ (ช่องว่างของแทร็ก) เลื่อนเส้นเล่นเสียงไปยังจุดที่คลิกได้
+    if (activeTool !== 'draw' && activeTool !== 'zoom') {
+      setCurrentTime(Math.max(0, rawPosition));
+      if (isPlaying) startPlayback();
+    }
   };
 
   const openClipMenu = (clipId, e) => { e.stopPropagation(); setClipMenu({ clipId, x: e.clientX, y: e.clientY }); };
