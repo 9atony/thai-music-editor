@@ -25,6 +25,7 @@ import { onAuthStateChanged } from 'firebase/auth';
 // ⭐ นำเข้า getUserProfile จาก firebase.js
 import { auth, getUserProfile } from './utils/firebase'; 
 import { MusicContext } from './contexts/MusicContext'; 
+import { primeAudioEngine } from './utils/audioEngine';
 
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from './utils/firebase';
@@ -60,6 +61,7 @@ function App() {
       sessionStorage.setItem('tme_site_unlocked', 'true');
       setIsSiteUnlocked(true);
       setPassError(false);
+      primeAudioEngine().catch(() => {});
     } else {
       setPassError(true);
       setSitePassInput("");
@@ -122,6 +124,31 @@ function App() {
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, [currentView, previousView]);
+
+  useEffect(() => {
+    if (!isSiteUnlocked) return undefined;
+
+    let armed = true;
+    const triggerPrime = () => {
+      if (!armed) return;
+      armed = false;
+      window.removeEventListener('pointerdown', triggerPrime);
+      window.removeEventListener('touchstart', triggerPrime);
+      window.removeEventListener('keydown', triggerPrime);
+      primeAudioEngine().catch(() => {});
+    };
+
+    window.addEventListener('pointerdown', triggerPrime, { passive: true });
+    window.addEventListener('touchstart', triggerPrime, { passive: true });
+    window.addEventListener('keydown', triggerPrime);
+
+    return () => {
+      armed = false;
+      window.removeEventListener('pointerdown', triggerPrime);
+      window.removeEventListener('touchstart', triggerPrime);
+      window.removeEventListener('keydown', triggerPrime);
+    };
+  }, [isSiteUnlocked]);
 
   if (isCheckingAuth) {
     return <div className="min-h-screen bg-slate-50 flex items-center justify-center font-sans text-slate-500 font-medium">กำลังตรวจสอบข้อมูล...</div>;

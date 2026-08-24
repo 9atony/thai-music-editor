@@ -22,6 +22,12 @@ const Keyboard = () => {
   const [activeIdx, setActiveIdx] = useState(null);
   
   const litTimersRef = useRef({});
+  const visualBurstTimersRef = useRef([]);
+  // ⭐ แก้บั๊กโน้ตซ้อนกันบนจอ: เดิมใช้ตัวนับ stagger ร่วมกันทุกปุ่ม
+  //    ทำให้เล่นโน้ตถี่ๆ (โหมดคู่แปด → ยิง event 2 ตัวพร้อมกัน) → depth สะสมเรื่อยๆ
+  //    โน้ตรุ่นหลังดีเลย์ 90, 180, 270...ms และค้างบนจอพร้อมกันหลายปุ่ม
+  //    แก้: ใช้ Map แยกตามแต่ละ key idx เพื่อให้แต่ละปุ่มนับ stagger ของตัวเอง
+  const visualBurstStateRef = useRef({});
 
   const [isMinimized, setIsMinimized] = useState(false);
   const [isInstMenuOpen, setIsInstMenuOpen] = useState(false);
@@ -56,30 +62,93 @@ const Keyboard = () => {
   };
 
   useEffect(() => {
+    const clearVisualBurstTimers = () => {
+      visualBurstTimersRef.current.forEach(timerId => clearTimeout(timerId));
+      visualBurstTimersRef.current = [];
+      // ⭐ reset per-key map (ไม่ใช่ตัวเดียวร่วมกัน)
+      visualBurstStateRef.current = {};
+    };
+
+    // ⭐ เก็บกวาดคลาส .lit-* ของทุกปุ่ม (กันค้างข้าม instrument หรือ unmount)
+    const clearAllLitClasses = () => {
+      try {
+        const buttons = document.querySelectorAll('[id^="kbd-key-"]');
+        buttons.forEach((btn) => {
+          btn.classList.remove('lit-left', 'lit-right', 'lit-single');
+        });
+      } catch (_) {}
+    };
+
+    const flashKey = (idx, hand) => {
+      const btn = document.getElementById(`kbd-key-${idx}`);
+      if (!btn) return;
+
+      if (litTimersRef.current[idx]) clearTimeout(litTimersRef.current[idx]);
+
+      btn.classList.remove('lit-left', 'lit-right', 'lit-single');
+      void btn.offsetWidth;
+
+      const handClass = `lit-${hand}`;
+      btn.classList.add(handClass);
+
+      // ⭐ ลดเวลาค้างของแสง (200 → 170ms) ลดโอกาสซ้อนกันของโน้ตรุ่นถัดไป
+      litTimersRef.current[idx] = setTimeout(() => {
+        btn.classList.remove(handClass);
+        delete litTimersRef.current[idx];
+      }, 170);
+    };
+
+    const queueVisualHit = (idx, hand) => {
+      const now = performance.now();
+      const burstWindowMs = 20;
+      // ⭐ ลด stagger (90 → 50ms) โน้ตคู่แปดจะเห็นติดกันชัด ไม่ดีเลย์นานจนตาเบลอ
+      const staggerMs = 50;
+
+      // ⭐ ใช้ state แยกต่อ key idx (ไม่ใช่ตัวเดียวร่วมกันทุกปุ่ม)
+      if (!visualBurstStateRef.current[idx]) {
+        visualBurstStateRef.current[idx] = { startedAt: 0, depth: 0 };
+      }
+      const burstState = visualBurstStateRef.current[idx];
+
+      if (now - burstState.startedAt > burstWindowMs) {
+        burstState.startedAt = now;
+        burstState.depth = 0;
+      }
+
+      const delay = burstState.depth * staggerMs;
+      burstState.depth += 1;
+
+      if (delay === 0) {
+        flashKey(idx, hand);
+        return;
+      }
+
+      const timerId = setTimeout(() => {
+        flashKey(idx, hand);
+        visualBurstTimersRef.current = visualBurstTimersRef.current.filter(id => id !== timerId);
+      }, delay);
+
+      visualBurstTimersRef.current.push(timerId);
+    };
+
     const handleNotePlayed = (e) => {
-      const { note, hand } = e.detail; 
+      const { note, hand } = e.detail;
       const idx = displayInstrument.keys.findIndex(k => getFormattedStr(k.eng, k.thai) === note);
-      
+
       if (idx !== -1) {
-        const btn = document.getElementById(`kbd-key-${idx}`);
-        if (!btn) return;
-
-        if (litTimersRef.current[idx]) clearTimeout(litTimersRef.current[idx]);
-
-        btn.classList.remove('lit-left', 'lit-right', 'lit-single');
-        void btn.offsetWidth;
-
-        const handClass = `lit-${hand}`;
-        btn.classList.add(handClass);
-
-        litTimersRef.current[idx] = setTimeout(() => {
-          btn.classList.remove(handClass);
-        }, 200); 
+        queueVisualHit(idx, hand);
       }
     };
 
     window.addEventListener('tme-note-played', handleNotePlayed);
-    return () => window.removeEventListener('tme-note-played', handleNotePlayed);
+    return () => {
+      window.removeEventListener('tme-note-played', handleNotePlayed);
+      clearVisualBurstTimers();
+      Object.values(litTimersRef.current).forEach(timerId => clearTimeout(timerId));
+      litTimersRef.current = {};
+      // ⭐ เคลียร์คลาส .lit-* ที่อาจค้างอยู่บนปุ่มเก่าก่อน render รอบใหม่
+      clearAllLitClasses();
+    };
   }, [displayInstrument]); 
 
   const isIntervalActive = intervalMode !== 'off';
@@ -183,6 +252,10 @@ const Keyboard = () => {
             color: white !important;
             font-weight: bold !important;
             opacity: 0.9 !important;
+          }
+          /* ⭐ ลด transition เฉพาะตอนล้าง lit (กัน ghost สีค้างตอนเปลี่ยนคลาส) */
+          [id^="kbd-key-"] {
+            transition: transform 90ms ease-out, background-color 120ms ease-out, color 120ms ease-out;
           }
         `}
       </style>
@@ -459,7 +532,10 @@ const Keyboard = () => {
                 const isHovered = hoveredIdx === i || (isIntervalActive && hoveredIdx !== null && i === hoveredIdx - intervalDist);
                 const isActive = activeIdx === i || (isIntervalActive && activeIdx !== null && i === activeIdx - intervalDist);
 
-                let btnClass = 'w-14 h-[100px] shrink-0 border-b-[5px] rounded-b-md flex flex-col items-center justify-end pb-5 transition-all shadow-sm group select-none relative ';
+                // ⭐ ปิด shadow-sm ของปุ่มคีย์เมื่อเปิด "แสดงการตี" (isShowPlayMode)
+                //    เพราะเงาที่ลอยตามหลังทำให้ดูเหมือนมี ghost ตอนปุ่มขยับกดลง + เปลี่ยนสี
+                const keyShadowClass = isShowPlayMode ? '' : 'shadow-sm ';
+                let btnClass = `w-14 h-[100px] shrink-0 border-b-[5px] rounded-b-md flex flex-col items-center justify-end pb-5 transition-all ${keyShadowClass}group select-none relative `;
 
                 if (isActive) {
                   btnClass += isIntervalActive ? 'bg-amber-300 border-amber-300 border-b-0 translate-y-1 text-amber-900 ' : 'bg-sky-200 border-sky-200 border-b-0 translate-y-1 text-sky-900 ';

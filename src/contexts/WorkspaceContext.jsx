@@ -399,9 +399,27 @@ export const WorkspaceProvider = ({ children }) => {
   const clipboardRef = useRef(null);
   const [hasClipboard, setHasClipboard] = useState(false);
   
+
   const tracksRef = useRef(tracks);
   useEffect(() => {
     tracksRef.current = tracks;
+  }, [tracks]);
+
+  useEffect(() => {
+    const instrumentIds = new Set();
+    tracks.forEach((track) => {
+      if (track?.instrumentId && INSTRUMENT_CONFIG[track.instrumentId]) instrumentIds.add(track.instrumentId);
+      (track?.clips || []).forEach((clip) => {
+        if (clip?.sourceInstrumentId && INSTRUMENT_CONFIG[clip.sourceInstrumentId]) instrumentIds.add(clip.sourceInstrumentId);
+        (clip?.playback?.events || []).forEach((event) => {
+          if (event?.instrumentId && INSTRUMENT_CONFIG[event.instrumentId]) instrumentIds.add(event.instrumentId);
+        });
+      });
+    });
+
+    instrumentIds.forEach((instrumentId) => {
+      preloadSounds(instrumentId).catch(() => {});
+    });
   }, [tracks]);
   const currentTimeRef = useRef(0);
   const isPlayingRef = useRef(false);

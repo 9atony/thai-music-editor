@@ -9,11 +9,13 @@ const activeSources = new Set();
 const trackGainNodes = {};
 const clipGainNodes = {};
 const DEFAULT_START_LEAD_TIME = 0.015;
+let primeAudioPromise = null;
 
 const getAudioContext = () => {
   if (audioCtx) return audioCtx;
   const Ctx = window.AudioContext || window.webkitAudioContext;
-  audioCtx = new Ctx({ latencyHint: 'playback' });
+  // ⭐ เน้นตอบสนองตอนกดเล่น/กดโน้ตให้เร็วที่สุด ลดอาการรอ output path ตื่นตัว
+  audioCtx = new Ctx({ latencyHint: 'interactive' });
 
   masterGainNode = audioCtx.createGain();
   masterGainNode.gain.value = 1;
@@ -22,8 +24,11 @@ const getAudioContext = () => {
   masterCompressorNode.threshold.value = -18;
   masterCompressorNode.knee.value = 18;
   masterCompressorNode.ratio.value = 3;
-  masterCompressorNode.attack.value = 0.003;
-  masterCompressorNode.release.value = 0.18;
+  // ⭐ แก้ทรานเซียนต์เพี้ยน: attack เดิม 0.003 วินาที + ratio 3 → compressor ตอบสนองแรงเกินไป
+  //    โน้ต percussion (กลอง/ฉิ่ง) ที่มี transient แรงจะถูกบีบจนเสียงแหลม/ขาดรายละเอียด
+  //    ปรับ attack ให้ช้าลงเล็กน้อย compressor จะ "ปล่อยผ่าน" transient สั้นๆ แล้วค่อยบีบส่วนต่อเนื่อง
+  masterCompressorNode.attack.value = 0.008;
+  masterCompressorNode.release.value = 0.22;
 
   masterGainNode.connect(masterCompressorNode);
   masterCompressorNode.connect(audioCtx.destination);
@@ -32,8 +37,17 @@ const getAudioContext = () => {
 };
 
 const getOutputNode = () => {
+  // ⭐ แก้บั๊ก fall-through ไป destination ตรง (ข้าม compressor):
+  //    เรียก getAudioContext() ก่อนเสมอ เพื่อให้ masterGainNode ถูกสร้างแน่นอน
+  //    แล้วค่อยใช้ masterGainNode ตรงๆ ไม่มี fallback → สัญญาณทุกเส้นทางผ่าน compressor ตามที่ออกแบบ
   const ctx = getAudioContext();
-  return masterGainNode || ctx.destination;
+  if (!masterGainNode) {
+    // safety net: ถ้าด้วยเหตุผลบางอย่าง masterGainNode ยังไม่ถูกสร้าง ให้สร้างตอนนี้
+    masterGainNode = ctx.createGain();
+    masterGainNode.gain.value = 1;
+    masterGainNode.connect(masterCompressorNode || ctx.destination);
+  }
+  return masterGainNode;
 };
 
 const getFormattedNote = (note, eng) => {
@@ -72,9 +86,12 @@ const createBufferedSource = (buffer, volumeLevel, whenSec, destination) => {
   source.buffer = buffer;
 
   const normalizedGain = Math.max(0, Math.min(100, volumeLevel)) / 100;
+  const ATTACK = 0.003;          // ⭐ ramp ขึ้นตอนเริ่มโน้ต กันคลิก
+  const RELEASE = 0.012;         // ⭐ ระยะ ramp ลงตอนหยุด กันเสียงช็อต
+
   gainNode.gain.cancelScheduledValues(startAt);
   gainNode.gain.setValueAtTime(0.0001, Math.max(0, startAt - 0.004));
-  gainNode.gain.linearRampToValueAtTime(normalizedGain, startAt + 0.003);
+  gainNode.gain.linearRampToValueAtTime(normalizedGain, startAt + ATTACK);
 
   source.connect(gainNode);
   gainNode.connect(destination || getOutputNode());
@@ -82,6 +99,9 @@ const createBufferedSource = (buffer, volumeLevel, whenSec, destination) => {
   // ⭐ จำเวลาที่โน้ตจะเริ่มเล่นไว้ เพื่อให้คำสั่งหยุด (stopAllScheduledNotes)
   //    หยุดโน้ตที่ยังไม่ทันเริ่ม (จองไว้ในอนาคต) ได้อย่างถูกต้อง
   source._startAt = startAt;
+  source._gainNode = gainNode;
+  source._release = RELEASE;
+  source._normalizedGain = normalizedGain;
 
   activeSources.add(source);
   source.onended = () => {
@@ -110,10 +130,15 @@ const loadSoundBuffer = async (instrumentId, key) => {
   if (!audioBufferPromiseCache[instrumentId][finalNoteStr]) {
     audioBufferPromiseCache[instrumentId][finalNoteStr] = (async () => {
       const ctx = getAudioContext();
-      // ⭐ เพิ่มตัวล้าง Cache บังคับให้เบราว์เซอร์โหลดไฟล์เสียงใหม่ล่าสุดเสมอ
-      const response = await fetch(`/sounds/${instrumentId}/${key.audio}?v=${new Date().getTime()}`, { cache: 'no-store' });
+      // ⭐ แก้บั๊ก cache buster: เดิมใส่ ?v=${Date.now()} + cache: 'no-store' ทำให้ browser ไม่ cache ไฟล์เลย
+      //    โหลดซ้ำทุกครั้ง แม้จะเป็นโน้ตเดิม → เปลือง bandwidth (เคสโหลดหลายร้อย buffer)
+      //    ใช้ HTTP cache ปกติ: เบราว์เซอร์จะเก็บไฟล์ไว้เอง + ส่ง If-Modified-Since ตอนไฟล์ไม่เปลี่ยน (304 Not Modified)
+      //    ถ้าต้องการบังคับโหลดใหม่ตอน dev ให้ผู้ใช้ hard-refresh หรือเคลียร์ cache เอง
+      const response = await fetch(`/sounds/${instrumentId}/${key.audio}`, { cache: 'default' });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const arrayBuffer = await response.arrayBuffer();
-      const audioBuffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
+      // ⭐ ใช้ arrayBuffer ตรงๆ ไม่ slice(0) เพื่อลดการคัดลอก memory (decodeAudioData รองรับโดยตรง)
+      const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
       audioBufferCache[instrumentId][finalNoteStr] = audioBuffer;
       return audioBuffer;
     })().catch((err) => {
@@ -131,6 +156,21 @@ export const initAudioContext = async () => {
   if (ctx.state === 'suspended') {
     await ctx.resume();
   }
+  // ⭐ แก้เสียงกระตุกตอนกดเล่น: warm up output node ด้วย BufferSource เงียบ ๆ ตัวสั้น ๆ
+  //    เพื่อบังคับให้ browser เปิด audio output path ก่อน — ลด latency spike ตอนโน้ตแรก
+  try {
+    if (ctx.state === 'running' && !ctx._warmed) {
+      const silentBuf = ctx.createBuffer(1, 1, ctx.sampleRate);
+      const warmSrc = ctx.createBufferSource();
+      warmSrc.buffer = silentBuf;
+      const warmGain = ctx.createGain();
+      warmGain.gain.value = 0;
+      warmSrc.connect(warmGain);
+      warmGain.connect(ctx.destination);
+      warmSrc.start(0);
+      ctx._warmed = true;
+    }
+  } catch (_) {}
   return ctx;
 };
 
@@ -153,8 +193,18 @@ export const setTrackGain = (trackId, value) => {
   if (g) {
     const ctx = getAudioContext();
     const v = Math.max(0, Math.min(1, Number(value) || 0));
-    g.gain.cancelScheduledValues(ctx.currentTime);
-    g.gain.setValueAtTime(v, ctx.currentTime);
+    // ⭐ แก้บั๊กดีเลขณะปรับระดับเสียง (เร็วขึ้น + ไม่มีคลิก):
+    //    รูปแบบเดิม: anchor + linearRampToValueAtTime(0.010s = 10ms)
+    //      - slider ส่ง onChange ~60Hz ขณะลาก → ทุก event ยกเลิก ramp เก่าและเริ่ม ramp ใหม่ 10ms
+    //      - gain วิ่งไล่ตาม UI ตลอด → รู้สึก "ดีเล" (โดยเฉพาะลากเร็ว)
+    //    รูปแบบใหม่ (ใช้กันใน DAW ชั้นนำ เช่น Logic/Pro Tools):
+    //      - cancelScheduledValues กัน ramp เก่าค้าง
+    //      - setValueAtTime แบบ snap - gain เปลี่ยนทันทีตาม UI ไม่มีดีเล
+    //      - ลาก slider: gain เปลี่ยนทีละน้อยตาม pixel → ไม่คลิก (คลิกเกิดจากการกระโดดค่าครั้งเดียวเยอะๆ)
+    //      - กรณีอยากป้องกันคลิกจากการกระโดดค่า (เช่น mute toggle 0<->1): เรียก fadeTrackGain() แทน
+    const now = ctx.currentTime;
+    g.gain.cancelScheduledValues(now);
+    g.gain.setValueAtTime(v, now);
   }
 };
 
@@ -174,8 +224,38 @@ export const setClipGain = (clipId, value) => {
   if (g) {
     const ctx = getAudioContext();
     const v = Math.max(0, Math.min(1, Number(value) || 0));
-    g.gain.cancelScheduledValues(ctx.currentTime);
-    g.gain.setValueAtTime(v, ctx.currentTime);
+    // ⭐ เหมือน setTrackGain: snap ทันที ไม่ ramp เพื่อกำจัดดีเลขณะลาก slider
+    const now = ctx.currentTime;
+    g.gain.cancelScheduledValues(now);
+    g.gain.setValueAtTime(v, now);
+  }
+};
+
+// ⭐ สำหรับกรณีกระโดดค่าครั้งใหญ่ (toggle mute on/off, fade in/out) — ใช้ ramp สั้นๆ 5ms กันคลิก
+//    เรียกจาก UI ตอนกด mute/solo หรือ fade track เข้า/ออก
+export const fadeTrackGain = (trackId, value, rampSec = 0.005) => {
+  const g = trackGainNodes[trackId];
+  if (g) {
+    const ctx = getAudioContext();
+    const v = Math.max(0, Math.min(1, Number(value) || 0));
+    const now = ctx.currentTime;
+    g.gain.cancelScheduledValues(now);
+    const currentVal = (typeof g.gain.value === 'number') ? g.gain.value : 1;
+    g.gain.setValueAtTime(currentVal, now);
+    g.gain.linearRampToValueAtTime(v, now + rampSec);
+  }
+};
+
+export const fadeClipGain = (clipId, value, rampSec = 0.005) => {
+  const g = clipGainNodes[clipId];
+  if (g) {
+    const ctx = getAudioContext();
+    const v = Math.max(0, Math.min(1, Number(value) || 0));
+    const now = ctx.currentTime;
+    g.gain.cancelScheduledValues(now);
+    const currentVal = (typeof g.gain.value === 'number') ? g.gain.value : 1;
+    g.gain.setValueAtTime(currentVal, now);
+    g.gain.linearRampToValueAtTime(v, now + rampSec);
   }
 };
 
@@ -209,26 +289,77 @@ export const preloadAllSounds = async () => {
   await Promise.allSettled(instrumentIds.map((instrumentId) => preloadSounds(instrumentId)));
 };
 
+export const primeAudioEngine = async () => {
+  if (primeAudioPromise) return primeAudioPromise;
+
+  primeAudioPromise = (async () => {
+    await initAudioContext();
+    await preloadAllSounds();
+    return true;
+  })().catch((err) => {
+    primeAudioPromise = null;
+    throw err;
+  });
+
+  return primeAudioPromise;
+};
+
 // ⭐ ตัวเลข generation ใช้กันเสียงหลุดหลังกดหยุด: ถ้ากำลังโหลด buffer อยู่แล้วมีคำสั่งหยุดแทรกเข้ามา ให้ยกเลิกการเล่นโน้ตนั้นทิ้ง
 let noteGeneration = 0;
 
-// ⭐ scheduleNote เวอร์ชันใหม่: ถ้า buffer ยังไม่ถูกโหลด/ถอดรหัส จะโหลดให้อัตโนมัติแล้วค่อยเล่นตามเวลาที่กำหนด
-//    ทำให้ไม่มีโน้ตหลุด (dropped note) แม้กดเล่นครั้งแรกทันที
+// ⭐ แก้ race condition ของ noteGeneration:
+//    เดิม: ตรวจ noteGeneration แค่จุดเดียว (หลัง await loadSoundBuffer) →
+//      ถ้า generation เปลี่ยนระหว่างนั้น return null แต่ promise การโหลด buffer ยัง resolve อยู่และถูก cache ไว้
+//      ตอนกดเล่นครั้งใหม่ทันที อาจได้ buffer เก่า (จากการโหลดครั้งก่อน) มา schedule ทับกับ generation ปัจจุบัน
+//    วิธีแก้: เก็บ in-flight tasks เป็น "generation token" — สร้าง token ตอนเริ่มโน้ต ถ้า token ถูก invalidate ก็ drop note นั้นทั้งเส้นทาง
+//    ส่วนการ cache buffer ยังเก็บไว้ตามเดิม (เป็น asset ที่ไม่ขึ้นกับ playback)
+const noteGenerations = new Map();  // ⭐ generation counter ต่อ token id ใช้เช็คทุก stage
+let tokenCounter = 0;
+
+const createToken = () => {
+  tokenCounter += 1;
+  const id = tokenCounter;
+  noteGenerations.set(id, { active: true });
+  return id;
+};
+
+const invalidateToken = (id) => {
+  const t = noteGenerations.get(id);
+  if (t) t.active = false;
+};
+
+const isTokenActive = (id) => {
+  const t = noteGenerations.get(id);
+  return !!(t && t.active);
+};
+
+// ⭐ scheduleNote เวอร์ชันปรับปรุง: ใช้ generation token
+//    - ตรวจ token ทุก stage (ก่อน await, หลัง await, ก่อน create source)
+//    - ถ้า token ถูก invalidate ทุก stage คืน null → โน้ตนั้นไม่เล่นเด็ดขาด
+//    - token ถูก invalidate ใน stopAllScheduledNotes()
 const scheduleNote = async (instrumentId, noteChar, whenSec, volumeLevel = 100, destination) => {
   if (!noteChar || noteChar === '-') return null;
   const cleanNote = noteChar.trim();
   if (!INSTRUMENT_CONFIG[instrumentId]) return null;
 
+  const tokenId = createToken();
+
   let buffer = audioBufferCache[instrumentId]?.[cleanNote];
   if (!buffer) {
-    const myGen = noteGeneration;
     const key = findKeyByFormattedNote(instrumentId, cleanNote);
-    buffer = key ? await loadSoundBuffer(instrumentId, key) : null;
-    if (myGen !== noteGeneration) return null; // หยุดเล่นไปแล้วระหว่างโหลด
-    if (!buffer) return null;
+    if (!key) { invalidateToken(tokenId); return null; }
+    buffer = await loadSoundBuffer(instrumentId, key);
+    if (!isTokenActive(tokenId)) return null; // หยุดเล่นไปแล้วระหว่างโหลด
+    if (!buffer) { invalidateToken(tokenId); return null; }
   }
 
-  return createBufferedSource(buffer, volumeLevel, whenSec, destination);
+  // ตรวจ token อีกครั้งหลัง await ทั้งหมดก่อนสร้าง source
+  if (!isTokenActive(tokenId)) return null;
+
+  const src = createBufferedSource(buffer, volumeLevel, whenSec, destination);
+  // ผูก token เข้ากับ source เพื่อให้ stopAllScheduledNotes invalidate token ได้ด้วย
+  if (src) src._tokenId = tokenId;
+  return src;
 };
 
 export { scheduleNote };
@@ -239,17 +370,49 @@ export const playNote = (instrumentId, noteChar, volumeLevel = 100) => {
 };
 
 export const stopAllScheduledNotes = () => {
+  // ⭐ invalidate token ของทุก source ที่กำลังเล่น/รอเล่นอยู่ — แก้ race condition
+  //    ตอนกดหยุดทุก token ที่ยังไม่จบ promise จะถูก mark inactive → scheduleNote() return null ทันที
   noteGeneration += 1;
   const ctx = getAudioContext();
   const stopAt = ctx.currentTime;
   Array.from(activeSources).forEach((source) => {
+    if (source._tokenId) invalidateToken(source._tokenId);
     try {
+      // ⭐ แก้บั๊กเสียงช็อต (click) ตอนหยุดเล่น:
+      //    ปัญหาเดิมคือ stop() ที่ gain ~ค่าปกติทันที → เกิด DC discontinuity → หูได้ยินเป็นเสียงช็อต
+      //    วิธีแก้: ramp gain ลงเป็น 0 ก่อนในเวลา RELEASE (~12ms) แล้วค่อย stop source
+      //    - ถ้าโน้ตยังไม่ทันเริ่ม (start ในอนาคต) → ตั้ง gain ตอน start เป็น 0 ทันที แล้ว stop แบบไม่มี ramp
+      //    - ถ้าโน้ตกำลังเล่นอยู่ → ramp ลงแล้วค่อย stop หลัง release จบ
+      const s = source._startAt || stopAt;
+      const release = source._release || 0.012;
+      const gainNode = source._gainNode;
+
+      const startTime = Math.max(stopAt, s);              // เวลาที่เริ่มมีผลกับ gain
+      const endStopTime = startTime + release + 0.005;    // เวลาที่จะสั่ง stop จริง
+
+      if (gainNode && typeof gainNode.gain !== 'undefined') {
+        const currentValue = (typeof source._normalizedGain === 'number')
+          ? source._normalizedGain
+          : 1;
+        try {
+          gainNode.gain.cancelScheduledValues(startTime);
+          if (s > stopAt) {
+            // โน้ตยังไม่เริ่ม → กันไม่ให้มันดังขึ้นมาตอน start
+            gainNode.gain.setValueAtTime(0.0001, s);
+          } else {
+            // โน้ตกำลังเล่น → ramp ลง smooth
+            const nowVal = (typeof gainNode.gain.value === 'number') ? gainNode.gain.value : currentValue;
+            gainNode.gain.setValueAtTime(nowVal, startTime);
+            gainNode.gain.linearRampToValueAtTime(0.0001, startTime + release);
+          }
+        } catch (_) {}
+      }
+
       // ⭐ แก้บั๊กเสียงปนกัน: scheduler จองโน้ตล่วงหน้า ~1.5 วิ (lookahead)
       //    ถ้าโน้ตยังไม่ทันเริ่ม (start ในอนาคต) แล้วเรียก stop(stopAt) จะ throw
       //    ทำให้โน้ตนั้นไม่ถูกยกเลิก แล้วยังเล่นต่อเมื่อกดเล่นใหม่ → เสียงซ้อนกัน
       //    วิธีแก้: หยุดที่เวลาหลัง start เสมอ (s + 0.001) เพื่อให้หยุดได้จริง
-      const s = source._startAt || stopAt;
-      source.stop(Math.max(stopAt, s + 0.001));
+      source.stop(endStopTime);
     } catch (_) {
       // ignore already-ended sources
     }

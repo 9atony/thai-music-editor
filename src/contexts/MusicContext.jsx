@@ -1,6 +1,6 @@
 import React, { createContext, useState, useMemo, useEffect, useRef } from 'react';
 import { INSTRUMENT_CONFIG } from '../utils/instrumentConfig';
-import { preloadSounds, preloadAllSounds, playNote, scheduleNote, initAudioContext, getAudioCurrentTime, stopAllScheduledNotes, claimPlaybackOwnership, releasePlaybackOwnership } from '../utils/audioEngine'; 
+import { preloadSounds, preloadAllSounds, playNote, scheduleNote, initAudioContext, getAudioCurrentTime, stopAllScheduledNotes, claimPlaybackOwnership, releasePlaybackOwnership, primeAudioEngine } from '../utils/audioEngine'; 
 import { auth, saveProjectToDB } from '../utils/firebase';
 
 export const MusicContext = createContext();
@@ -660,6 +660,10 @@ export const MusicProvider = ({ children }) => {
     }
   }, [currentInstrument]);
 
+  useEffect(() => {
+    primeAudioEngine().catch(() => {});
+  }, []);
+
   const availableSections = useMemo(() => {
     const labels = new Set();
     Object.values(sectionLabels).forEach(arr => {
@@ -1165,7 +1169,8 @@ export const MusicProvider = ({ children }) => {
       return { r: nextR, m: nextM, c: nextC };
     };
 
-    const audioStartSec = (getAudioCurrentTime ? getAudioCurrentTime() : 0) + 0.08;
+    // ⭐ ลด pre-roll ตอนกดเล่น: เหลือระยะกันพลาดเท่าที่พอสำหรับ scheduler เท่านั้น
+    const audioStartSec = (getAudioCurrentTime ? getAudioCurrentTime() : 0) + 0.025;
     schedulerStateRef.current = { r: currentCursor[0], m: currentCursor[1], c: currentCursor[2] };
     nextNoteTimeRef.current = audioStartSec;
 
