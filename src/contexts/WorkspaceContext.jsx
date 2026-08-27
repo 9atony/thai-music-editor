@@ -25,8 +25,8 @@ const THAI_NOTE_COMBINER_PATTERN = /[ั-๎​]/;
 
 // ⭐ Single source of truth สำหรับความสูงของแทร็ก (ใช้ร่วมกันทั้ง Toolbar slider + Timeline lane + TrackPanel drag)
 export const MIN_TRACK_LANE_HEIGHT = 54;        // ⭐ ครึ่งหนึ่งของค่าเดิม (108/132 -> 54/66) ตามที่ผู้ใช้ต้องการเล็กที่สุด
-export const MAX_TRACK_LANE_HEIGHT = 320;
-export const DEFAULT_TRACK_LANE_HEIGHT = 66;    // ค่าเริ่มต้น = ครึ่งของ 132 (เล็กที่สุด)
+export const MAX_TRACK_LANE_HEIGHT = 800;
+export const DEFAULT_TRACK_LANE_HEIGHT = 100;    // ค่าเริ่มต้น = ครึ่งของ 132 (เล็กที่สุด)
 export const COLLAPSED_TRACK_HEIGHT = 44;
 export const MIN_VIEWPORT_FOR_NOTES = 80;       // ถ้าความสูง clip น้อยกว่านี้ ซ่อนตัวโน้ตไปเลย
 

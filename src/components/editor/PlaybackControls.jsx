@@ -39,7 +39,6 @@ const PlaybackControls = () => {
   
   const [isCollapsed, setIsCollapsed] = useState(false);
 
-  // ⭐ อัปเดต: ให้มองบรรทัด annotation เป็นบรรทัดข้อความ (TextRow) ด้วย เพื่อให้ใช้เครื่องมือได้
   const isTextRow = rowTypes && (rowTypes[selectedCell[0]] === 'text' || rowTypes[selectedCell[0]] === 'annotation');
 
   let minR = selectedCell[0];
@@ -116,7 +115,7 @@ const PlaybackControls = () => {
           const currentStyle = newStyles[key] || {};
           let finalValue = targetValue;
           if (step !== 0) {
-             const currentVal = currentStyle[styleKey] !== undefined ? currentStyle[styleKey] : (layoutConfig[styleKey] || 30);
+             const currentVal = currentStyle[styleKey] !== undefined ? currentStyle[styleKey] : (layoutConfig[styleKey] || 20);
              finalValue = currentVal + step;
           }
           newStyles[key] = { ...currentStyle, [styleKey]: finalValue };
@@ -127,7 +126,8 @@ const PlaybackControls = () => {
       if (isToggle) {
         handleLayoutChange(styleKey, !layoutConfig[styleKey]);
       } else if (step !== 0) {
-        const newVal = (layoutConfig[styleKey] || 30) + step;
+        // ⭐ แก้ไข fallback เป็น 20 (เดิม 40)
+        const newVal = (layoutConfig[styleKey] || 20) + step;
         if (newVal >= 10 && newVal <= 150) handleLayoutChange(styleKey, newVal);
       } else {
         handleLayoutChange(styleKey, value);
@@ -174,7 +174,6 @@ const PlaybackControls = () => {
                sheetData[rIndex][0][0] = el.innerHTML; 
             }
         } else {
-            // ⭐ ใช้กระบวนการเดียวกัน ทั้งบรรทัด annotation และช่องผสาน (TEXT_SPAN) ในบรรทัดโน้ตปกติ
             const el = document.getElementById(`annotation-${rIndex}-${mIndex}`);
             if (el && sheetData[rIndex] && sheetData[rIndex][mIndex]) {
                if (typeof sheetData[rIndex][mIndex][0] === 'string' && sheetData[rIndex][mIndex][0].startsWith('@TEXT_SPAN_')) {
@@ -340,12 +339,11 @@ const PlaybackControls = () => {
                 <button onMouseDown={(e) => { e.preventDefault(); handleUniversalFontSizeChange(null, -2); }} className="w-8 h-full text-slate-500 hover:bg-slate-100 font-black transition-colors">−</button>
                 <input 
                   type="number" min="10" max="150" 
-                  // ⭐ เปลี่ยน value ให้อ่านค่าจากขนาดฟอนต์ของช่องที่คลุมดำอยู่ (ถ้ามี)
                   value={toolbarMode === 'text' || (savedSelection.current && savedSelection.current.toString().length > 0 && getActiveEditor()) 
                     ? textFontSize 
                     : (selectedCell && layoutConfig.customStyles?.[`${selectedCell[0]}_${selectedCell[1]}_${selectedCell[2]}`]?.fontSize 
                         ? layoutConfig.customStyles[`${selectedCell[0]}_${selectedCell[1]}_${selectedCell[2]}`].fontSize 
-                        : (layoutConfig.fontSize || 30))} 
+                        : (layoutConfig.fontSize || 20))} 
                   onChange={(e) => handleUniversalFontSizeChange(parseInt(e.target.value) || 16)} 
                   className="w-10 text-center text-sm font-bold text-slate-700 bg-slate-50 border-none focus:ring-0 p-0 h-full" 
                 />
@@ -403,7 +401,6 @@ const PlaybackControls = () => {
                   <option value="kro">กรอ</option>
                 </select>
                 
-                {/* ⭐ จานสีอัจฉริยะ (เปลี่ยนได้ทั้ง โน้ต/สัญลักษณ์/ข้อความ) */}
                 <div className="p-0.5 bg-white border border-slate-300 rounded-lg shadow-sm hover:border-slate-400 transition-all flex items-center justify-center cursor-pointer">
                   <input 
                     type="color" 
@@ -411,21 +408,17 @@ const PlaybackControls = () => {
                     onChange={(e) => {
                       const hasTextSelection = savedSelection.current && savedSelection.current.toString().length > 0;
                       
-                      // 1. ถ้าอยู่ในโหมดข้อความ ให้เปลี่ยนสีตัวอักษร
                       if (toolbarMode === 'text' || (hasTextSelection && getActiveEditor())) {
                         formatText('foreColor', e.target.value);
                       } else {
-                        // เช็กว่ามีการคลุมดำโน้ตอยู่หรือไม่
                         const hasKlum = selectionRange && selectionRange.start && selectionRange.end &&
                           (selectionRange.start[0] !== selectionRange.end[0] ||
                            selectionRange.start[1] !== selectionRange.end[1] ||
                            selectionRange.start[2] !== selectionRange.end[2]);
                            
-                        // 2. ถ้าคลุมดำโน้ตอยู่ ให้เปลี่ยนสีโน้ต (ผ่าน handleNoteStyle)
                         if (hasKlum) {
                           handleNoteStyle('color', e.target.value);
                         } else {
-                          // 3. ถ้าไม่ได้คลุมดำ ให้เปลี่ยนสีสัญลักษณ์ (ค่าดั้งเดิม)
                           handlePropChange('symbolColor', 'color', e.target.value);
                         }
                       }

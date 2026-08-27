@@ -123,8 +123,26 @@ export default function TrackPanel() {
     }
   };
 
-  const toggleSequence = (trackId) => {
-    setExpandedSeqTracks(prev => prev.includes(trackId) ? prev.filter(id => id !== trackId) : [...prev, trackId]);
+  const toggleSequence = (trackId, currentHeight, clipsCount) => {
+    setExpandedSeqTracks(prev => {
+      const isExpanding = !prev.includes(trackId);
+      
+      if (isExpanding) {
+        // ⭐ เพิ่มพื้นที่ส่วนหัวเป็น 90px และให้แต่ละคลิปกินพื้นที่ 32px (เผื่อช่องว่าง Gap แล้ว)
+        const rows = clipsCount || 1;
+        const targetHeight = Math.min(MAX_TRACK_LANE_HEIGHT, 90 + (rows * 32));
+        
+        if (currentHeight < targetHeight) {
+          setTrackCustomHeight(trackId, targetHeight); 
+        } 
+      } 
+      else {
+        // ถ้าย่อกลับ ให้หดกลับมาที่ขนาดเริ่มต้น
+        setTrackCustomHeight(trackId, DEFAULT_TRACK_LANE_HEIGHT);
+      }
+      
+      return isExpanding ? [...prev, trackId] : prev.filter(id => id !== trackId);
+    });
   };
 
   const handleTrackDrop = (track, index, event) => {
@@ -388,7 +406,7 @@ export default function TrackPanel() {
 
                         <div className="mt-1.5 flex flex-col flex-1 min-h-0">
                           <button
-                            onClick={() => toggleSequence(track.id)}
+                            onClick={() => toggleSequence(track.id, currentTrackHeight, sortedClips.length)}
                             className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-white/40 hover:text-white/80 transition-colors w-fit pb-0.5 pointer-events-auto"
                           >
                             <span className="w-2.5 text-center text-[10px]">{expandedSeqTracks.includes(track.id) ? '▾' : '▸'}</span>
@@ -398,7 +416,8 @@ export default function TrackPanel() {
                           {expandedSeqTracks.includes(track.id) && (
                             <div className="bg-black/20 rounded p-1.5 border border-white/5 flex-1 flex flex-col min-h-0 pointer-events-auto">
                               <div
-                                className="track-sequence-scroll flex flex-wrap content-start gap-1 overflow-y-auto pr-0.5 flex-1"
+                                // ⭐ เปลี่ยน flex-wrap content-start เป็น flex-col เพื่อให้เรียงลงล่าง
+                                className="track-sequence-scroll flex flex-col gap-1 overflow-y-auto pr-0.5 flex-1"
                                 onDragOver={(e) => e.stopPropagation()}
                                 onDrop={(e) => e.stopPropagation()}
                               >

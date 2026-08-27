@@ -3,6 +3,8 @@ import TunerDashboard from '../components/tools/TunerDashboard';
 import RanatDictionary from '../components/tools/RanatDictionary';
 import RanatGenerator from '../components/tools/RanatGenerator';
 import ToolWorkspace from '../components/tools/ToolWorkspace';
+// ⭐ 1. นำเข้า RhythmManager
+import RhythmManager from '../components/tools/RhythmManager';
 
 const Tools = ({ onPageChange, userProfile }) => {
   
@@ -12,7 +14,6 @@ const Tools = ({ onPageChange, userProfile }) => {
 
   const [activeTool, setActiveTool] = useState(null);
   
-  // ⭐ State ควบคุมการแสดง Modal แจ้งเตือน Premium
   const [showPremiumAlert, setShowPremiumAlert] = useState(false);
 
   const premiumTools = [
@@ -50,11 +51,19 @@ const Tools = ({ onPageChange, userProfile }) => {
       icon: '🧠', 
       color: 'bg-indigo-50 text-indigo-600',
       borderColor: 'hover:border-indigo-300 hover:ring-2 hover:ring-indigo-50' 
+    },
+    // ⭐ 2. เพิ่มปุ่ม จัดการหน้าทับจังหวะ ในหมวด Admin
+    { 
+      id: 'rhythm-manager', 
+      name: 'จัดการหน้าทับจังหวะ', 
+      desc: 'อัปโหลดไฟล์ .tme เพื่อนำเข้าข้อมูลจังหวะฉิ่ง กลอง กรับ เข้าสู่ระบบส่วนกลาง', 
+      icon: '🥁', 
+      color: 'bg-emerald-50 text-emerald-600',
+      borderColor: 'hover:border-emerald-300 hover:ring-2 hover:ring-emerald-50' 
     }
   ];
 
   const handleToolClick = (toolId, isPremiumTool) => {
-    // ⭐ ถ้าเป็นเครื่องมือ Premium แต่คนกดไม่ใช่ Premium ให้โชว์ Modal แทน alert
     if (isPremiumTool && !isPremium) {
       setShowPremiumAlert(true);
       return;
@@ -68,6 +77,8 @@ const Tools = ({ onPageChange, userProfile }) => {
       case 'dictionary': return isAdmin ? <RanatDictionary /> : null;
       case 'tuner-ai': return isAdmin ? <TunerDashboard /> : null;
       case 'workspace': return isPremium ? <ToolWorkspace /> : null;
+      // ⭐ 3. เพิ่มการเรนเดอร์คอมโพเนนต์ RhythmManager
+      case 'rhythm-manager': return isAdmin ? <RhythmManager /> : null;
       default: return null;
     }
   };
@@ -181,12 +192,10 @@ const Tools = ({ onPageChange, userProfile }) => {
         </div>
       )}
 
-      {/* ⭐ Modal แจ้งเตือน Premium */}
       {showPremiumAlert && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
           <div className="bg-white rounded-3xl p-8 w-full max-w-sm shadow-2xl scale-100 animate-slideUp text-center relative overflow-hidden">
             
-            {/* แสงวิบวับตกแต่งพื้นหลัง */}
             <div className="absolute -top-10 -right-10 w-32 h-32 bg-amber-200/40 rounded-full blur-3xl"></div>
             <div className="absolute -bottom-10 -left-10 w-32 h-32 bg-yellow-200/40 rounded-full blur-3xl"></div>
 

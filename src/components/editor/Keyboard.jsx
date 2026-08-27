@@ -1,21 +1,23 @@
 import React, { useContext, useState, useEffect, useRef } from 'react';
 import { MusicContext } from '../../contexts/MusicContext';
 import { INSTRUMENT_CONFIG } from '../../utils/instrumentConfig'; 
+import MetronomePanel from './MetronomePanel'; 
 
 const Keyboard = () => {
   const {
     currentInstrument, changeInstrument, inputNote, layoutConfig,
     addRow, removeRow, addDoubleRow,
     addMeasure, removeMeasure, addNoteColumn, removeNoteColumn,
-    copySelection, pasteSelection, clipboardData, addPageBreak,
+    copySelection, pasteSelection, cutSelection, clipboardData, addPageBreak,
     intervalMode, setIntervalMode,
     isReduceMode, setIsReduceMode, shiftNoteObject,
     isShowPlayMode, setIsShowPlayMode,
     isAutoScroll, setIsAutoScroll,
     appendNoteToCurrentCell, trimCurrentCellToken, moveSelectionNext, moveSelectionPrev,
     convertMeasureToText,
-    addAnnotationRow, addNathapRow, // ⭐ ดึงฟังก์ชันสร้างบรรทัดหน้าทับมาใช้งาน
-    selectedCell, playbackCursor, isPlaying
+    addAnnotationRow, addNathapRow, 
+    selectedCell, playbackCursor, isPlaying,
+    userRole // ⭐ ดึงยศจริงมาจาก Context
   } = useContext(MusicContext);
 
   const [hoveredIdx, setHoveredIdx] = useState(null);
@@ -23,17 +25,14 @@ const Keyboard = () => {
   
   const litTimersRef = useRef({});
   const visualBurstTimersRef = useRef([]);
-  // ⭐ แก้บั๊กโน้ตซ้อนกันบนจอ: เดิมใช้ตัวนับ stagger ร่วมกันทุกปุ่ม
-  //    ทำให้เล่นโน้ตถี่ๆ (โหมดคู่แปด → ยิง event 2 ตัวพร้อมกัน) → depth สะสมเรื่อยๆ
-  //    โน้ตรุ่นหลังดีเลย์ 90, 180, 270...ms และค้างบนจอพร้อมกันหลายปุ่ม
-  //    แก้: ใช้ Map แยกตามแต่ละ key idx เพื่อให้แต่ละปุ่มนับ stagger ของตัวเอง
   const visualBurstStateRef = useRef({});
 
   const [isMinimized, setIsMinimized] = useState(false);
   const [isInstMenuOpen, setIsInstMenuOpen] = useState(false);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false); // ⭐ State สำหรับเปิด/ปิดเมนูตั้งค่า
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false); 
 
-  // ⭐ คำนวณหาเครื่องดนตรีที่จะแสดงบนแป้นพิมพ์ (ดึงจากตอนเล่นเพลง หรือตอนคลิกเลือกโน้ต)
+  const [isMetronomeExpanded, setIsMetronomeExpanded] = useState(false);
+
   const activeCell = (isPlaying && playbackCursor) ? playbackCursor : selectedCell;
   let displayInstrument = currentInstrument;
   
@@ -46,12 +45,11 @@ const Keyboard = () => {
     }
   }
 
-  // ⭐ เช็กว่าเครื่องดนตรีที่แสดงอยู่ เป็นเครื่องประกอบจังหวะหรือไม่
   const isPercussion = displayInstrument?.type === 'percussion';
 
   const getFormattedStr = (eng, thai) => {
     const numMatch = eng.match(/\d+/);
-    if (!numMatch) return thai; // ⭐ ถ้าไม่มีตัวเลขกำกับ (คำหน้าทับ) ให้ส่งคำนั้นไปตรงๆ เลย
+    if (!numMatch) return thai; 
     
     const octave = parseInt(numMatch[0], 10);
     let finalNote = thai;
@@ -65,11 +63,9 @@ const Keyboard = () => {
     const clearVisualBurstTimers = () => {
       visualBurstTimersRef.current.forEach(timerId => clearTimeout(timerId));
       visualBurstTimersRef.current = [];
-      // ⭐ reset per-key map (ไม่ใช่ตัวเดียวร่วมกัน)
       visualBurstStateRef.current = {};
     };
 
-    // ⭐ เก็บกวาดคลาส .lit-* ของทุกปุ่ม (กันค้างข้าม instrument หรือ unmount)
     const clearAllLitClasses = () => {
       try {
         const buttons = document.querySelectorAll('[id^="kbd-key-"]');
@@ -91,7 +87,6 @@ const Keyboard = () => {
       const handClass = `lit-${hand}`;
       btn.classList.add(handClass);
 
-      // ⭐ ลดเวลาค้างของแสง (200 → 170ms) ลดโอกาสซ้อนกันของโน้ตรุ่นถัดไป
       litTimersRef.current[idx] = setTimeout(() => {
         btn.classList.remove(handClass);
         delete litTimersRef.current[idx];
@@ -101,10 +96,8 @@ const Keyboard = () => {
     const queueVisualHit = (idx, hand) => {
       const now = performance.now();
       const burstWindowMs = 20;
-      // ⭐ ลด stagger (90 → 50ms) โน้ตคู่แปดจะเห็นติดกันชัด ไม่ดีเลย์นานจนตาเบลอ
       const staggerMs = 50;
 
-      // ⭐ ใช้ state แยกต่อ key idx (ไม่ใช่ตัวเดียวร่วมกันทุกปุ่ม)
       if (!visualBurstStateRef.current[idx]) {
         visualBurstStateRef.current[idx] = { startedAt: 0, depth: 0 };
       }
@@ -146,7 +139,6 @@ const Keyboard = () => {
       clearVisualBurstTimers();
       Object.values(litTimersRef.current).forEach(timerId => clearTimeout(timerId));
       litTimersRef.current = {};
-      // ⭐ เคลียร์คลาส .lit-* ที่อาจค้างอยู่บนปุ่มเก่าก่อน render รอบใหม่
       clearAllLitClasses();
     };
   }, [displayInstrument]); 
@@ -188,7 +180,7 @@ const Keyboard = () => {
   const renderNoteLabel = (thai, eng) => {
     const numMatch = eng.match(/\d+/);
     const octave = numMatch ? parseInt(numMatch[0], 10) : null;
-    const isWord = thai.length >= 2; // ⭐ ตรวจจับถ้าเป็นคำยาว ให้ลดฟอนต์ลงเพื่อไม่ให้ล้นปุ่ม
+    const isWord = thai.length >= 2; 
     
     return (
       <div className="relative flex flex-col items-center justify-center h-12 pointer-events-none transition-opacity">
@@ -253,7 +245,6 @@ const Keyboard = () => {
             font-weight: bold !important;
             opacity: 0.9 !important;
           }
-          /* ⭐ ลด transition เฉพาะตอนล้าง lit (กัน ghost สีค้างตอนเปลี่ยนคลาส) */
           [id^="kbd-key-"] {
             transition: transform 90ms ease-out, background-color 120ms ease-out, color 120ms ease-out;
           }
@@ -279,12 +270,12 @@ const Keyboard = () => {
           
           <div className="flex items-center gap-2 z-30 shrink-0">
             <ToolbarSection bodyClass="bg-[#fffaf0] border border-amber-100">
+              
               <div className="relative">
                 <div 
                   onPointerDown={() => setIsInstMenuOpen(!isInstMenuOpen)}
                   className="relative flex items-center gap-2 rounded-xl bg-[#fff4d9] px-3 py-2 text-xs font-bold text-amber-900 border border-amber-200 min-w-[140px] hover:bg-[#ffeec2] transition-colors shadow-sm cursor-pointer select-none"
                 >
-                  {/* ใช้ SVG รูปตัวโน้ตมินิมอลแทน Emoji */}
                   <svg className="w-4 h-4 text-amber-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" /></svg>
                   <span className="flex-1 truncate">{displayInstrument.name}</span>
                   <svg className={`h-3.5 w-3.5 text-amber-700 transition-transform ${isInstMenuOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 9l-7 7-7-7" /></svg>
@@ -293,49 +284,16 @@ const Keyboard = () => {
                 {isInstMenuOpen && (
                   <>
                     <div className="fixed inset-0 z-[180]" onPointerDown={() => setIsInstMenuOpen(false)}></div>
-                    {/* ⭐ เปลี่ยนจาก top เป็น bottom เพื่อให้เมนูเด้งขึ้นด้านบน */}
-                    <div className="absolute left-0 bottom-[calc(100%+8px)] z-[220] min-w-[220px] w-max max-w-[280px] bg-white border border-amber-200 rounded-xl shadow-[0_18px_40px_rgba(15,23,42,0.18)] overflow-hidden py-1.5 flex flex-col">
-
-                      <div className="px-3 pt-2 pb-1 text-[10px] font-black text-amber-500/80 uppercase tracking-widest select-none">เครื่องดำเนินทำนอง</div>
-                      {Object.values(INSTRUMENT_CONFIG).filter(i => i.type !== 'percussion').map(inst => (
-                        <button
-                          key={inst.id}
-                          onPointerDown={() => { changeInstrument(inst.id); setIsInstMenuOpen(false); }}
-                          className={`w-full text-left px-4 py-2 text-[11px] font-bold hover:bg-amber-50 transition-colors ${displayInstrument.id === inst.id ? 'bg-amber-100 text-amber-900' : 'text-slate-600'}`}
-                        >
-                          {inst.name}
-                        </button>
-                      ))}
-
-                      <div className="px-3 pt-3 pb-1 mt-1 text-[10px] font-black text-amber-500/80 uppercase tracking-widest border-t border-amber-100 select-none">เครื่องประกอบจังหวะ</div>
-                      {Object.values(INSTRUMENT_CONFIG).filter(i => i.type === 'percussion').map(inst => (
-                        <button
-                          key={inst.id}
-                          onPointerDown={() => { changeInstrument(inst.id); setIsInstMenuOpen(false); }}
-                          className={`w-full text-left px-4 py-2 text-[11px] font-bold hover:bg-amber-50 transition-colors ${displayInstrument.id === inst.id ? 'bg-amber-100 text-amber-900' : 'text-slate-600'}`}
-                        >
-                          {inst.name}
-                        </button>
-                      ))}
-
-                    </div>
-                  </>
-                )}{isInstMenuOpen && (
-                  <>
-                    <div className="fixed inset-0 z-[180]" onPointerDown={() => setIsInstMenuOpen(false)}></div>
                     <div className="absolute left-0 bottom-[calc(100%+8px)] z-[220] min-w-[240px] w-max max-w-[280px] bg-white border border-amber-200 rounded-xl shadow-[0_18px_40px_rgba(15,23,42,0.18)] overflow-hidden py-1.5 flex flex-col">
 
-                      {/* ⭐ สร้างตัวแปรจำลองสิทธิ์ (เดี๋ยวเราค่อยดึงจาก Firebase Context ภายหลัง) */}
                       {(() => {
-                        const userRole = 'user'; // ลองเปลี่ยนเป็น 'premium' เพื่อทดสอบดูได้ครับ
-
-                        // ฟังก์ชันตรวจสอบก่อนเปลี่ยนเครื่องดนตรี
                         const handleInstrumentSelect = (inst) => {
                           const isPremiumInst = inst.tier === 'premium';
+                          // ⭐ ใช้สิทธิ์จริงๆ จาก Context
                           const hasAccess = userRole === 'premium' || userRole === 'admin';
                           
                           if (isPremiumInst && !hasAccess) {
-                            alert(`เครื่องดนตรี "${inst.name}" สำหรับสมาชิก Premium เท่านั้นครับ 🔒\nสนใจอัปเกรดเพื่อใช้งานฟังก์ชันขั้นสูงหรือไม่?`);
+                            alert(`เครื่องดนตรี "${inst.name}" สำหรับสมาชิก Premium เท่านั้นครับ\nสนใจอัปเกรดเพื่อใช้งานฟังก์ชันขั้นสูงหรือไม่?`);
                             setIsInstMenuOpen(false);
                             return;
                           }
@@ -348,6 +306,7 @@ const Keyboard = () => {
                           <>
                             <div className="px-3 pt-2 pb-1 text-[10px] font-black text-amber-500/80 uppercase tracking-widest select-none">เครื่องดำเนินทำนอง</div>
                             {Object.values(INSTRUMENT_CONFIG).filter(i => i.type !== 'percussion').map(inst => {
+                              // ⭐ อัปเดตเงื่อนไขให้ Admin เห็นครบ และปลดล็อคให้ด้วย
                               const isLocked = inst.tier === 'premium' && userRole !== 'premium' && userRole !== 'admin';
                               return (
                                 <button
@@ -356,7 +315,11 @@ const Keyboard = () => {
                                   className={`w-full flex justify-between items-center text-left px-4 py-2 text-[11px] font-bold hover:bg-amber-50 transition-colors ${displayInstrument.id === inst.id ? 'bg-amber-100 text-amber-900' : isLocked ? 'text-slate-400' : 'text-slate-600'}`}
                                 >
                                   <span>{inst.name}</span>
-                                  {isLocked && <span title="สำหรับสมาชิก Premium">🔒</span>}
+                                  {isLocked && (
+                                    <span title="สำหรับสมาชิก Premium">
+                                      <svg className="w-3.5 h-3.5 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+                                    </span>
+                                  )}
                                 </button>
                               );
                             })}
@@ -371,7 +334,11 @@ const Keyboard = () => {
                                   className={`w-full flex justify-between items-center text-left px-4 py-2 text-[11px] font-bold hover:bg-amber-50 transition-colors ${displayInstrument.id === inst.id ? 'bg-amber-100 text-amber-900' : isLocked ? 'text-slate-400' : 'text-slate-600'}`}
                                 >
                                   <span>{inst.name}</span>
-                                  {isLocked && <span title="สำหรับสมาชิก Premium">🔒</span>}
+                                  {isLocked && (
+                                    <span title="สำหรับสมาชิก Premium">
+                                      <svg className="w-3.5 h-3.5 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+                                    </span>
+                                  )}
                                 </button>
                               );
                             })}
@@ -383,7 +350,6 @@ const Keyboard = () => {
                 )}
               </div>
 
-              {/* ⭐ ปุ่มเปิด/ปิด คู่ 8 แบบด่วน (1-Click Toggle) */}
               {!isPercussion && (
                 <button
                   onPointerDown={() => setIntervalMode(intervalMode === 'off' ? '8' : 'off')}
@@ -401,7 +367,19 @@ const Keyboard = () => {
                 </button>
               )}
 
-              {/* ⭐ ปุ่มตั้งค่าและ Dropdown Settings (มินิมอล) */}
+              <button
+                onPointerDown={() => setIsMetronomeExpanded(!isMetronomeExpanded)}
+                className={`flex items-center gap-1.5 rounded-xl border px-3 py-2 text-[11px] font-bold shadow-sm transition-colors active:scale-95 select-none ${
+                  isMetronomeExpanded 
+                    ? 'bg-indigo-50 border-indigo-200 text-indigo-700' 
+                    : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
+                }`}
+                title="ตั้งค่าเครื่องประกอบจังหวะ"
+              >
+                <span className="text-sm leading-none opacity-80">🎵</span>
+                <span className="whitespace-nowrap hidden sm:inline">เครื่องประกอบ</span>
+              </button>
+
               <div className="relative pl-1">
                 <button
                   onPointerDown={() => setIsSettingsOpen(!isSettingsOpen)}
@@ -414,7 +392,6 @@ const Keyboard = () => {
                 {isSettingsOpen && (
                   <>
                     <div className="fixed inset-0 z-[180]" onPointerDown={() => setIsSettingsOpen(false)}></div>
-                    {/* ⭐ เปลี่ยนจาก top เป็น bottom เพื่อให้เมนูตั้งค่าเด้งขึ้นด้านบน */}
                     <div className="absolute left-0 sm:left-auto sm:right-0 bottom-[calc(100%+10px)] z-[220] min-w-[200px] w-max bg-white border border-slate-200 rounded-xl shadow-[0_18px_40px_rgba(15,23,42,0.18)] overflow-hidden py-1.5 flex flex-col gap-0.5 px-2">
 
                       <div className="px-2 pt-1.5 pb-2 text-[10px] font-black text-slate-400 uppercase tracking-widest select-none">ตั้งค่าการเล่น</div>
@@ -482,12 +459,16 @@ const Keyboard = () => {
           </div>
 
           <div className="flex-1 overflow-x-auto custom-scrollbar flex items-center gap-3 pb-0.5 w-full">
-            {/* โซนการพิมพ์เบื้องต้น */}
             <ToolbarSection bodyClass="bg-white border border-slate-200">
               <ToolButton onClick={() => handleSpecialKey('-')} bgClass="bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V4a2 2 0 10-4 0v1.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>} label="พักเสียง" title="ใส่ขีดพักเสียง (-)" />
             </ToolbarSection>
+            
+            <ToolbarSection bodyClass="bg-indigo-50 border border-indigo-100">
+              <ToolButton onClick={copySelection} bgClass="bg-white text-indigo-600 border-indigo-200 hover:bg-indigo-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" /></svg>} label="คัดลอก" title="คัดลอกโน้ต (Ctrl+C)" />
+              <ToolButton onClick={cutSelection} bgClass="bg-white text-indigo-600 border-indigo-200 hover:bg-indigo-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.121 14.121L19 19m-7-7l7-7m-7 7l-2.879 2.879M12 12L9.121 9.121m0 5.758a3 3 0 10-4.243 4.243 3 3 0 004.243-4.243zm0-5.758a3 3 0 10-4.243-4.243 3 3 0 004.243 4.243z" /></svg>} label="ตัด" title="ตัดโน้ต (Ctrl+X)" />
+              <ToolButton onClick={pasteSelection} bgClass="bg-white text-indigo-600 border-indigo-200 hover:bg-indigo-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>} label="วาง" title="วางโน้ต (Ctrl+V)" />
+            </ToolbarSection>
 
-            {/* โซนสร้างโครงสร้างหลัก (ไอคอน +) */}
             <ToolbarSection bodyClass="bg-slate-50 border border-slate-200">
               <ToolButton onClick={addNoteColumn} bgClass="bg-[#f2f4ff] text-blue-700 border-blue-100 hover:bg-[#e8ecff]" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" /></svg>} label="จังหวะ" title="เพิ่มคอลัมน์โน้ต" />
               <ToolButton onClick={addMeasure} bgClass="bg-[#eefbf3] text-emerald-700 border-emerald-100 hover:bg-[#e1f7ea]" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" /></svg>} label="ห้อง" title="เพิ่มห้องเพลง" />
@@ -496,7 +477,6 @@ const Keyboard = () => {
               <ToolButton onClick={addPageBreak} bgClass="bg-white text-slate-600 border-slate-200 hover:bg-slate-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6zM14 3v5h5M16 13H8M16 17H8M10 9H8" /></svg>} label="หน้าใหม่" title="เพิ่มจุดตัดหน้ากระดาษ" />
             </ToolbarSection>
 
-            {/* โซนสร้างข้อความและลูกเล่นพิเศษ */}
             <ToolbarSection bodyClass="bg-[#f8fafc] border border-slate-200">
               <ToolButton onClick={convertMeasureToText} bgClass="bg-white text-slate-600 border-slate-200 hover:bg-slate-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h8m-8 6h16" /></svg>} label="ช่องพิมพ์" title="เปลี่ยนห้องโน้ตให้พิมพ์ข้อความยาวๆ ได้" />
               <ToolButton onClick={addAnnotationRow} bgClass="bg-white text-amber-600 border-amber-200 hover:bg-amber-50" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /></svg>} label="คำอธิบาย" title="เพิ่มบรรทัดสำหรับพิมพ์คำอธิบาย (ไม่มีเส้นคั่นห้อง)" />
@@ -505,7 +485,6 @@ const Keyboard = () => {
 
             <div className="flex-1 min-w-[10px]"></div>
 
-            {/* โซนอันตราย ลบข้อมูล (ไอคอนวงกลมมีขีด) */}
             <ToolbarSection wrapperClass="ml-auto" bodyClass="bg-red-50 border border-red-100">
               <ToolButton onClick={() => handleSpecialKey('BACKSPACE')} bgClass="bg-white text-red-600 border-red-200 hover:bg-red-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2M3 12l6.414 6.414a2 2 0 001.414.586H19a2 2 0 002-2V7a2 2 0 00-2-2h-8.172a2 2 0 00-1.414.586L3 12z" /></svg>} label="ลบโน้ต" title="ลบโน้ตถอยหลัง" />
               <ToolButton onClick={removeNoteColumn} bgClass="bg-white text-red-600 border-red-200 hover:bg-red-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M20 12H4" /></svg>} label="ลบจังหวะ" title="ลบคอลัมน์โน้ตทิ้ง" />
@@ -516,6 +495,11 @@ const Keyboard = () => {
           </div>
         </div>
 
+        <MetronomePanel 
+          isExpanded={isMetronomeExpanded} 
+          onToggleExpand={() => setIsMetronomeExpanded(!isMetronomeExpanded)} 
+        />
+
         <div className="px-4 pt-2 text-[11px] font-semibold text-slate-500">
           คลิกปุ่มโน้ตเพื่อเติมโน้ตเพิ่มในช่องเดียวกัน แล้วกด “จบช่อง” เพื่อเลื่อนไปช่องถัดไป
         </div>
@@ -523,7 +507,6 @@ const Keyboard = () => {
         <div className="relative z-0 flex w-full overflow-hidden">
           <div className="flex-1 overflow-x-auto pb-2 pt-2 custom-scrollbar transition-all duration-300">
             <div className="flex bg-slate-800 p-1 rounded-xl shadow-inner w-max mx-auto gap-[2px]">
-              {/* ⭐ ใช้ displayInstrument สร้างปุ่มคีย์บอร์ด */}
               {displayInstrument.keys.map((kOriginal, i) => {
                 
                 const k = isReduceMode ? shiftNoteObject(kOriginal, 1) : kOriginal;
@@ -532,8 +515,6 @@ const Keyboard = () => {
                 const isHovered = hoveredIdx === i || (isIntervalActive && hoveredIdx !== null && i === hoveredIdx - intervalDist);
                 const isActive = activeIdx === i || (isIntervalActive && activeIdx !== null && i === activeIdx - intervalDist);
 
-                // ⭐ ปิด shadow-sm ของปุ่มคีย์เมื่อเปิด "แสดงการตี" (isShowPlayMode)
-                //    เพราะเงาที่ลอยตามหลังทำให้ดูเหมือนมี ghost ตอนปุ่มขยับกดลง + เปลี่ยนสี
                 const keyShadowClass = isShowPlayMode ? '' : 'shadow-sm ';
                 let btnClass = `w-14 h-[100px] shrink-0 border-b-[5px] rounded-b-md flex flex-col items-center justify-end pb-5 transition-all ${keyShadowClass}group select-none relative `;
 

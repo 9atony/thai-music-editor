@@ -34,6 +34,13 @@ const LabelEditorBox = ({ label, visualIndex, saveSelection, updateSectionLabel 
       onMouseUp={() => saveSelection(label.id)}
       onKeyUp={() => saveSelection(label.id)}
       onMouseLeave={() => saveSelection(label.id)}
+      onInput={(e) => {
+        // ⭐ 2. ดันข้อความไปแสดงบนกระดาษแบบ Real-time ทันทีที่พิมพ์!
+        const sheetLabelEl = document.getElementById(`sheet-label-${label.id}`);
+        if (sheetLabelEl) {
+          sheetLabelEl.innerHTML = e.target.innerHTML || 'ป้ายกำกับ';
+        }
+      }}
       onBlur={(e) => {
         saveSelection(label.id);
         // เซฟเข้า Context เมื่อผู้ใช้เลิกพิมพ์และกดคลิกออกไปที่อื่น

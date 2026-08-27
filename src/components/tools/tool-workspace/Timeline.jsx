@@ -1,15 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useWorkspace, MIN_TRACK_LANE_HEIGHT, MAX_TRACK_LANE_HEIGHT, DEFAULT_TRACK_LANE_HEIGHT, COLLAPSED_TRACK_HEIGHT, MIN_VIEWPORT_FOR_NOTES } from '../../../contexts/WorkspaceContext';
-import { INSTRUMENT_CONFIG } from '../../../utils/instrumentConfig';
-
-const getClipInstrumentName = (clip, track) => {
-  const clipInstrumentId = clip?.sourceMeta?.currentInstrument || clip?.sourceInstrumentId || track?.instrumentId;
-  return clip?.sourceMeta?.currentInstrumentName
-    || clip?.instrumentLabel
-    || INSTRUMENT_CONFIG[clipInstrumentId]?.name
-    || INSTRUMENT_CONFIG[track?.instrumentId]?.name
-    || 'ไม่ระบุเครื่องดนตรี';
-};
+import TimelineClip from './TimelineClip'; // ⭐ นำเข้า Component ลูกที่เราเพิ่งสร้าง
 
 const MIN_CLIP_WIDTH = 0.25;
 
@@ -67,7 +58,6 @@ export default function Timeline() {
   const secondsPerMeasure = 60 / Math.max(20, Number(bpm) || 120);
   const pixelsPerSecond = measureWidth / secondsPerMeasure;
 
-  // ⭐ ใช้ค่าเดียวกับ TrackPanel/Context — clamp กลางเดียว
   const expandedTrackHeight = useMemo(
     () => Math.max(MIN_TRACK_LANE_HEIGHT, Math.min(MAX_TRACK_LANE_HEIGHT, Number(trackLaneHeight) || DEFAULT_TRACK_LANE_HEIGHT)),
     [trackLaneHeight],
@@ -104,20 +94,17 @@ export default function Timeline() {
     return Number((Math.round(value / snapGrid) * snapGrid).toFixed(2));
   };
 
-  // ⭐ สูตรความสูงเดียวกับ TrackPanel (single source of truth)
   const getTrackHeight = (track) => {
     if (track.isCollapsed) return COLLAPSED_TRACK_HEIGHT;
     const candidate = track.customHeight || expandedTrackHeight;
     return Math.max(MIN_TRACK_LANE_HEIGHT, Math.min(MAX_TRACK_LANE_HEIGHT, candidate));
   };
 
-  // ⭐ คำนวณขนาด clip ให้พอดีกับแทร็ก — ถ้า track เล็กเกินไปให้ซ่อนโน้ตเลย (compact mode)
   const getClipMetrics = (track) => {
     if (track.isCollapsed) {
       return { top: 2, height: COLLAPSED_TRACK_HEIGHT - 6, bodyHeight: 0, compact: true, showNotes: false };
     }
     const laneHeight = getTrackHeight(track);
-    // ⭐ ซ่อนโน้ตทั้งหมด ถ้า clip body เล็กกว่าเกณฑ์ — ป้องกันโน้ตล้น
     const showNotes = laneHeight >= MIN_VIEWPORT_FOR_NOTES;
     const headerH = 22;
     const bodyH = Math.max(0, laneHeight - headerH - 4);
@@ -131,7 +118,6 @@ export default function Timeline() {
     if (isPlaying) startPlayback();
   };
 
-  // ⭐ อัปเดตฟังก์ชันนี้ ให้เลื่อนทั้ง Header แนวนอน และซิงค์แนวตั้งกับ Track Panel
   const handleScroll = (e) => { 
     if (headerRef.current) headerRef.current.scrollLeft = e.target.scrollLeft; 
     
@@ -201,12 +187,13 @@ export default function Timeline() {
     const clickX = e.clientX - rect.left;
     const rawPosition = clickX / measureWidth;
     const startPosition = snapGrid > 0 ? Math.floor(rawPosition / snapGrid) * snapGrid : rawPosition;
+    
     if (activeTool === 'draw') {
       if (track?.isLocked) return;
       addClip(trackId, Number(startPosition.toFixed(2)));
     }
     if (activeTool === 'zoom') { e.shiftKey || e.altKey ? zoomOut() : zoomIn(); }
-    // ⭐ ให้กดที่ไทม์ไลน์ (ช่องว่างของแทร็ก) เลื่อนเส้นเล่นเสียงไปยังจุดที่คลิกได้
+    
     if (activeTool !== 'draw' && activeTool !== 'zoom') {
       setCurrentTime(Math.max(0, rawPosition));
       if (isPlaying) startPlayback();
@@ -248,6 +235,7 @@ export default function Timeline() {
            onContextMenu={(e) => e.preventDefault()}
            onScroll={handleScroll}>
         <div className="relative min-h-full" style={{ width: `${totalMeasures * measureWidth}px` }}>
+          
           <div ref={playheadRef}
                className="absolute top-0 bottom-0 w-[2px] bg-red-500 z-50 pointer-events-none shadow-[0_0_10px_rgba(239,68,68,0.5)] will-change-transform"
                style={{ transform: 'translateX(0px)' }}>
@@ -263,108 +251,35 @@ export default function Timeline() {
                    onClick={(e) => handleTrackClick(track.id, e)}
                    className={`relative border-b border-white/[0.06] transition-all duration-300 box-border overflow-hidden ${track.isMuted ? 'opacity-30 bg-black/20' : ''} ${activeTool === 'draw' ? 'cursor-crosshair hover:bg-white/[0.02]' : ''} ${activeTool === 'zoom' ? 'cursor-zoom-in hover:bg-white/[0.02]' : ''}`}
                    style={{ height: `${laneHeight}px`, minHeight: `${laneHeight}px`, boxSizing: 'border-box', padding: 0 }}>
+                
                 <div className="absolute inset-0 flex pointer-events-none">
                   {Array.from({ length: totalMeasures }).map((_, index) => (
                     <div key={index} className="h-full border-l border-white/[0.04]" style={{ width: `${measureWidth}px` }} />
                   ))}
                 </div>
 
+                {/* ⭐ โค้ดส่วนแสดงผลถูกแพ็กเป็น TimelineClip เรียบร้อยแล้ว */}
                 {track.clips.map((clip, index) => {
                   const sourceClipIndex = tracks.find((entry) => entry.id === track.id)?.clips.findIndex((entry) => entry.id === clip.id) ?? index;
                   const isDragging = dragInfo && dragInfo.trackId === track.id && dragInfo.clipIndex === sourceClipIndex;
                   const isResizing = resizeInfo && resizeInfo.trackId === track.id && resizeInfo.clipId === clip.id;
-                  const instrumentName = getClipInstrumentName(clip, track);
-                  const clipVolume = clip.volume == null ? 100 : clip.volume;
 
                   return (
-                    <div key={clip.id || index}
-                         onMouseDown={(e) => handleClipMouseDown(track.id, sourceClipIndex, clip.start, e)}
-                         data-width={clip.width}
-                         className={`absolute rounded overflow-hidden group transition-all ${
-                           track.isLocked ? 'opacity-30 grayscale cursor-not-allowed'
-                             : activeTool === 'erase' ? 'cursor-not-allowed hover:border-red-500 hover:opacity-50'
-                             : activeTool === 'split' ? 'cursor-col-resize hover:brightness-125'
-                             : isDragging || isResizing ? 'cursor-grabbing brightness-125 scale-[1.02] shadow-xl z-10'
-                             : 'cursor-grab hover:brightness-110'
-                         }`}
-                         style={{
-                           top: `${clipMetrics.top}px`,
-                           height: `${clipMetrics.height}px`,
-                           left: `${clip.start * measureWidth}px`,
-                           width: `${clip.width * measureWidth}px`,
-                           backgroundColor: `${track.color}18`,
-                           border: `1px solid ${track.color}66`,
-                           transitionDuration: (isDragging || isResizing) ? '0ms' : '250ms',
-                         }}>
-
-                      {/* ⭐ ขอบยืดหดของ Clip — กว้างแค่ w-1.5 (6px) ลดลงเท่าตัว — เพิ่ม hover bar สีดำให้เห็นชัด */}
-                      <div onMouseDown={(e) => handleResizeStart(track.id, clip.id, 'left', clip.start, clip.width, e)}
-                           className="absolute left-0 top-0 bottom-0 w-1.5 cursor-ew-resize hover:bg-black/70 transition-colors z-20"
-                           title="ลากเพื่อบีบ/ยืด (ขอบซ้าย)" />
-                      <div onMouseDown={(e) => handleResizeStart(track.id, clip.id, 'right', clip.start, clip.width, e)}
-                           className="absolute right-0 top-0 bottom-0 w-1.5 cursor-ew-resize hover:bg-black/70 transition-colors z-20"
-                           title="ลากเพื่อบีบ/ยืด (ขอบขวา)" />
-
-                      {/* ⭐ Header ของ clip — ปรับให้ความสูง = สัดส่วนกับ clip เพื่อกันล้น */}
-                      <div className="px-2 flex items-center justify-between gap-1.5 shrink-0" style={{ height: '22px', backgroundColor: `${track.color}24` }}>
-                        <div className="flex items-center min-w-0 gap-1.5">
-                          <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: track.color }} />
-                          <span className="text-[10px] text-white/80 truncate">{clip.name}</span>
-                          {!clipMetrics.compact && <span className="text-[9px] text-white/40 shrink-0">{clip.width}ห้อง</span>}
-                        </div>
-                        <div className="flex items-center gap-1 shrink-0">
-                          <button type="button" onMouseDown={(e) => e.stopPropagation()}
-                                  onClick={(e) => openClipMenu(clip.id, e)}
-                                  className={`w-4 h-4 rounded-full flex items-center justify-center text-[9px] transition-colors ${clipVolume < 100 || (clip.loops || 1) > 1 ? 'bg-sky-500/20 text-sky-300 opacity-100' : 'bg-white/10 text-white/55 hover:bg-sky-500/20 hover:text-sky-300 opacity-0 group-hover:opacity-100'}`}
-                                  title="ตั้งค่าแทรก">⚙</button>
-                          <button type="button" onMouseDown={(e) => e.stopPropagation()}
-                                  onClick={(e) => { e.stopPropagation(); removeClipById(track.id, clip.id); }}
-                                  className="w-4 h-4 rounded-full bg-white/10 text-white/55 hover:bg-rose-500/20 hover:text-rose-300 transition-colors opacity-0 group-hover:opacity-100 flex items-center justify-center text-[10px]"
-                                  title="ลบแทรก">×</button>
-                        </div>
-                      </div>
-
-                      {/* ⭐ Body ของ clip — overflow-hidden บังคับ — แสดงโน้ตเฉพาะเมื่อ body สูงพอ */}
-                      <div className="relative w-full overflow-hidden pointer-events-none" style={{ height: `${clipMetrics.bodyHeight}px` }}>
-                        {clipMetrics.showNotes && (() => {
-                          const evs = clip.playback?.events || [];
-                          const hasLeftHand = evs.some(e => e.rowIndex === 1);
-                          const noteTopByRow = hasLeftHand ? { 0: '4px', 1: '20px' } : { 0: '8px' };
-                          return (
-                            <div className="absolute inset-0">
-                              <div className="absolute left-0 right-0 border-t border-white/[0.06]" style={{ top: hasLeftHand ? '12px' : '16px' }} />
-                              {hasLeftHand && <div className="absolute left-0 right-0 border-t border-white/[0.06]" style={{ top: '28px' }} />}
-                              {evs.map((ev, idx) => {
-                                const trimOffset = clip.trimOffset || 0;
-                                const renderOffset = ev.measureOffset - trimOffset;
-                                if (renderOffset < 0 || renderOffset > clip.width) return null;
-                                const topPos = noteTopByRow[ev.rowIndex] || noteTopByRow[0];
-                                return (
-                                  <div key={ev.id || idx}
-                                       className="absolute text-[8px] font-bold px-1 rounded-[2px] bg-[#11151a]/95 border border-white/10 whitespace-nowrap z-10 shadow-sm"
-                                       style={{
-                                         left: `${renderOffset * measureWidth}px`,
-                                         top: topPos,
-                                         color: track.color,
-                                         lineHeight: '1.1',
-                                         maxHeight: `${clipMetrics.bodyHeight}px`,
-                                       }}>
-                                    {ev.note}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          );
-                        })()}
-
-                        {!clipMetrics.showNotes && clipMetrics.bodyHeight > 0 && (
-                          <div className="absolute bottom-0.5 left-2 right-2 flex items-center justify-between text-[9px] text-white/50 gap-1 pointer-events-none overflow-hidden">
-                            <span className="truncate min-w-0">{clip.sourceMeta?.sourceFileName || track.sourceProjectName || 'คลิป'}</span>
-                            <span className="truncate text-white/40 shrink-0">{instrumentName}</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
+                    <TimelineClip
+                      key={clip.id || index}
+                      clip={clip}
+                      track={track}
+                      sourceClipIndex={sourceClipIndex}
+                      measureWidth={measureWidth}
+                      clipMetrics={clipMetrics}
+                      activeTool={activeTool}
+                      isDragging={isDragging}
+                      isResizing={isResizing}
+                      handleClipMouseDown={handleClipMouseDown}
+                      handleResizeStart={handleResizeStart}
+                      openClipMenu={openClipMenu}
+                      removeClipById={removeClipById}
+                    />
                   );
                 })}
               </div>

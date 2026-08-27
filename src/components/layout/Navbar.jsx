@@ -7,7 +7,6 @@ import openIcon from '../../assets/icons/open.png';
 import pdfIcon from '../../assets/icons/pdf.png';
 import saveIcon from '../../assets/icons/save.png';
 
-// ⭐ ฟังก์ชันสำหรับล้างแท็ก HTML ให้เหลือแต่ข้อความล้วน
 const getPlainText = (html) => {
   if (!html) return '';
   const tmp = document.createElement('div');
@@ -19,7 +18,7 @@ const Navbar = ({ onPrint, onOpenSettings, onBack }) => {
   const { 
     saveProject, loadProject, newProject, undo, redo, 
     canUndo, canRedo, stopPlayback, projectName, setProjectName,
-    songName, setSongName, isReadOnly // ⭐ 1. ดึง isReadOnly มาใช้งาน
+    songName, setSongName, isReadOnly 
   } = useContext(MusicContext);
 
   return (
@@ -49,16 +48,15 @@ const Navbar = ({ onPrint, onOpenSettings, onBack }) => {
           <div className="hidden sm:flex items-center gap-3"> {/* ⭐ 2. เพิ่ม gap-3 เพื่อเว้นระยะป้ายเตือน */}
             <input 
               type="text" 
-              value={getPlainText(songName) || projectName || ''} 
+              value={getPlainText(projectName) || ''} 
               onChange={(e) => setSongName(e.target.value)}
               placeholder="โปรเจกต์ไม่มีชื่อ"
-              disabled={isReadOnly} // ⭐ บล็อกไม่ให้เปลี่ยนชื่อเพลงถ้าความจำเต็ม
+              disabled={isReadOnly} 
               className={`text-lg font-bold text-slate-700 bg-transparent border-b-2 border-transparent focus:outline-none focus:ring-0 placeholder:text-slate-300 w-40 md:w-64 truncate transition-colors px-1 py-0.5 
                 ${isReadOnly ? 'opacity-60 cursor-not-allowed' : 'hover:border-slate-200 focus:border-sky-500'}`}
               title={isReadOnly ? "ไม่สามารถแก้ไขชื่อได้ (อ่านได้อย่างเดียว)" : "คลิกเพื่อเปลี่ยนชื่อเพลง"}
             />
 
-            {/* ⭐ 3. ป้ายเตือนจะโชว์เมื่อ isReadOnly เป็น true เท่านั้น */}
             {isReadOnly && (
               <div className="px-2.5 py-1 rounded-md text-[10px] font-bold bg-red-50 text-red-500 border border-red-200 animate-pulse whitespace-nowrap shadow-sm">
                 ⚠️ พื้นที่เต็ม (อ่านได้อย่างเดียว)

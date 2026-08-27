@@ -728,11 +728,12 @@ const Sheet = forwardRef((props, ref) => {
     
     return labels.map((label) => {
       if (!label.text) return null;
-      if (rowType === 'double-right' && label.position.includes('bottom')) return null;
-      if (rowType === 'double-left' && label.position.includes('top')) return null;
+      
+      // ⭐ ลบเงื่อนไขที่บล็อกป้ายออกไป เนื่องจากเราวาดมือซ้ายและมือขวารวมกันในกล่องเดียว (double-right) แล้ว
+      // กล่องนี้จึงมีสิทธิ์วาดป้ายได้ทั้งด้านบนและด้านล่างอย่างอิสระครับ
 
       let positionStyle = { 
-        position: 'absolute', color: '#0f172a', 
+        position: 'absolute', color: '#0f172a',
         whiteSpace: 'nowrap', zIndex: 20, lineHeight: 1 
         // ❌ เอา fontSize, fontFamily ออก เพราะข้อมูลจะถูกควบคุมโดยโค้ด HTML (span) ในข้อความแล้ว
       };
@@ -750,11 +751,12 @@ const Sheet = forwardRef((props, ref) => {
 return (
         <div key={label.id} style={positionStyle} className="tracking-wide">
           <div
+            id={`sheet-label-${label.id}`} // ⭐ 1. เพิ่ม ID ให้ระบบลิงก์ข้อความหากันเจอ
             onMouseDown={(e) => {
                 e.stopPropagation();
-                // ⭐ 2. เปลี่ยนจาก visualIndex เป็น actualRowIndex ระบบจะได้ไม่สับสน!
                 setSelectedCell([actualRowIndex, 0, 0]); 
             }}
+          
             onClick={(e) => {
                 e.stopPropagation();
                 window.dispatchEvent(new CustomEvent('tme-open-labels-tab'));
@@ -1229,7 +1231,11 @@ return (
                   if (isDoubleLeft && rIndex > 0) visualRowNumber = displayRowNumbers[rIndex - 1]; 
                   const visualIndex = visualRowNumber !== '' && visualRowNumber != null ? visualRowNumber - 1 : null;                  
                   
-                  // ⭐ 1. สร้างแพ็กเกจสำหรับวาดช่องโน้ต (รองรับการหั่นบรรทัดเมื่อล้น 8 ห้อง และบรรทัดคำอธิบาย)
+                  // ⭐ 1. เพิ่มการเช็กว่าบรรทัดนี้มีป้ายกำกับอยู่หรือไม่
+                  const currentLabels = visualIndex !== null ? sectionLabels[visualIndex] : null;
+                  const hasLabels = currentLabels && currentLabels.length > 0;
+
+                  // ⭐ สร้างแพ็กเกจสำหรับวาดช่องโน้ต (รองรับการหั่นบรรทัดเมื่อล้น 8 ห้อง และบรรทัดคำอธิบาย)
                   const renderMeasureBlock = (measure, actualMIndex, localMIdx, actualRIndex, actualRType, chunkLength) => {
                       if (!measure || measure[0] === '@HIDDEN') return null;
 
@@ -1637,7 +1643,8 @@ return (
                       style={{ 
                         paddingBottom: `${containerPb}px`, marginTop: `${rMarginTop}px`, marginBottom: `${containerMarginBot}px`,
                         paddingLeft: `calc(1rem + ${rIndent}px)`, paddingRight: '1rem',
-                        zIndex: (rMarginTop < 0 || rMarginBot < 0) ? 20 : 1 
+                        // ⭐ 2. ปรับ zIndex ให้บรรทัดที่มีป้ายกำกับลอยอยู่เหนือบรรทัดอื่น ป้องกันโดนพื้นหลังบรรทัดล่างบัง
+                        zIndex: (rMarginTop < 0 || rMarginBot < 0) ? 20 : (hasLabels ? 30 : 1) 
                       }}
                     >     
                       <div className="relative w-full">

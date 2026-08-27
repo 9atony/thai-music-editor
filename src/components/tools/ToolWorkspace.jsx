@@ -20,8 +20,8 @@ export default function ToolWorkspace() {
 
   return (
     <WorkspaceProvider>
-      {/* ⭐ เปลี่ยนเป็น fixed inset-0 z-[999] h-full เพื่อให้ลอยทับเต็มจอ 100% บังปุ่มกลับของระบบเดิมไปเลย */}
-      <div className="fixed inset-0 z-[999] w-full h-full bg-[#0b0e12] text-white flex flex-col overflow-hidden">
+      {/* ⭐ เติม id="workspace-overlay" ไว้ตรงนี้ เพื่อบอกระบบว่าเรากำลังเปิดหน้านี้อยู่ */}
+      <div id="workspace-overlay" className="fixed inset-0 z-[999] w-full h-full bg-[#0b0e12] text-white flex flex-col overflow-hidden">
         
         <TopBar />
 
