@@ -229,6 +229,8 @@ export const useAudioPlayback = ({
     const conf = metronomeConfigRef.current;
     if (conf.ching.active) preloadSounds('ching').catch(() => {});
     if (conf.klong.active) preloadSounds('klong-khaek').catch(() => {});
+    // ⭐ เพิ่มบรรทัดนี้ให้ระบบโหลดเสียงกรับด้วย
+    if (conf.krub.active) preloadSounds('krub').catch(() => {});
 
     setIsPlaying(true);
     isPlayingRef.current = true;

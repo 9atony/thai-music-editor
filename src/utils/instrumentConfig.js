@@ -118,5 +118,13 @@ export const INSTRUMENT_CONFIG = {
       { thai: 'ฉิ่ง', eng: 'CHING', audio: 'ching.wav' },
       { thai: 'ฉับ', eng: 'CHAB', audio: 'chab.wav' }
     ]
+  },
+  "krub": {
+    id: "krub",
+    name: "กรับ",
+    type: "percussion",
+    keys: [
+      { thai: 'กรับ', eng: 'KRUB', audio: 'krub.wav' }
+    ]
   }
 };

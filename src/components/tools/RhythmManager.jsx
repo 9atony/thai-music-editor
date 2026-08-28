@@ -70,9 +70,34 @@ const RhythmManager = () => {
     const newRhythms = [];
     const sheetData = jsonData.sheetData || [];
     const sectionLabels = jsonData.sectionLabels || {};
-    const rowTypes = jsonData.rowTypes || []; // ดึง rowTypes เพื่อเช็กบรรทัดคู่
+    const rowTypes = jsonData.rowTypes || [];
 
     let skipNextRow = false;
+    let currentRhythm = null;
+
+    const pushCurrentRhythm = () => {
+      if (currentRhythm) {
+        const hasNotes = currentRhythm.pattern.some(cell => cell && cell.trim() !== '' && cell.trim() !== '-');
+        if (hasNotes) {
+          // ตัดห้องว่าง (ทั้งหมดเป็น '-') ท้ายแพทเทิร์นทิ้งออกอัตโนมัติ
+          while (currentRhythm.pattern.length >= 4) {
+            const last4 = currentRhythm.pattern.slice(-4);
+            const allEmpty = last4.every(c => !c || c === '-');
+            if (allEmpty) {
+              currentRhythm.pattern.splice(-4, 4);
+              if (currentRhythm.patternRight) currentRhythm.patternRight.splice(-4, 4);
+              if (currentRhythm.patternLeft) currentRhythm.patternLeft.splice(-4, 4);
+            } else {
+              break;
+            }
+          }
+
+          delete currentRhythm.isDoubleTemp;
+          newRhythms.push(currentRhythm);
+        }
+        currentRhythm = null;
+      }
+    };
 
     sheetData.forEach((row, rowIndex) => {
       if (skipNextRow) {
@@ -80,51 +105,97 @@ const RhythmManager = () => {
         return;
       }
 
-      let patternArray = [];
+      let vIdx = 0;
+      for (let i = 0; i < rowIndex; i++) {
+        if (rowTypes[i] === 'single' || rowTypes[i] === 'double-right') vIdx++;
+      }
+
+      let hasNewLabel = false;
+      let rowName = `จังหวะที่ ${rowIndex + 1}`;
       
-      // ⭐ ตรวจจับว่าเป็นบรรทัดคู่ (มือขวา-ซ้าย) หรือไม่
+      if (rowTypes[rowIndex] !== 'double-left' && sectionLabels[vIdx] && sectionLabels[vIdx].length > 0) {
+        const rawText = sectionLabels[vIdx][0].text;
+        rowName = rawText.replace(/<[^>]*>?/gm, '').trim();
+        hasNewLabel = true;
+      } else if (!Array.isArray(row) && (row.label || row.name)) {
+        rowName = row.label || row.name;
+        hasNewLabel = true;
+      }
+
+      if (hasNewLabel && currentRhythm) {
+        pushCurrentRhythm();
+      }
+
+      let patternArray = [];
+      let isDouble = false;
+      let pRight = [];
+      let pLeft = [];
+
       if (rowTypes[rowIndex] === 'double-right' && sheetData[rowIndex + 1]) {
-        const rightRow = Array.isArray(row) ? row.flat() : [];
-        const leftRow = Array.isArray(sheetData[rowIndex + 1]) ? sheetData[rowIndex + 1].flat() : [];
+        isDouble = true;
+        const rightMeasures = (row.length > 0 && row[0].length === 1) ? row.slice(1) : row;
+        const leftMeasures = (sheetData[rowIndex + 1].length > 0 && sheetData[rowIndex + 1][0].length === 1) ? sheetData[rowIndex + 1].slice(1) : sheetData[rowIndex + 1];
+        
+        const rightRow = Array.isArray(rightMeasures) ? rightMeasures.flat() : [];
+        const leftRow = Array.isArray(leftMeasures) ? leftMeasures.flat() : [];
         
         const maxLength = Math.max(rightRow.length, leftRow.length);
         for (let i = 0; i < maxLength; i++) {
           const rNote = rightRow[i] && rightRow[i] !== '-' ? rightRow[i].trim() : '';
           const lNote = leftRow[i] && leftRow[i] !== '-' ? leftRow[i].trim() : '';
-          // จับสองคำมารวมกัน เช่น "ทัง" + "โจ๊ะ" = "ทังโจ๊ะ"
+          
+          pRight.push(rNote || '-');
+          pLeft.push(lNote || '-');
+
           const combined = rNote + lNote;
           patternArray.push(combined === '' ? '-' : combined);
         }
-        skipNextRow = true; // ข้ามบรรทัดซ้าย เพราะประมวลผลรวบยอดไปแล้ว
-      } 
-      // กรณีบรรทัดเดี่ยวปกติ
-      else {
-        if (Array.isArray(row)) {
-          patternArray = row.flat(); 
-        } else if (row.cells || row.pattern) {
-          patternArray = row.cells || row.pattern; 
+        skipNextRow = true;
+      } else {
+        let singleMeasures = row;
+        if (Array.isArray(row) && row.length > 0 && row[0].length === 1) {
+          singleMeasures = row.slice(1);
+        }
+        if (Array.isArray(singleMeasures)) {
+          patternArray = singleMeasures.flat(); 
+        } else if (singleMeasures.cells || singleMeasures.pattern) {
+          patternArray = singleMeasures.cells || singleMeasures.pattern; 
         }
       }
 
-      const hasNotes = patternArray.some(cell => cell && cell.trim() !== '' && cell.trim() !== '-');
-
-      if (patternArray.length > 0 && hasNotes) {
-        let rowName = `จังหวะที่ ${rowIndex + 1}`;
-        if (sectionLabels[rowIndex] && sectionLabels[rowIndex].length > 0) {
-          const rawText = sectionLabels[rowIndex][0].text;
-          rowName = rawText.replace(/<[^>]*>?/gm, '').trim();
-        } else if (!Array.isArray(row) && (row.label || row.name)) {
-          rowName = row.label || row.name;
-        }
-
-        newRhythms.push({
+      if (!currentRhythm) {
+        currentRhythm = {
           id: `${activeTab}_${Date.now()}_${rowIndex}`, 
           instrumentId: activeTab, 
           name: rowName,
-          pattern: patternArray 
-        });
+          pattern: [...patternArray],
+          patternRight: isDouble ? [...pRight] : undefined,
+          patternLeft: isDouble ? [...pLeft] : undefined,
+          isDoubleTemp: isDouble
+        };
+      } else {
+        currentRhythm.pattern.push(...patternArray);
+        
+        if (isDouble && !currentRhythm.isDoubleTemp) {
+          currentRhythm.isDoubleTemp = true;
+          const oldLength = currentRhythm.pattern.length - patternArray.length;
+          currentRhythm.patternRight = [...currentRhythm.pattern.slice(0, oldLength)];
+          currentRhythm.patternLeft = Array(oldLength).fill('-');
+        }
+
+        if (currentRhythm.isDoubleTemp) {
+          if (isDouble) {
+            currentRhythm.patternRight.push(...pRight);
+            currentRhythm.patternLeft.push(...pLeft);
+          } else {
+            currentRhythm.patternRight.push(...patternArray);
+            currentRhythm.patternLeft.push(...Array(patternArray.length).fill('-'));
+          }
+        }
       }
     });
+
+    pushCurrentRhythm();
 
     if (newRhythms.length > 0) {
       setExtractedRhythms(newRhythms);
@@ -195,10 +266,33 @@ const RhythmManager = () => {
     if (!editingItem) return;
     setIsSavingEdit(true);
 
-    const patternArray = editingItem.patternStr.split(/\s+/).filter(Boolean);
+    const isDouble = editingItem.patternRight !== undefined;
+    let newCombined = [];
+    let pRight = null;
+    let pLeft = null;
+
+    if (isDouble) {
+      pRight = editingItem.patternStr.split(/\s+/).filter(Boolean);
+      pLeft = editingItem.patternLeftStr.split(/\s+/).filter(Boolean);
+      const max = Math.max(pRight.length, pLeft.length);
+      for(let i=0; i<max; i++) {
+        const r = pRight[i] && pRight[i] !== '-' ? pRight[i] : '';
+        const l = pLeft[i] && pLeft[i] !== '-' ? pLeft[i] : '';
+        const combined = r + l;
+        newCombined.push(combined === '' ? '-' : combined);
+      }
+    } else {
+      newCombined = editingItem.patternStr.split(/\s+/).filter(Boolean);
+    }
+
     const updated = allRhythms.map(r => 
       r.id === editingItem.id 
-        ? { ...r, name: editingItem.name, pattern: patternArray }
+        ? { 
+            ...r, 
+            name: editingItem.name, 
+            pattern: newCombined,
+            ...(isDouble && { patternRight: pRight, patternLeft: pLeft })
+          }
         : r
     );
 
@@ -219,40 +313,86 @@ const RhythmManager = () => {
   const activeTabItems = allRhythms.filter(r => r.instrumentId === activeTab);
   const currentTabConfig = INSTRUMENT_TABS.find(t => t.id === activeTab);
 
-  const renderExactRowPattern = (pattern) => {
-    const measures = [];
-    for (let i = 0; i < pattern.length; i += 4) {
-      measures.push(pattern.slice(i, i + 4));
-    }
+  const renderExactRowPattern = (item) => {
+    const isDouble = item.patternRight && item.patternLeft;
+    const topArr = isDouble ? item.patternRight : item.pattern;
+    const botArr = isDouble ? item.patternLeft : null;
+
+    const totalMeasures = Math.ceil(topArr.length / 4);
+    const totalLines = Math.ceil(totalMeasures / 8);
 
     return (
-      <div className="flex flex-col gap-1.5 w-full overflow-x-auto pb-1 custom-scrollbar">
-        {Array.from({ length: Math.ceil(measures.length / 8) }).map((_, rowIndex) => {
-          const rowMeasures = measures.slice(rowIndex * 8, (rowIndex + 1) * 8);
-          return (
-            <div key={rowIndex} className="flex gap-1.5 items-center w-max">
-              {rowMeasures.map((measure, mIdx) => (
-                <div key={mIdx} className="flex gap-1 items-center bg-white px-2 py-1.5 rounded-lg border border-slate-200/90 shadow-[0_1px_2px_rgba(0,0,0,0.02)] min-w-[72px] justify-between">
-                  {measure.map((cell, cIdx) => {
-                    const isEmpty = !cell || cell === '-';
+      <div className="w-full overflow-x-auto custom-scrollbar pb-2">
+        <div className="flex flex-col gap-3 w-max mt-1">
+          
+          {Array.from({ length: totalLines }).map((_, lineIdx) => {
+            const measuresInThisLine = Math.min(8, totalMeasures - lineIdx * 8);
+
+            return (
+              <div key={lineIdx} className="flex border border-slate-800 rounded-[2px] bg-white shadow-sm overflow-hidden">
+                
+                <div className="flex flex-col shrink-0 border-r border-slate-800 bg-slate-50/50">
+                  <div className="h-9 flex items-center justify-center px-4 text-[11px] font-bold text-slate-700">
+                    {isDouble ? 'มือขวา' : (item.instrumentId === 'ching' ? 'ฉิ่ง/ฉับ' : 'จังหวะ')}
+                  </div>
+                  {isDouble && (
+                    <div className="h-9 flex items-center justify-center px-4 text-[11px] font-bold text-slate-700 border-t border-slate-800">
+                      มือซ้าย
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex">
+                  {Array.from({ length: measuresInThisLine }).map((_, mIdxLocal) => {
+                    const globalMIdx = lineIdx * 8 + mIdxLocal;
+                    const topMeasure = topArr.slice(globalMIdx * 4, (globalMIdx + 1) * 4);
+                    const botMeasure = botArr ? botArr.slice(globalMIdx * 4, (globalMIdx + 1) * 4) : null;
+                    
+                    const paddedTop = [...topMeasure, ...Array(4 - topMeasure.length).fill('-')];
+                    const paddedBot = botMeasure ? [...botMeasure, ...Array(4 - botMeasure.length).fill('-')] : null;
+
                     return (
-                      <span key={cIdx} className={`text-[11px] font-bold w-4 text-center ${isEmpty ? 'text-slate-300' : 'text-sky-600'}`}>
-                        {isEmpty ? '·' : cell}
-                      </span>
+                      <div key={mIdxLocal} className="flex flex-col border-r border-slate-800 last:border-r-0">
+                        <div className="flex h-9">
+                          {paddedTop.map((note, cIdx) => {
+                            const isEmpty = !note || note === '-';
+                            return (
+                              <div key={cIdx} className="w-8 flex items-center justify-center text-[12px] font-bold border-r border-slate-300 last:border-r-0">
+                                 {isEmpty ? <span className="text-slate-300">-</span> : <span className="text-slate-800">{note}</span>}
+                              </div>
+                            );
+                          })}
+                        </div>
+                        {isDouble && (
+                          <div className="flex h-9 border-t border-slate-800">
+                            {paddedBot.map((note, cIdx) => {
+                              const isEmpty = !note || note === '-';
+                              return (
+                                <div key={cIdx} className="w-8 flex items-center justify-center text-[12px] font-bold border-r border-slate-300 last:border-r-0">
+                                   {isEmpty ? <span className="text-slate-300">-</span> : <span className="text-slate-800">{note}</span>}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
                     );
                   })}
                 </div>
-              ))}
-            </div>
-          );
-        })}
+
+              </div>
+            );
+          })}
+
+        </div>
       </div>
     );
   };
 
   return (
     <div className="absolute inset-0 bg-[#f8fafc] text-slate-800 overflow-y-auto w-full h-full custom-scrollbar">
-      <div className="max-w-6xl mx-auto p-6 md:p-10 font-sans min-h-full flex flex-col">
+      {/* ⭐ ขยายความกว้างสูงสุดของหน้าจอให้กว้างขึ้น */}
+      <div className="max-w-[1536px] w-full mx-auto p-6 md:p-10 font-sans min-h-full flex flex-col">
         
         <div className="mb-8 border-b border-slate-200 pb-6">
           <h2 className="text-2xl md:text-3xl font-extrabold text-slate-900 flex items-center gap-3 mb-2">
@@ -286,7 +426,8 @@ const RhythmManager = () => {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 pb-12">
+        {/* ⭐ ปรับ Grid เป็น 4 ส่วน เพื่อให้ฝั่งขวากว้างขึ้น */}
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 pb-12">
           
           <div className="lg:col-span-1 space-y-6">
             <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200">
@@ -337,7 +478,7 @@ const RhythmManager = () => {
                   {extractedRhythms.map((item, index) => (
                     <div key={index} className="bg-white border border-sky-100 rounded-2xl p-3.5 shadow-sm">
                       <div className="font-bold text-slate-800 text-xs mb-2">{item.name}</div>
-                      {renderExactRowPattern(item.pattern)}
+                      {renderExactRowPattern(item)}
                     </div>
                   ))}
                 </div>
@@ -353,7 +494,8 @@ const RhythmManager = () => {
             )}
           </div>
 
-          <div className="lg:col-span-2">
+          {/* ⭐ ขยายฝั่งขวาให้กว้างขึ้นเป็น 3 ส่วน */}
+          <div className="lg:col-span-3">
             <div className="bg-white rounded-3xl p-6 md:p-8 shadow-sm border border-slate-200 h-full">
               
               <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-3">
@@ -391,7 +533,11 @@ const RhythmManager = () => {
 
                         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                           <button 
-                            onClick={() => setEditingItem({ ...rhythm, patternStr: rhythm.pattern.join(' ') })} 
+                            onClick={() => setEditingItem({ 
+                              ...rhythm, 
+                              patternStr: rhythm.patternRight ? rhythm.patternRight.join(' ') : rhythm.pattern.join(' '),
+                              patternLeftStr: rhythm.patternLeft ? rhythm.patternLeft.join(' ') : ''
+                            })} 
                             className="p-1.5 text-slate-400 hover:text-sky-600 hover:bg-sky-50 rounded-lg transition-colors" 
                             title="แก้ไข"
                           >
@@ -407,7 +553,7 @@ const RhythmManager = () => {
                         </div>
                       </div>
                       
-                      {renderExactRowPattern(rhythm.pattern)}
+                      {renderExactRowPattern(rhythm)}
                     </div>
                   ))}
                 </div>
@@ -439,16 +585,31 @@ const RhythmManager = () => {
 
               <div>
                 <label className="block text-xs font-bold text-slate-500 mb-1">
-                  แพทเทิร์นจังหวะ <span className="text-[10px] text-slate-400 font-normal">(เว้นวรรคเพื่อแยกช่อง)</span>
+                  แพทเทิร์นจังหวะ {editingItem.patternRight !== undefined && "(มือขวา)"} <span className="text-[10px] text-slate-400 font-normal">(เว้นวรรคเพื่อแยกช่อง)</span>
                 </label>
                 <textarea 
                   value={editingItem.patternStr} 
                   onChange={(e) => setEditingItem({ ...editingItem, patternStr: e.target.value })}
-                  rows={3}
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-400 resize-none leading-relaxed"
-                  placeholder="เช่น: - - - ฉิ่ง - - - ฉับ"
+                  rows={2}
+                  className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-400 resize-none leading-relaxed"
+                  placeholder="เช่น: - ทัง - - - - - จ๊ะ"
                 ></textarea>
               </div>
+
+              {editingItem.patternRight !== undefined && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 mb-1">
+                    แพทเทิร์นจังหวะ (มือซ้าย) <span className="text-[10px] text-slate-400 font-normal">(เว้นวรรคเพื่อแยกช่อง)</span>
+                  </label>
+                  <textarea 
+                    value={editingItem.patternLeftStr} 
+                    onChange={(e) => setEditingItem({ ...editingItem, patternLeftStr: e.target.value })}
+                    rows={2}
+                    className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-400 resize-none leading-relaxed"
+                    placeholder="เช่น: - - - ติง - โจ๊ะ - -"
+                  ></textarea>
+                </div>
+              )}
             </div>
 
             <div className="flex gap-3">
