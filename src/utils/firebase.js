@@ -10,18 +10,18 @@ import { getStorage } from "firebase/storage";
 
 // 1. Firebase Config
 const firebaseConfig = {
-  apiKey: "AIzaSyBMW-AKd2p41qin2KmHi7skooNsKI2v_kI",
-  authDomain: "thai-music-editor.firebaseapp.com",
-  projectId: "thai-music-editor",
-  storageBucket: "thai-music-editor.firebasestorage.app",
-  messagingSenderId: "481298501401",
-  appId: "1:481298501401:web:1ff4986d75e31816a0ff88",
-  measurementId: "G-V1WXV1KMN0"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
 };
 
 // 2. Initialize
 const app = initializeApp(firebaseConfig);
-const analytics = getAnalytics(app);
+getAnalytics(app);
 
 // 3. Export Auth และ DB
 export const auth = getAuth(app);
@@ -66,10 +66,8 @@ export const getUserProfile = async (uid) => {
           if (new Date() > expirationDate) {
               console.log(`บัญชี Premium ของ ${uid} หมดอายุแล้ว ระบบกำลังลดระดับเป็น user ทั่วไป...`);
               
-              // อัปเดตกลับเป็น user ในฐานข้อมูล
-              await updateDoc(docRef, { role: 'user' });
-              
-              // ส่งค่ากลับไปให้หน้าบ้านรู้ว่าเป็น user
+              // สิทธิ์หมดอายุจะแสดงเป็นผู้ใช้ทั่วไปใน client
+              // การแก้ role ในฐานข้อมูลสงวนไว้ให้ Admin ผ่าน Firestore Rules
               return { ...userData, role: 'user' }; 
           }
       }

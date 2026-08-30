@@ -10,6 +10,18 @@ Currently, two official plugins are available:
 --------------------
 # Thai Music Editor (TME) 🎵
 
+## การตั้งค่าและความปลอดภัย
+
+คัดลอก `.env.example` เป็น `.env` แล้วกำหนดค่า Firebase สำหรับ environment นั้นก่อนรันแอป โดยไฟล์ `.env` ถูกละเว้นจาก Git แล้ว
+
+ก่อนนำขึ้นใช้งานจริง ต้อง deploy กฎสิทธิ์ใน `firestore.rules` ไปยัง Firebase:
+
+```bash
+firebase deploy --only firestore:rules
+```
+
+สร้างบัญชี Admin บัญชีแรกผ่าน Firebase Console หรือ Admin SDK เท่านั้น เพราะกฎตั้งใจไม่อนุญาตให้ browser สร้างหรือเลื่อนสิทธิ์เป็น Admin เอง
+
 แอปพลิเคชันสำหรับสร้าง แก้ไข และจัดการโน้ตดนตรีไทย (Thai Music Notation) ออกแบบมาเพื่อการเรียนรู้ การสอน และการสร้างสรรค์สำหรับนักดนตรีไทยโดยเฉพาะ รองรับการใช้งานแบบ Cross-platform ทั้งบนคอมพิวเตอร์และโทรศัพท์มือถือ
 
 ## 💻 Tech Stack

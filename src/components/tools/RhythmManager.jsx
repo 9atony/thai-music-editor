@@ -77,22 +77,29 @@ const RhythmManager = () => {
 
     const pushCurrentRhythm = () => {
       if (currentRhythm) {
-        const hasNotes = currentRhythm.pattern.some(cell => cell && cell.trim() !== '' && cell.trim() !== '-');
-        if (hasNotes) {
-          // ตัดห้องว่าง (ทั้งหมดเป็น '-') ท้ายแพทเทิร์นทิ้งออกอัตโนมัติ
-          while (currentRhythm.pattern.length >= 4) {
-            const last4 = currentRhythm.pattern.slice(-4);
-            const allEmpty = last4.every(c => !c || c === '-');
-            if (allEmpty) {
-              currentRhythm.pattern.splice(-4, 4);
-              if (currentRhythm.patternRight) currentRhythm.patternRight.splice(-4, 4);
-              if (currentRhythm.patternLeft) currentRhythm.patternLeft.splice(-4, 4);
-            } else {
-              break;
-            }
+        // ตัดห้องว่าง (ทั้งหมดเป็น '-') ท้ายแพทเทิร์นทิ้งออกอัตโนมัติ
+        while (currentRhythm.pattern.length >= 4) {
+          const last4 = currentRhythm.pattern.slice(-4);
+          const allEmpty = last4.every(c => !c || c === '-');
+          if (allEmpty) {
+            currentRhythm.pattern.splice(-4, 4);
+            if (currentRhythm.patternRight) currentRhythm.patternRight.splice(-4, 4);
+            if (currentRhythm.patternLeft) currentRhythm.patternLeft.splice(-4, 4);
+          } else {
+            break;
           }
+        }
 
+        if (currentRhythm.pattern.length > 0) {
           delete currentRhythm.isDoubleTemp;
+          
+          // ⭐ คลีน property ที่เป็น undefined ออกให้หมดก่อนเซฟลง Firebase
+          Object.keys(currentRhythm).forEach(key => {
+            if (currentRhythm[key] === undefined) {
+              delete currentRhythm[key];
+            }
+          });
+
           newRhythms.push(currentRhythm);
         }
         currentRhythm = null;
@@ -114,9 +121,13 @@ const RhythmManager = () => {
       let rowName = `จังหวะที่ ${rowIndex + 1}`;
       
       if (rowTypes[rowIndex] !== 'double-left' && sectionLabels[vIdx] && sectionLabels[vIdx].length > 0) {
-        const rawText = sectionLabels[vIdx][0].text;
-        rowName = rawText.replace(/<[^>]*>?/gm, '').trim();
-        hasNewLabel = true;
+        const rawText = sectionLabels[vIdx][0].text || '';
+        const cleanText = rawText.replace(/<[^>]*>?/gm, '').replace(/&nbsp;/gi, '').trim();
+        
+        if (cleanText !== '') {
+          rowName = cleanText;
+          hasNewLabel = true;
+        }
       } else if (!Array.isArray(row) && (row.label || row.name)) {
         rowName = row.label || row.name;
         hasNewLabel = true;
@@ -169,10 +180,14 @@ const RhythmManager = () => {
           instrumentId: activeTab, 
           name: rowName,
           pattern: [...patternArray],
-          patternRight: isDouble ? [...pRight] : undefined,
-          patternLeft: isDouble ? [...pLeft] : undefined,
           isDoubleTemp: isDouble
         };
+        
+        // ⭐ เพิ่ม Property เฉพาะเมื่อเป็นจังหวะคู่เท่านั้น
+        if (isDouble) {
+          currentRhythm.patternRight = [...pRight];
+          currentRhythm.patternLeft = [...pLeft];
+        }
       } else {
         currentRhythm.pattern.push(...patternArray);
         
@@ -391,7 +406,6 @@ const RhythmManager = () => {
 
   return (
     <div className="absolute inset-0 bg-[#f8fafc] text-slate-800 overflow-y-auto w-full h-full custom-scrollbar">
-      {/* ⭐ ขยายความกว้างสูงสุดของหน้าจอให้กว้างขึ้น */}
       <div className="max-w-[1536px] w-full mx-auto p-6 md:p-10 font-sans min-h-full flex flex-col">
         
         <div className="mb-8 border-b border-slate-200 pb-6">
@@ -426,7 +440,6 @@ const RhythmManager = () => {
           </div>
         </div>
 
-        {/* ⭐ ปรับ Grid เป็น 4 ส่วน เพื่อให้ฝั่งขวากว้างขึ้น */}
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 pb-12">
           
           <div className="lg:col-span-1 space-y-6">
@@ -494,7 +507,6 @@ const RhythmManager = () => {
             )}
           </div>
 
-          {/* ⭐ ขยายฝั่งขวาให้กว้างขึ้นเป็น 3 ส่วน */}
           <div className="lg:col-span-3">
             <div className="bg-white rounded-3xl p-6 md:p-8 shadow-sm border border-slate-200 h-full">
               

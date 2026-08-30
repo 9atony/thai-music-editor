@@ -44,6 +44,8 @@ export const useAudioPlayback = ({
   });
 
   const isPlayingRef = useRef(false);
+  
+  const globalBeatCountRef = useRef(0);
   const playbackSequenceRef = useRef(playbackSequence);
   const activeSequenceIdxRef = useRef(0);
   const activeLoopRef = useRef(1);
@@ -229,7 +231,6 @@ export const useAudioPlayback = ({
     const conf = metronomeConfigRef.current;
     if (conf.ching.active) preloadSounds('ching').catch(() => {});
     if (conf.klong.active) preloadSounds('klong-khaek').catch(() => {});
-    // ⭐ เพิ่มบรรทัดนี้ให้ระบบโหลดเสียงกรับด้วย
     if (conf.krub.active) preloadSounds('krub').catch(() => {});
 
     setIsPlaying(true);
@@ -281,6 +282,10 @@ export const useAudioPlayback = ({
     const totalSeconds = Math.floor(calcTotalMs / 1000);
     setTotalTime(totalSeconds);
     setCurrentTime(Math.floor(seekOffsetRef.current));
+
+    // ⭐ รีเซ็ตตัวนับจังหวะกลองให้สอดคล้องกับ Timeline ปัจจุบัน
+    const standardMsPerCellInit = 15000 / (layoutConfigRef.current.bpm || 80);
+    globalBeatCountRef.current = Math.round((seekOffsetRef.current * 1000) / standardMsPerCellInit);
 
     playbackStartTimeRef.current = performance.now() - (seekOffsetRef.current * 1000);
     if (uiTimerRef.current) clearInterval(uiTimerRef.current);
@@ -444,20 +449,26 @@ export const useAudioPlayback = ({
 
       scheduleUiChange(() => schedulePlaybackCursorUpdate([r, m, c]), cellStartSec);
 
+      // ดึงค่าความยาวห้องแบบปลอดภัย
+      const safeCellCount = cellCountInMeasure > 0 ? cellCountInMeasure : 4;
+
       const firstItem = currentSheetData[r][m][0];
       if (typeof firstItem === 'string' && (firstItem.startsWith('@TEXT_SPAN_') || firstItem === '@HIDDEN')) {
+        globalBeatCountRef.current += (4 / safeCellCount); // ⭐ นับจังหวะเดินหน้าแม้จะเป็นช่องผสาน
         return msPerCell; 
       }
 
-      // ⭐ [ส่วนที่ 1]: เล่นเสียง Metronome (พร้อมรองรับการตีพร้อมกันหลายเสียง)
+      // ⭐ [ส่วนที่ 1]: เล่นเสียง Metronome ด้วยระบบ Timeline (ไม่สนใจการกระโดดของโน้ต)
       const metronomeConf = metronomeConfigRef.current;
-      const normalizedM = currentRowTypes[r] === 'double-right' ? m - 1 : m;
-      const beatIndexInLine = (normalizedM * 4) + c;
       const masterVol = metronomeConf.masterVolume / 100;
+
+      // ดึงค่าจังหวะปัจจุบัน และปัดเศษเพื่อแก้ปัญหาทศนิยม (ป้องกันตีกระตุก)
+      const currentGlobalBeat = Math.round(globalBeatCountRef.current * 1000) / 1000;
+      const isMetronomeBeat = Number.isInteger(currentGlobalBeat);
+      const globalBeatIndex = Math.floor(currentGlobalBeat);
 
       const playMetronomeNote = (instrument, noteStr, baseVol) => {
         if (!noteStr || noteStr === '-' || noteStr.trim() === '') return;
-        // ระบบจะช่วยแยกคำ เช่น "ทังโจ๊ะ" -> ออกเป็น ['ทัง', 'โจ๊ะ'] และสั่งตีพร้อมกัน
         const notesToPlay = splitThaiNoteToken(noteStr);
         notesToPlay.forEach(n => {
           if (n && n !== '-') {
@@ -467,24 +478,27 @@ export const useAudioPlayback = ({
         });
       };
 
-      if (metronomeConf.ching.active) {
-        const chingP = metronomeConf.rhythms.ching.find(p => p.id === metronomeConf.ching.pattern) || metronomeConf.rhythms.ching[0];
-        if (chingP && chingP.pattern.length > 0) {
-          playMetronomeNote('ching', chingP.pattern[beatIndexInLine % chingP.pattern.length], metronomeConf.ching.volume);
+      // ตีกลองเฉพาะตอนที่จังหวะลงล็อกเป๊ะๆ เท่านั้น
+      if (isMetronomeBeat) {
+        if (metronomeConf.ching.active) {
+          const chingP = metronomeConf.rhythms.ching.find(p => p.id === metronomeConf.ching.pattern) || metronomeConf.rhythms.ching[0];
+          if (chingP && chingP.pattern.length > 0) {
+            playMetronomeNote('ching', chingP.pattern[globalBeatIndex % chingP.pattern.length], metronomeConf.ching.volume);
+          }
         }
-      }
 
-      if (metronomeConf.klong.active) {
-        const klongP = metronomeConf.rhythms.klong.find(p => p.id === metronomeConf.klong.pattern) || metronomeConf.rhythms.klong[0];
-        if (klongP && klongP.pattern.length > 0) {
-          playMetronomeNote('klong-khaek', klongP.pattern[beatIndexInLine % klongP.pattern.length], metronomeConf.klong.volume);
+        if (metronomeConf.klong.active) {
+          const klongP = metronomeConf.rhythms.klong.find(p => p.id === metronomeConf.klong.pattern) || metronomeConf.rhythms.klong[0];
+          if (klongP && klongP.pattern.length > 0) {
+            playMetronomeNote('klong-khaek', klongP.pattern[globalBeatIndex % klongP.pattern.length], metronomeConf.klong.volume);
+          }
         }
-      }
 
-      if (metronomeConf.krub.active) {
-        const krubP = metronomeConf.rhythms.krub.find(p => p.id === metronomeConf.krub.pattern) || metronomeConf.rhythms.krub[0];
-        if (krubP && krubP.pattern.length > 0) {
-          playMetronomeNote('krub', krubP.pattern[beatIndexInLine % krubP.pattern.length], metronomeConf.krub.volume);
+        if (metronomeConf.krub.active) {
+          const krubP = metronomeConf.rhythms.krub.find(p => p.id === metronomeConf.krub.pattern) || metronomeConf.rhythms.krub[0];
+          if (krubP && krubP.pattern.length > 0) {
+            playMetronomeNote('krub', krubP.pattern[globalBeatIndex % krubP.pattern.length], metronomeConf.krub.volume);
+          }
         }
       }
 
@@ -625,6 +639,8 @@ export const useAudioPlayback = ({
         scanR++;
       }
 
+      // ⭐ สั่งให้จังหวะเดินหน้า (+1 เสมอ สำหรับห้อง 4 ช่องปกติ)
+      globalBeatCountRef.current += (4 / safeCellCount); 
       return msPerCell;
     };
 

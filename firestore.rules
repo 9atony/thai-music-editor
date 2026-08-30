@@ -1,0 +1,60 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return signedIn()
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    function owns(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    // User records can only be created with the least-privileged role.
+    // Admin accounts must be provisioned outside the client (Firebase Console/Admin SDK).
+    match /users/{userId} {
+      allow create: if owns(userId)
+        && request.resource.data.role == 'user'
+        && request.resource.data.keys().hasOnly(['email', 'displayName', 'role', 'createdAt']);
+      allow get: if owns(userId) || isAdmin();
+      allow list: if isAdmin();
+      allow update: if isAdmin()
+        || (owns(userId)
+          && request.resource.data.role == resource.data.role
+          && request.resource.data.premiumUntil == resource.data.premiumUntil
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName']));
+      allow delete: if isAdmin();
+
+      match /projects/{projectId} {
+        allow read, write: if owns(userId) || isAdmin();
+      }
+    }
+
+    match /samples/{sampleId} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    match /updates/{updateId} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    match /system_rhythms/{rhythmId} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    match /ranat_dictionary/{entryId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /tuning_dataset/{entryId} {
+      allow read, write: if isAdmin();
+    }
+  }
+}

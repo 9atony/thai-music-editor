@@ -1,4 +1,4 @@
-import { INSTRUMENT_CONFIG } from './instrumentConfig';
+import { INSTRUMENT_CONFIG } from './instrumentConfig.js';
 
 export const NATHAP_LABEL_DEFAULT = 'เครื่องประกอบ';
 
@@ -46,7 +46,10 @@ export const normalizeNathapRowData = (row, isUnderDouble = false) => {
   
   const rawMeasures = hasLeadingLabel ? normalizedRow.slice(1) : normalizedRow;
   
-  const measures = Array.from({ length: 8 }, (_, index) => {
+  // ⭐ ปลดล็อค: ให้ยึดความยาวตามห้องจริงที่มีอยู่ (ขั้นต่ำคือ 8 ห้อง)
+  const targetLength = Math.max(8, rawMeasures.length);
+  
+  const measures = Array.from({ length: targetLength }, (_, index) => {
     const source = rawMeasures[index];
     return Array.isArray(source) && source.length > 0 ? [...source] : ['-', '-', '-', '-'];
   });
@@ -158,7 +161,7 @@ export const shiftNoteObject = (keyObj, steps) => {
 
 export const shiftNoteString = (noteStr, steps) => {
   if (!noteStr || noteStr === '-') return noteStr;
-  let thaiChar = noteStr.replace(/[\u0E3A\u200B\u0E4D]/g, '');
+  let thaiChar = noteStr.replace(/\u0E3A|\u200B|\u0E4D/g, '');
   let octave = 4;
   if (noteStr.includes('\u0E4D')) octave = 5;
   else if (noteStr.includes('\u0E3A\u200B')) octave = 2;

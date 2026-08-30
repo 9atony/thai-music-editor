@@ -127,7 +127,10 @@ export const MusicProvider = ({ children }) => {
   });
 
   useEffect(() => {
-     sheetEditor.isPlayingRef = audioPlayback.isPlayingRef;
+     // ⭐ แก้ไขการกำหนดค่า Ref ให้ถูกต้อง
+     if (sheetEditor.isPlayingRef) {
+       sheetEditor.isPlayingRef.current = audioPlayback.isPlayingRef.current;
+     }
      sheetEditor.stopPlayback = audioPlayback.stopPlayback;
   }, [audioPlayback.isPlayingRef, audioPlayback.stopPlayback, sheetEditor]);
 
@@ -292,7 +295,7 @@ export const MusicProvider = ({ children }) => {
                 let parentRIdx = rIdx - 1;
                 while (parentRIdx >= 0 && (migrateRowTypes[parentRIdx] === 'annotation' || migrateRowTypes[parentRIdx] === 'nathap')) parentRIdx--;
                 const isUnderDouble = parentRIdx >= 0 && migrateRowTypes[parentRIdx]?.startsWith('double');
-                return normalizeNathapRowData(row, isUnderDouble);
+                return Array.isArray(row) ? normalizeNathapRowData(row, isUnderDouble) : row;
               }
               return row;
             });
@@ -302,9 +305,9 @@ export const MusicProvider = ({ children }) => {
         }
 
         const loadedRowTypes = data.rowTypes || defaultTypes;
-        const loadedMargins = data.rowMargins || createDefaultRowMargins(parsedSheetData?.length || defaultMargins.length);
+        const loadedMargins = Array.isArray(data.rowMargins) ? data.rowMargins : Array(parsedSheetData?.length || defaultMargins.length).fill({ top: 0, bottom: 0, left: 0 });
         
-        setRowTypes(loadedRowTypes);
+        // ⭐ ใช้ฟังก์ชัน commitChange หรือตั้งค่าผ่าน sheetEditor แทน
         setLayoutConfig({ ...createDefaultLayoutConfig(), ...(data.layoutConfig || {}) });
         setHeaderDetails(data.headerDetails || createDefaultHeaderDetails());
         setCurrentInstrument((data.currentInstrument && INSTRUMENT_CONFIG[data.currentInstrument]) ? INSTRUMENT_CONFIG[data.currentInstrument] : DEFAULT_INSTRUMENT);
@@ -315,6 +318,7 @@ export const MusicProvider = ({ children }) => {
         setIsReduceMode(data.isReduceMode !== undefined ? data.isReduceMode : false);
         setIsShowPlayMode(data.isShowPlayMode !== undefined ? data.isShowPlayMode : false);
 
+        // ส่ง loadedRowTypes เข้าไปพร้อมกันตอน commitChange ตรงนี้เลย
         sheetEditor.commitChange(parsedSheetData, loadedRowTypes, data.sectionLabels || {}, data.symbols || [], loadedMargins);
       } catch (error) {
         console.error("Load project error:", error);
@@ -351,7 +355,7 @@ export const MusicProvider = ({ children }) => {
         return row;
       }) : parsedSheetData;
 
-      const loadedMargins = projectData.rowMargins || createDefaultRowMargins(parsedSheetData?.length || defaultMargins.length);
+      const loadedMargins = Array.isArray(projectData.rowMargins) ? projectData.rowMargins : Array(parsedSheetData?.length || defaultMargins.length).fill({ top: 0, bottom: 0, left: 0 });
       setLayoutConfig({ ...createDefaultLayoutConfig(), ...(projectData.layoutConfig || {}) });
       setHeaderDetails(projectData.headerDetails || createDefaultHeaderDetails());
       setCurrentInstrument((projectData.currentInstrument && INSTRUMENT_CONFIG[projectData.currentInstrument]) ? INSTRUMENT_CONFIG[projectData.currentInstrument] : DEFAULT_INSTRUMENT);
@@ -415,7 +419,7 @@ export const MusicProvider = ({ children }) => {
               let parentRIdx = rIdx - 1;
               while (parentRIdx >= 0 && (restoredRowTypes[parentRIdx] === 'annotation' || restoredRowTypes[parentRIdx] === 'nathap')) parentRIdx--;
               const isUnderDouble = parentRIdx >= 0 && restoredRowTypes[parentRIdx]?.startsWith('double');
-              return normalizeNathapRowData(row, isUnderDouble);
+              return Array.isArray(row) ? normalizeNathapRowData(row, isUnderDouble) : row;
             }
             return row;
           }) : data.sheetData;
