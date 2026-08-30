@@ -10,13 +10,13 @@ import { getStorage } from "firebase/storage";
 
 // 1. Firebase Config
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  apiKey: "AIzaSyBMW-AKd2p41qin2KmHi7skooNsKI2v_kI",
+  authDomain: "thai-music-editor.firebaseapp.com",
   projectId: "thai-music-editor",
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
-  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
+  storageBucket: "thai-music-editor.firebasestorage.app",
+  messagingSenderId: "481298501401",
+  appId: "1:481298501401:web:1ff4986d75e31816a0ff88",
+  measurementId: "G-V1WXV1KMN0"
 };
 
 // 2. Initialize
