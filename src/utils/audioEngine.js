@@ -305,8 +305,11 @@ export const primeAudioEngine = async () => {
   if (primeAudioPromise) return primeAudioPromise;
 
   primeAudioPromise = (async () => {
-    await initAudioContext();
-    await preloadAllSounds();
+    // เริ่มดาวน์โหลด/ถอดรหัสเสียงทันทีตั้งแต่หน้าเว็บเปิด แม้ AudioContext ยังรอ user gesture
+    // เดิม await resume() ก่อน ทำให้ preload ทั้งหมดเพิ่งเริ่มหลังผู้ใช้กดเข้า Editor
+    const resumeTask = initAudioContext().catch(() => null);
+    const preloadTask = preloadAllSounds();
+    await Promise.allSettled([resumeTask, preloadTask]);
     return true;
   })().catch((err) => {
     primeAudioPromise = null;

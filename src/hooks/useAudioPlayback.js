@@ -257,10 +257,18 @@ export const useAudioPlayback = ({
         } else addStartupNote(instrument.id, actualNote);
       });
     };
-    const initialCell = selectedCellRef.current || [0, 0, 0];
+    const initialCell = [...(selectedCellRef.current || [0, 0, 0])];
+    // ใช้ตำแหน่งเริ่มจริงเดียวกับ scheduler กรณีเลือกบรรทัดคำอธิบาย/หน้าทับ/มือซ้าย
+    if (currentRowTypes[initialCell[0]] === 'nathap' || currentRowTypes[initialCell[0]] === 'annotation') {
+      let parentRow = initialCell[0] - 1;
+      while (parentRow >= 0 && (currentRowTypes[parentRow] === 'nathap' || currentRowTypes[parentRow] === 'annotation')) parentRow -= 1;
+      if (parentRow >= 0) initialCell[0] = currentRowTypes[parentRow] === 'double-left' ? parentRow - 1 : parentRow;
+    }
+    if (currentRowTypes[initialCell[0]] === 'double-left') initialCell[0] -= 1;
+    if (currentRowTypes[initialCell[0]]?.startsWith('double') && initialCell[1] === 0) initialCell[1] = 1;
+
     collectCellNotes(initialCell[0], initialCell[1], initialCell[2]);
     if (currentRowTypes[initialCell[0]] === 'double-right') collectCellNotes(initialCell[0] + 1, initialCell[1], initialCell[2]);
-    if (currentRowTypes[initialCell[0]] === 'double-left') collectCellNotes(initialCell[0] - 1, initialCell[1], initialCell[2]);
 
     [['ching', 'ching'], ['klong', 'klong-khaek'], ['krub', 'krub']].forEach(([key, instrumentId]) => {
       if (!conf[key].active) return;
@@ -269,8 +277,9 @@ export const useAudioPlayback = ({
     });
 
     const startupPreload = Promise.allSettled([...startupNotes.values()].map(({ instrumentId, note }) => preloadNote(instrumentId, note)));
-    // จำกัดเวลารอเพื่อให้การกด Play ยังตอบสนองเร็ว แม้เครือข่ายช้า
-    await Promise.race([startupPreload, new Promise(resolve => setTimeout(resolve, 350))]);
+    // รอเฉพาะเสียงจังหวะแรกจริง ๆ เพื่อรับประกันว่าโน้ตแรกไม่ขาด
+    // โดยปกติพร้อมอยู่แล้วจาก primeAudioEngine จึง resolve ทันที
+    await startupPreload;
 
     // เริ่มโหลดเสียงทันที แต่ห้ามรอให้โหลดครบทุกโน้ตก่อนเล่น
     // การรอ Promise ทั้งชุดทำให้กดเล่นครั้งแรกช้าเป็นวินาที โดยเฉพาะไฟล์ที่ใช้หลายเครื่อง
