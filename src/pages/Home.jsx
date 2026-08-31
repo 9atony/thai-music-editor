@@ -8,7 +8,7 @@ import { MusicContext } from '../contexts/MusicContext';
 import TmeIcon from '../assets/icon.png'; 
 import AdminUpdateForm from '../components/AdminUpdateForm'; // 👈 นำเข้าฟอร์มแอดมิน
 
-const Home = ({ onNewProject, onPageChange, userProfile }) => {
+const Home = ({ onNewProject, onPageChange, userProfile, isMobile = false }) => {
   const { newProject, loadProjectFromFirebase, loadProject } = useContext(MusicContext);
   const [recentProjects, setRecentProjects] = useState([]);
   const fileInputRef = useRef(null);
@@ -38,7 +38,7 @@ const Home = ({ onNewProject, onPageChange, userProfile }) => {
         setLatestUpdate(updateData);
 
         const lastSeenId = localStorage.getItem('lastSeenUpdateId');
-        if (lastSeenId !== updateData.id) {
+        if (!isMobile && lastSeenId !== updateData.id) {
           setIsPopupOpen(true);
         }
       }
@@ -200,7 +200,7 @@ const Home = ({ onNewProject, onPageChange, userProfile }) => {
             )}
 
             {/* กระดิ่งแจ้งเตือน */}
-            <div className="relative" ref={notifRef}>
+            <div className="relative hidden md:block" ref={notifRef}>
             <button 
                 onClick={() => setIsNotifOpen(!isNotifOpen)}
                 className="w-10 h-10 rounded-full bg-white border border-slate-200 flex items-center justify-center text-slate-500 hover:text-sky-500 hover:border-sky-300 hover:shadow-sm transition-all relative group focus:outline-none"

@@ -85,22 +85,6 @@ const MobileEditor = ({ onBack }) => {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, []);
 
-  // ⭐ ฟีเจอร์ใหม่: ดักจับการพับหน้าจอ (แก้ปัญหาเสียงกระตุก/เสียงรวบ)
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      // ถ้าหน้าจอถูกซ่อน (พับแอป/ปิดจอ) และเพลงกำลังเล่นอยู่ ให้สั่งหยุดทันที!
-      if (document.hidden && isPlayingRef.current && stopPlayback) {
-        stopPlayback();
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [stopPlayback]);
-
   const formatTimeDisplay = (seconds) => {
     if (isNaN(seconds) || seconds < 0) return "0:00";
     const m = Math.floor(seconds / 60);

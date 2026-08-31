@@ -14,6 +14,8 @@ import {
 
 const INDEPENDENT_METRONOME_GROUP = 'editor-independent-metronome';
 const LINKED_METRONOME_GROUP = 'editor-linked-metronome';
+const BACKGROUND_SCHEDULE_AHEAD_SEC = 15 * 60;
+const BACKGROUND_METRONOME_AHEAD_SEC = 30;
 
 export const useAudioPlayback = ({
   sheetDataRef,
@@ -65,12 +67,14 @@ export const useAudioPlayback = ({
   const nextNoteTimeRef = useRef(0);
   const runAudioSchedulerRef = useRef(null);
   const isPageHiddenRef = useRef(typeof document !== 'undefined' ? document.hidden : false);
-  const effectTimersRef = useRef([]);
+  const effectTimersRef = useRef(new Set());
   const mutedCellsRef = useRef(new Set());
   const pendingPlaybackCursorRef = useRef(null);
   const playbackCursorRafRef = useRef(null);
   const sheetMapRef = useRef([]);
   const independentMetronomeIntervalRef = useRef(null);
+  const runIndependentMetronomeSchedulerRef = useRef(null);
+  const mediaSessionActionsRef = useRef({});
 
   useEffect(() => { playbackSequenceRef.current = playbackSequence; }, [playbackSequence]);
   useEffect(() => { metronomeConfigRef.current = metronomeConfig; }, [metronomeConfig]);
@@ -145,7 +149,7 @@ export const useAudioPlayback = ({
     const scheduleIndependentBeats = () => {
       if (cancelled) return;
       const now = getAudioCurrentTime();
-      const lookAhead = isPageHiddenRef.current ? 1 : 0.25;
+      const lookAhead = isPageHiddenRef.current ? BACKGROUND_METRONOME_AHEAD_SEC : 0.25;
       if (!nextBeatTime || nextBeatTime < now - 0.05) nextBeatTime = now + 0.05;
 
       while (nextBeatTime < now + lookAhead) {
@@ -173,6 +177,8 @@ export const useAudioPlayback = ({
       }
     };
 
+    runIndependentMetronomeSchedulerRef.current = scheduleIndependentBeats;
+
     initAudioContext()
       .then(async () => {
         if (cancelled) return;
@@ -190,6 +196,7 @@ export const useAudioPlayback = ({
 
     return () => {
       cancelled = true;
+      runIndependentMetronomeSchedulerRef.current = null;
       stopIndependentMetronome();
     };
   }, [metronomeConfig.linked, layoutConfigRef]);
@@ -197,7 +204,12 @@ export const useAudioPlayback = ({
   useEffect(() => {
     const handleVisibilityChange = () => {
       isPageHiddenRef.current = document.hidden;
-      if (!document.hidden && isPlayingRef.current && initAudioContext) {
+      if (document.hidden) {
+        // Browsers throttle/freeze JavaScript timers in the background. Reserve
+        // audio immediately while this visibility event is still allowed to run.
+        runAudioSchedulerRef.current?.();
+        runIndependentMetronomeSchedulerRef.current?.();
+      } else if (isPlayingRef.current && initAudioContext) {
         initAudioContext().catch(() => {});
       }
     };
@@ -227,11 +239,10 @@ export const useAudioPlayback = ({
   // memory/GC work on mobile devices.
   const scheduleManagedEffectTimer = (callback, delayMs) => {
     const timerId = setTimeout(() => {
-      const timerIndex = effectTimersRef.current.indexOf(timerId);
-      if (timerIndex !== -1) effectTimersRef.current.splice(timerIndex, 1);
+      effectTimersRef.current.delete(timerId);
       callback();
     }, delayMs);
-    effectTimersRef.current.push(timerId);
+    effectTimersRef.current.add(timerId);
     return timerId;
   };
 
@@ -307,7 +318,7 @@ export const useAudioPlayback = ({
     nextNoteTimeRef.current = 0;
 
     effectTimersRef.current.forEach(t => clearTimeout(t));
-    effectTimersRef.current = [];
+    effectTimersRef.current.clear();
     mutedCellsRef.current.clear();
 
     if (window.kroInterval) {
@@ -328,6 +339,9 @@ export const useAudioPlayback = ({
       });
     }
     releasePlaybackOwnership(stopPlayback);
+    if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+      navigator.mediaSession.playbackState = 'none';
+    }
 
     if (!preserveSeek) {
       seekOffsetRef.current = 0;
@@ -407,6 +421,9 @@ export const useAudioPlayback = ({
 
     setIsPlaying(true);
     isPlayingRef.current = true;
+    if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+      navigator.mediaSession.playbackState = 'playing';
+    }
 
     const sheetSections = [];
     let lastValidRow = 0;
@@ -466,7 +483,7 @@ export const useAudioPlayback = ({
     if (playbackTimerRef.current) clearTimeout(playbackTimerRef.current);
     if (schedulerIntervalRef.current) clearInterval(schedulerIntervalRef.current);
     effectTimersRef.current.forEach(t => clearTimeout(t));
-    effectTimersRef.current = [];
+    effectTimersRef.current.clear();
     mutedCellsRef.current.clear();
     schedulerStateRef.current = null;
     nextNoteTimeRef.current = 0;
@@ -817,10 +834,12 @@ export const useAudioPlayback = ({
       return msPerCell;
     };
 
-    const advanceCursor = (r, m, c, scheduledAtSec) => {
+    const advanceCursor = (r, m, c, scheduledAtSec, schedulerSeqIdx, schedulerLoop) => {
       let nextC = c + 1;
       let nextM = m;
       let nextR = r;
+      let nextSeqIdxState = schedulerSeqIdx;
+      let nextLoopState = schedulerLoop;
 
       if (nextC >= currentSheetData[r][m].length) {
         nextC = 0;
@@ -829,7 +848,8 @@ export const useAudioPlayback = ({
         if (nextM >= currentSheetData[r].length) {
           nextM = 0;
           const seq = playbackSequenceRef.current;
-          const currSeqIdx = activeSequenceIdxRef.current;
+          const currSeqIdx = Number.isInteger(schedulerSeqIdx) ? schedulerSeqIdx : activeSequenceIdxRef.current;
+          const currentLoop = Number.isInteger(schedulerLoop) ? schedulerLoop : activeLoopRef.current;
           const map = sheetMapRef.current;
           let isEndOfSection = false;
           let currentItem = null;
@@ -858,13 +878,16 @@ export const useAudioPlayback = ({
                   if (cellCount > 0) sectionMs += (15000 / currentBpm) * 4;
                 }
               }
-              playbackStartTimeRef.current += sectionMs;
-            } else if (activeLoopRef.current < currentItem.loops) {
-              const nextLoop = activeLoopRef.current + 1;
+              scheduleUiChange(() => {
+                playbackStartTimeRef.current += sectionMs;
+              }, scheduledAtSec);
+            } else if (currentLoop < currentItem.loops) {
+              const nextLoop = currentLoop + 1;
               scheduleUiChange(() => {
                 activeLoopRef.current = nextLoop;
                 setActiveLoop(nextLoop);
               }, scheduledAtSec);
+              nextLoopState = nextLoop;
               nextR = currentMappedSectionForAdvance.startRow;
               nextM = currentRowTypes[nextR] && (currentRowTypes[nextR].startsWith('double') || currentRowTypes[nextR] === 'nathap') ? 1 : 0;
               nextC = 0;
@@ -877,6 +900,8 @@ export const useAudioPlayback = ({
                   activeLoopRef.current = 1;
                   setActiveLoop(1);
                 }, scheduledAtSec);
+                nextSeqIdxState = nextSeqIdx;
+                nextLoopState = 1;
                 const nextMappedSection = map.find(s => s.label === seq[nextSeqIdx].label.trim());
                 if (nextMappedSection) {
                   nextR = nextMappedSection.startRow;
@@ -889,14 +914,16 @@ export const useAudioPlayback = ({
                   setActiveSequenceIdx(0);
                   activeLoopRef.current = 1;
                   setActiveLoop(1);
+                  seekOffsetRef.current = 0;
+                  playbackStartTimeRef.current = performance.now();
                 }, scheduledAtSec);
+                nextSeqIdxState = 0;
+                nextLoopState = 1;
                 const firstMappedSection = map.find(s => s.label === seq[0].label.trim());
                 if (firstMappedSection) {
                   nextR = firstMappedSection.startRow;
                   nextM = currentRowTypes[nextR] && (currentRowTypes[nextR].startsWith('double') || currentRowTypes[nextR] === 'nathap') ? 1 : 0;
                   nextC = 0;
-                  seekOffsetRef.current = 0;
-                  playbackStartTimeRef.current = performance.now();
                 } else { return null; }
               } else { return null; }
             }
@@ -910,24 +937,30 @@ export const useAudioPlayback = ({
           }
         }
       }
-      return { r: nextR, m: nextM, c: nextC };
+      return { r: nextR, m: nextM, c: nextC, seqIdx: nextSeqIdxState, loop: nextLoopState };
     };
 
     // เผื่อเวลาให้ browser เปิด output path และสร้างโน้ตแรก โดยไม่ทำให้ผู้ใช้รู้สึกว่ากดเล่นช้า
     const audioStartSec = (getAudioCurrentTime ? getAudioCurrentTime() : 0) + 0.08;
-    schedulerStateRef.current = { r: currentCursor[0], m: currentCursor[1], c: currentCursor[2] };
+    schedulerStateRef.current = {
+      r: currentCursor[0],
+      m: currentCursor[1],
+      c: currentCursor[2],
+      seqIdx: activeSequenceIdxRef.current,
+      loop: activeLoopRef.current
+    };
     nextNoteTimeRef.current = audioStartSec;
 
     runAudioSchedulerRef.current = () => {
       if (!isPlayingRef.current) return;
-      const scheduleAheadSec = isPageHiddenRef.current ? 8 : 1.5;
+      const scheduleAheadSec = isPageHiddenRef.current ? BACKGROUND_SCHEDULE_AHEAD_SEC : 1.5;
       const schedulingHorizon = (getAudioCurrentTime ? getAudioCurrentTime() : 0) + scheduleAheadSec;
 
       while (schedulerStateRef.current && nextNoteTimeRef.current < schedulingHorizon) {
-        const { r, m, c } = schedulerStateRef.current;
+        const { r, m, c, seqIdx, loop } = schedulerStateRef.current;
         const msPerCell = scheduleCell(r, m, c, nextNoteTimeRef.current);
         const scheduledAtSec = nextNoteTimeRef.current + ((msPerCell || 0) / 1000);
-        const nextState = advanceCursor(r, m, c, scheduledAtSec);
+        const nextState = advanceCursor(r, m, c, scheduledAtSec, seqIdx, loop);
         nextNoteTimeRef.current = scheduledAtSec;
         schedulerStateRef.current = nextState;
 
@@ -1097,6 +1130,48 @@ export const useAudioPlayback = ({
       if (targetIdx > 0) targetIdx -= 1;
       jumpToSequence(targetIdx);
   };
+
+  mediaSessionActionsRef.current = {
+    play: startPlayback,
+    pause: stopPlayback,
+    stop: stopPlayback,
+    nexttrack: skipToNext,
+    previoustrack: skipToPrev
+  };
+
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return undefined;
+
+    if (typeof MediaMetadata !== 'undefined') {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: 'โน้ตเพลงไทย',
+        artist: 'Thai Music Editor',
+        album: 'กำลังเล่นจากเครื่องมือแก้ไขโน้ต'
+      });
+    }
+
+    const actions = ['play', 'pause', 'stop', 'nexttrack', 'previoustrack'];
+    actions.forEach((action) => {
+      try {
+        navigator.mediaSession.setActionHandler(action, () => {
+          mediaSessionActionsRef.current[action]?.();
+        });
+      } catch (error) {
+        // Some browsers expose Media Session but do not support every action.
+        if (import.meta.env.DEV) console.debug(`Media Session action '${action}' is unavailable`, error);
+      }
+    });
+
+    return () => {
+      actions.forEach((action) => {
+        try {
+          navigator.mediaSession.setActionHandler(action, null);
+        } catch (error) {
+          if (import.meta.env.DEV) console.debug(`Unable to clear Media Session action '${action}'`, error);
+        }
+      });
+    };
+  }, []);
 
   return {
     isPlaying, playbackCursor, currentTime, totalTime,

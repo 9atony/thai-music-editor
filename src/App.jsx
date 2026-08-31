@@ -170,6 +170,7 @@ function App() {
       {currentView === 'home' && (
         <Home 
           userProfile={userProfile}
+          isMobile={isMobile}
           onNewProject={(...args) => {
             setEditorMode('normal');
             handleOpenEditor(...args);
@@ -220,7 +221,7 @@ function App() {
 
   if (isMobile) {
     return (
-      <MobileLayout currentPage={currentView} onPageChange={(page) => setCurrentView(page)}>
+      <MobileLayout currentPage={currentView} onPageChange={(page) => setCurrentView(page)} userProfile={userProfile}>
         <Suspense fallback={<LoadingScreen />}>{renderContent()}</Suspense>
       </MobileLayout>
     );

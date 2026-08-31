@@ -164,6 +164,44 @@ export const fetchAllProjects = async (uid) => {
 export const loginUser = (email, password) => signInWithEmailAndPassword(auth, email, password);
 export const logoutUser = () => signOut(auth);
 
+export const FREE_PROJECT_LIMIT = 10;
+export const PREMIUM_STORAGE_LIMIT_BYTES = 5 * 1024 * 1024;
+
+export const getUserStorageUsage = async (uid) => {
+  if (!uid) throw new Error('USER_ID_REQUIRED');
+
+  const [userProfile, projectsSnapshot] = await Promise.all([
+    getUserProfile(uid),
+    getDocs(collection(db, `users/${uid}/projects`))
+  ]);
+  const role = userProfile?.role || 'user';
+  let usedBytes = 0;
+  projectsSnapshot.forEach((projectDoc) => {
+    usedBytes += new Blob([JSON.stringify(projectDoc.data())]).size;
+  });
+
+  const projectCount = projectsSnapshot.size;
+  if (role === 'admin') {
+    return { role, usedBytes, projectCount, unlimited: true };
+  }
+  if (role === 'premium') {
+    return {
+      role,
+      usedBytes,
+      projectCount,
+      maxBytes: PREMIUM_STORAGE_LIMIT_BYTES,
+      remainingBytes: Math.max(PREMIUM_STORAGE_LIMIT_BYTES - usedBytes, 0)
+    };
+  }
+  return {
+    role,
+    usedBytes,
+    projectCount,
+    maxProjects: FREE_PROJECT_LIMIT,
+    remainingProjects: Math.max(FREE_PROJECT_LIMIT - projectCount, 0)
+  };
+};
+
 export const saveProjectToDB = async (uid, projectId, projectData) => {
   try {
     const userProfile = await getUserProfile(uid);
@@ -187,7 +225,7 @@ export const saveProjectToDB = async (uid, projectId, projectData) => {
       });
 
       if (!isPremium) { 
-        if (!projectId && projectCount >= 10) {
+        if (!projectId && projectCount >= FREE_PROJECT_LIMIT) {
           throw new Error("STORAGE_LIMIT_EXCEEDED");
         }
       } 
@@ -198,7 +236,7 @@ export const saveProjectToDB = async (uid, projectId, projectData) => {
           updatedAt: new Date() 
         };
         const newProjectBytes = new Blob([JSON.stringify(dataToSaveForSize)]).size;
-        const maxLimitBytes = 5 * 1024 * 1024; 
+        const maxLimitBytes = PREMIUM_STORAGE_LIMIT_BYTES;
 
         if (totalBytes + newProjectBytes > maxLimitBytes) {
           throw new Error("STORAGE_LIMIT_EXCEEDED");
