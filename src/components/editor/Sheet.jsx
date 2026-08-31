@@ -1,4 +1,5 @@
 import React, { useContext, forwardRef, useMemo, useEffect, useState, useCallback, useRef } from 'react';
+import { Copy, Plus, Trash2 } from 'lucide-react';
 import { MusicContext } from '../../contexts/MusicContext';
 
 // ==========================================
@@ -67,10 +68,10 @@ const Sheet = forwardRef((props, ref) => {
     sheetData, selectedCell, setSelectedCell, layoutConfig, 
     headerDetails, songName, setSongName, updateDetail,      
     sectionLabels, updateSectionLabel, rowTypes,
-    startSelection, updateSelection, endSelection, selectionRange,
+    startSelection, updateSelection, endSelection, selectionRange, setSelectionRange,
     playbackCursor, isPlaying, symbols = [], addSymbol, removeSymbol,
     selectedSymbolId, setSelectedSymbolId, updateTextRow,
-    removeRow, addTextRow, rowMargins, updateRowMarginsList,
+    removeRow, addTextRow, rowMargins, updateRowMarginsList, commitChange,
     setToolbarMode, stopPlayback, updateCellToken, isReadOnly,
     moveSelectionNext, updateMeasureText,
     isAutoScroll
@@ -88,10 +89,65 @@ const Sheet = forwardRef((props, ref) => {
   
   const [paginateTrigger, setPaginateTrigger] = useState(0);
 
+  const sheetScrollRef = useRef(null);
+  const zoomTargetRef = useRef(props.defaultZoom || 100);
+  const zoomAnimationRef = useRef(null);
   const editLabelRef = useRef("");
   const initialSongNameRef = useRef("");
   const initialDetailLabelRef = useRef("");
   const initialDetailValueRef = useRef("");
+
+  const requestResponsiveZoom = useCallback((nextZoomOrUpdater) => {
+    const currentTarget = zoomTargetRef.current;
+    const requestedZoom = typeof nextZoomOrUpdater === 'function'
+      ? nextZoomOrUpdater(currentTarget)
+      : nextZoomOrUpdater;
+    zoomTargetRef.current = Math.max(30, Math.min(200, requestedZoom));
+
+    // Coalesce all touchpad events received in the same frame, then apply the
+    // latest target directly. This tracks the fingers without an easing tail.
+    if (zoomAnimationRef.current !== null) return;
+    zoomAnimationRef.current = requestAnimationFrame(() => {
+      const targetZoom = zoomTargetRef.current;
+      setZoom(targetZoom);
+      zoomAnimationRef.current = null;
+    });
+  }, []);
+
+  const setSheetScrollContainerRef = useCallback((node) => {
+    sheetScrollRef.current = node;
+    if (typeof ref === 'function') ref(node);
+    else if (ref) ref.current = node;
+  }, [ref]);
+
+  useEffect(() => {
+    const container = sheetScrollRef.current;
+    if (!container) return undefined;
+
+    const handleTrackpadZoom = (event) => {
+      // Trackpad pinch is reported as Ctrl/Command + wheel by Chromium/WebKit.
+      // Cancel it here so the gesture changes only the music sheet, not the browser page.
+      if (!event.ctrlKey && !event.metaKey) return;
+      event.preventDefault();
+      event.stopPropagation();
+
+      if (!event.deltaY) return;
+      // Multiplicative scaling feels like a physical pinch at every zoom level.
+      // Clamp only unusually large mouse-wheel bursts, not normal touchpad motion.
+      const scaleExponent = Math.max(-0.12, Math.min(0.12, -event.deltaY * 0.008));
+      const scaleFactor = Math.exp(scaleExponent);
+      requestResponsiveZoom((currentTarget) => currentTarget * scaleFactor);
+    };
+
+    container.addEventListener('wheel', handleTrackpadZoom, { passive: false });
+    return () => {
+      container.removeEventListener('wheel', handleTrackpadZoom);
+      if (zoomAnimationRef.current !== null) {
+        cancelAnimationFrame(zoomAnimationRef.current);
+        zoomAnimationRef.current = null;
+      }
+    };
+  }, [requestResponsiveZoom]);
 
   // --- Fonts Setup ---
   const defaultFontFamily = layoutConfig.fontFamily || "'TH Sarabun New', sans-serif";
@@ -324,7 +380,8 @@ const Sheet = forwardRef((props, ref) => {
         if (isPageChanged) {
           const unzoomedDistance = pageEl.offsetLeft - page0.offsetLeft;
           const targetLeft = unzoomedDistance * (zoom / 100);
-          hContainer.scrollTo({ left: targetLeft, behavior: 'smooth' });
+          const isMobileViewport = window.matchMedia('(max-width: 767px)').matches;
+          hContainer.scrollTo({ left: targetLeft, behavior: isMobileViewport ? 'auto' : 'smooth' });
           activePageRef.current = pageIndex;
         }
 
@@ -338,25 +395,24 @@ const Sheet = forwardRef((props, ref) => {
 
             const vContainer = document.querySelector('main') || window;
             const noteRect = currentNoteEl.getBoundingClientRect();
+            const isMobileViewport = window.matchMedia('(max-width: 767px)').matches;
+            const scrollBehavior = isMobileViewport ? 'auto' : 'smooth';
             
             // คำนวณให้โน้ตอยู่กลางจอ โดยหักลบความสูงแถบเครื่องมือด้านบน (ประมาณ 80px)
             if (vContainer === window) {
               const targetY = window.scrollY + noteRect.top - (window.innerHeight / 2) + (noteRect.height / 2);
-              window.scrollTo({ top: targetY, behavior: 'smooth' });
+              window.scrollTo({ top: targetY, behavior: scrollBehavior });
             } else {
               const parentRect = vContainer.getBoundingClientRect();
               const topOffset = 80; 
               const targetY = vContainer.scrollTop + (noteRect.top - parentRect.top) - topOffset - (parentRect.height / 2) + (noteRect.height / 2);
-              vContainer.scrollTo({ top: targetY, behavior: 'smooth' });
+              vContainer.scrollTo({ top: targetY, behavior: scrollBehavior });
             }
           };
 
-          // ถ้าย้ายหน้ากระดาษ ให้รอแนวนอนสไลด์ให้เสร็จก่อน (400ms) แล้วค่อยเลื่อนบรรทัด
-          if (isPageChanged) {
-            setTimeout(doVerticalScroll, 400);
-          } else {
-            doVerticalScroll();
-          }
+          // Do not leave a delayed scroll behind: on fast passages it can run
+          // after the cursor has already moved and make mobile playback jump.
+          doVerticalScroll();
 
           lastScrolledRowRef.current = r;
         }
@@ -529,6 +585,168 @@ const Sheet = forwardRef((props, ref) => {
     return calculatedPages;
   }, [sheetData, layoutConfig, headerDetails, rowTypes, sectionLabels, rowMargins, paginateTrigger]);
 
+  const createPageBreakRow = () => Array.from({ length: 8 }, () => Array(4).fill('-'));
+  const createBlankMusicRow = () => Array.from({ length: 8 }, () => Array(4).fill('-'));
+  const clonePageValue = (value) => JSON.parse(JSON.stringify(value));
+
+  const commitPageStructure = (newData, newTypes, newMargins, originalRowMap, duplicateRowMap = new Map(), preferredRow = 0) => {
+    const visualRowByIndex = [];
+    rowTypes.forEach((type, rowIndex) => {
+      if (type === 'single' || type === 'double-right') visualRowByIndex.push(rowIndex);
+    });
+
+    const getNewVisualIndex = (targetRow) => {
+      if (typeof targetRow !== 'number') return -1;
+      let visualIndex = 0;
+      for (let rowIndex = 0; rowIndex < targetRow; rowIndex++) {
+        if (newTypes[rowIndex] === 'single' || newTypes[rowIndex] === 'double-right') visualIndex += 1;
+      }
+      return (newTypes[targetRow] === 'single' || newTypes[targetRow] === 'double-right') ? visualIndex : -1;
+    };
+
+    const newLabels = {};
+    Object.entries(sectionLabels).forEach(([oldVisualIndex, labels]) => {
+      const sourceRow = visualRowByIndex[Number(oldVisualIndex)];
+      const mappedRow = originalRowMap.get(sourceRow);
+      const mappedVisualIndex = getNewVisualIndex(mappedRow);
+      if (mappedVisualIndex >= 0) newLabels[mappedVisualIndex] = clonePageValue(labels);
+
+      const duplicatedRow = duplicateRowMap.get(sourceRow);
+      const duplicatedVisualIndex = getNewVisualIndex(duplicatedRow);
+      if (duplicatedVisualIndex >= 0) {
+        newLabels[duplicatedVisualIndex] = clonePageValue(labels).map((label, index) => ({
+          ...label,
+          id: Date.now() + index + Math.random()
+        }));
+      }
+    });
+
+    const remapSymbol = (symbol, rowMap, duplicate = false, index = 0) => {
+      const startRow = rowMap.get(symbol.start[0]);
+      const endRow = rowMap.get(symbol.end[0]);
+      if (typeof startRow !== 'number' || typeof endRow !== 'number') return null;
+      return {
+        ...clonePageValue(symbol),
+        ...(duplicate ? { id: Date.now() + index + Math.random() } : {}),
+        start: [startRow, symbol.start[1], symbol.start[2]],
+        end: [endRow, symbol.end[1], symbol.end[2]]
+      };
+    };
+
+    const newSymbols = symbols
+      .map((symbol, index) => remapSymbol(symbol, originalRowMap, false, index))
+      .filter(Boolean);
+    symbols.forEach((symbol, index) => {
+      const duplicatedSymbol = remapSymbol(symbol, duplicateRowMap, true, index);
+      if (duplicatedSymbol) newSymbols.push(duplicatedSymbol);
+    });
+
+    commitChange(newData, newTypes, newLabels, newSymbols, newMargins);
+    if (setSelectionRange) setSelectionRange(null);
+    const safeRow = Math.max(0, Math.min(newData.length - 1, preferredRow));
+    const firstMeasure = (newTypes[safeRow]?.startsWith('double') || (newTypes[safeRow] === 'nathap' && newData[safeRow]?.length === 9)) ? 1 : 0;
+    setSelectedCell([safeRow, firstMeasure, 0]);
+  };
+
+  const addBlankPageAfter = (page) => {
+    if (isReadOnly) return;
+    if (isPlaying && stopPlayback) stopPlayback();
+    const insertIndex = page.startIndex + page.rows.length;
+    const shouldCloseBlankPage = insertIndex < sheetData.length && rowTypes[insertIndex] !== 'page-break';
+    const insertedData = [createPageBreakRow(), createBlankMusicRow()];
+    const insertedTypes = ['page-break', 'single'];
+    const insertedMargins = [{ top: 0, bottom: 0, left: 0 }, { top: 0, bottom: 0, left: 0 }];
+    if (shouldCloseBlankPage) {
+      insertedData.push(createPageBreakRow());
+      insertedTypes.push('page-break');
+      insertedMargins.push({ top: 0, bottom: 0, left: 0 });
+    }
+
+    const newData = [...sheetData.slice(0, insertIndex), ...insertedData, ...sheetData.slice(insertIndex)];
+    const newTypes = [...rowTypes.slice(0, insertIndex), ...insertedTypes, ...rowTypes.slice(insertIndex)];
+    const newMargins = [...rowMargins.slice(0, insertIndex), ...insertedMargins, ...rowMargins.slice(insertIndex)];
+    const originalRowMap = new Map();
+    rowTypes.forEach((_, rowIndex) => originalRowMap.set(rowIndex, rowIndex < insertIndex ? rowIndex : rowIndex + insertedTypes.length));
+    commitPageStructure(newData, newTypes, newMargins, originalRowMap, new Map(), insertIndex + 1);
+  };
+
+  const duplicatePage = (page) => {
+    if (isReadOnly) return;
+    if (isPlaying && stopPlayback) stopPlayback();
+    const insertIndex = page.startIndex + page.rows.length;
+    const sourceRows = page.rows
+      .map((_, localIndex) => page.startIndex + localIndex)
+      .filter((rowIndex) => rowTypes[rowIndex] !== 'page-break');
+    if (sourceRows.length === 0) return;
+
+    const insertedData = [createPageBreakRow(), ...sourceRows.map((rowIndex) => clonePageValue(sheetData[rowIndex]))];
+    const insertedTypes = ['page-break', ...sourceRows.map((rowIndex) => rowTypes[rowIndex])];
+    const insertedMargins = [
+      { top: 0, bottom: 0, left: 0 },
+      ...sourceRows.map((rowIndex) => clonePageValue(rowMargins[rowIndex] || { top: 0, bottom: 0, left: 0 }))
+    ];
+    const shouldCloseDuplicate = insertIndex < sheetData.length && rowTypes[insertIndex] !== 'page-break';
+    if (shouldCloseDuplicate) {
+      insertedData.push(createPageBreakRow());
+      insertedTypes.push('page-break');
+      insertedMargins.push({ top: 0, bottom: 0, left: 0 });
+    }
+
+    const newData = [...sheetData.slice(0, insertIndex), ...insertedData, ...sheetData.slice(insertIndex)];
+    const newTypes = [...rowTypes.slice(0, insertIndex), ...insertedTypes, ...rowTypes.slice(insertIndex)];
+    const newMargins = [...rowMargins.slice(0, insertIndex), ...insertedMargins, ...rowMargins.slice(insertIndex)];
+    const originalRowMap = new Map();
+    rowTypes.forEach((_, rowIndex) => originalRowMap.set(rowIndex, rowIndex < insertIndex ? rowIndex : rowIndex + insertedTypes.length));
+    const duplicateRowMap = new Map();
+    sourceRows.forEach((sourceRow, index) => duplicateRowMap.set(sourceRow, insertIndex + 1 + index));
+    commitPageStructure(newData, newTypes, newMargins, originalRowMap, duplicateRowMap, insertIndex + 1);
+  };
+
+  const deletePage = (page, pageIndex) => {
+    if (isReadOnly) return;
+    if (isPlaying && stopPlayback) stopPlayback();
+
+    if (pages.length <= 1) {
+      commitChange([createBlankMusicRow()], ['single'], {}, [], [{ top: 0, bottom: 0, left: 0 }]);
+      if (setSelectionRange) setSelectionRange(null);
+      setSelectedCell([0, 0, 0]);
+      return;
+    }
+
+    const deleteStart = page.startIndex;
+    const deleteEnd = page.startIndex + page.rows.length;
+    const survivingRows = [];
+    for (let rowIndex = 0; rowIndex < sheetData.length; rowIndex++) {
+      if (rowIndex < deleteStart || rowIndex >= deleteEnd) survivingRows.push(rowIndex);
+    }
+
+    const boundaryPosition = survivingRows.findIndex((rowIndex) => rowIndex >= deleteEnd);
+    const needsBoundary = pageIndex > 0
+      && boundaryPosition >= 0
+      && rowTypes[survivingRows[boundaryPosition]] !== 'page-break';
+    const newData = [];
+    const newTypes = [];
+    const newMargins = [];
+    const originalRowMap = new Map();
+
+    survivingRows.forEach((oldRowIndex, survivorIndex) => {
+      if (needsBoundary && survivorIndex === boundaryPosition) {
+        newData.push(createPageBreakRow());
+        newTypes.push('page-break');
+        newMargins.push({ top: 0, bottom: 0, left: 0 });
+      }
+      originalRowMap.set(oldRowIndex, newData.length);
+      newData.push(sheetData[oldRowIndex]);
+      newTypes.push(rowTypes[oldRowIndex]);
+      newMargins.push(rowMargins[oldRowIndex] || { top: 0, bottom: 0, left: 0 });
+    });
+
+    const preferredRow = boundaryPosition >= 0
+      ? (originalRowMap.get(survivingRows[boundaryPosition]) ?? Math.max(0, deleteStart - 1))
+      : Math.max(0, newData.length - 1);
+    commitPageStructure(newData, newTypes, newMargins, originalRowMap, new Map(), preferredRow);
+  };
+
   // ==========================================
   // 5. Symbol & SVG Calculations
   // ==========================================
@@ -698,25 +916,35 @@ const Sheet = forwardRef((props, ref) => {
 
     const tokenParts = splitThaiNoteToken(note);
     const isGroupedToken = tokenParts.length > 1;
+    const groupedFontScale = tokenParts.length === 2
+      ? 0.72
+      : tokenParts.length === 3
+        ? 0.58
+        : Math.max(0.34, 0.52 - ((tokenParts.length - 4) * 0.045));
+    const groupedFitWidth = Math.max(11, 92 / tokenParts.length);
 
     return (
       <span 
-        className={`leading-none inline-flex items-center justify-center ${isBold ? 'font-bold' : 'font-normal'} ${isItalic ? 'italic' : ''}`} 
-        style={{ fontFamily: cellFontFamily, paddingTop: '0.1em', paddingBottom: '0.1em', color: cellColor }}
+        className={`inline-flex h-full w-full min-w-0 items-center justify-center ${isBold ? 'font-bold' : 'font-normal'} ${isItalic ? 'italic' : ''}`}
+        style={{ fontFamily: cellFontFamily, padding: '0.12em 1px 0.16em', color: cellColor, lineHeight: 1.12 }}
       >
         {isGroupedToken ? (
           <span
-            className="inline-flex items-center justify-center"
-            style={{ gap: tokenParts.length >= 3 ? '0.08em' : '0.14em', fontSize: tokenParts.length >= 3 ? '0.82em' : '0.9em' }}
+            className="inline-flex w-full min-w-0 items-center justify-evenly overflow-visible whitespace-nowrap"
+            style={{
+              gap: 0,
+              fontSize: `min(${groupedFontScale}em, ${groupedFitWidth}cqi)`,
+              lineHeight: 1.12
+            }}
           >
             {tokenParts.map((part, index) => (
-              <span key={`${rIndex}-${mIndex}-${cIndex}-${index}`} className="tme-note-part inline-block leading-none">
+              <span key={`${rIndex}-${mIndex}-${cIndex}-${index}`} className="tme-note-part inline-flex min-w-0 items-center justify-center leading-[1.12]">
                 {part}
               </span>
             ))}
           </span>
         ) : (
-          <span className="tme-note-part inline-block leading-none">{note}</span>
+          <span className="tme-note-part inline-flex items-center justify-center leading-[1.12]">{note}</span>
         )}
       </span>
     );
@@ -822,23 +1050,23 @@ return (
       {/* Zoom Controls */}
       <div className={`absolute bottom-8 right-8 z-[60] ${props.hideZoomControls ? 'hidden' : 'flex'} flex-col items-center backdrop-blur-md border border-slate-200 shadow-xl rounded-xl overflow-hidden print:hidden transition-all duration-300 group ${isPlaying ? 'bg-slate-50/90' : 'bg-white/90 hover:shadow-2xl'}`}>
         <button
-          onClick={() => !isPlaying && setZoom(z => Math.min(200, z + 10))}
-          className={`p-2.5 w-full flex justify-center transition-colors ${isPlaying ? 'text-slate-300 cursor-not-allowed' : 'text-slate-500 hover:text-sky-600 hover:bg-sky-50 active:bg-sky-100'}`}
-          title={isPlaying ? "ล็อคการซูมชั่วคราวขณะเล่นเพลง" : "ขยาย (Zoom In)"}
+          onClick={() => requestResponsiveZoom(currentTarget => currentTarget + 10)}
+          className="p-2.5 w-full flex justify-center text-slate-500 transition-colors hover:text-sky-600 hover:bg-sky-50 active:bg-sky-100"
+          title="ขยายกระดาษ (Zoom In)"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
         </button>
         <div
-          onClick={() => !isPlaying && setZoom(100)}
-          className={`px-2 py-1.5 text-[11px] font-black w-full text-center border-y border-slate-100 transition-colors select-none ${isPlaying ? 'text-slate-300 bg-slate-50 cursor-not-allowed' : 'text-sky-700 bg-slate-50/80 cursor-pointer hover:bg-slate-100'}`}
-          title={isPlaying ? "ล็อคการซูมชั่วคราวขณะเล่นเพลง" : "คืนค่าเดิม (Reset Zoom)"}
+          onClick={() => requestResponsiveZoom(100)}
+          className="px-2 py-1.5 text-[11px] font-black w-full text-center border-y border-slate-100 text-sky-700 bg-slate-50/80 cursor-pointer transition-colors select-none hover:bg-slate-100"
+          title="คืนค่ากระดาษเป็น 100% (Reset Zoom)"
         >
-          {zoom}%
+          {Math.round(zoom)}%
         </div>
         <button
-          onClick={() => !isPlaying && setZoom(z => Math.max(30, z - 10))}
-          className={`p-2.5 w-full flex justify-center transition-colors ${isPlaying ? 'text-slate-300 cursor-not-allowed' : 'text-slate-500 hover:text-sky-600 hover:bg-sky-50 active:bg-sky-100'}`}
-          title={isPlaying ? "ล็อคการซูมชั่วคราวขณะเล่นเพลง" : "ย่อ (Zoom Out)"}
+          onClick={() => requestResponsiveZoom(currentTarget => currentTarget - 10)}
+          className="p-2.5 w-full flex justify-center text-slate-500 transition-colors hover:text-sky-600 hover:bg-sky-50 active:bg-sky-100"
+          title="ย่อกระดาษ (Zoom Out)"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4"/></svg>
         </button>
@@ -846,7 +1074,7 @@ return (
 
      {/* Main Sheet Container */}
       <div 
-        ref={ref}
+        ref={setSheetScrollContainerRef}
         id="sheet-scroll-container"
         // ⭐ เปลี่ยนกลับเป็น pt-12 pb-32 เพื่อเอาพื้นที่อากาศออก ป้องกัน IDM บั๊ก
         className="flex overflow-x-auto pt-12 pb-32 w-full max-w-full custom-scrollbar select-none print:block print:overflow-visible print:p-0 relative"
@@ -867,6 +1095,45 @@ return (
                 paddingRight: `${getMarginPx(layoutConfig.marginRight ?? 48, layoutConfig.marginUnit || 'px')}px`,
               }}
             >
+              {!isReadOnly && (
+                <div
+                  className="absolute -top-10 right-0 z-[70] hidden items-center gap-1.5 print:hidden md:flex"
+                  onMouseDown={(event) => event.stopPropagation()}
+                >
+                  <button
+                    type="button"
+                    onClick={(event) => { event.stopPropagation(); duplicatePage(page); }}
+                    className="flex h-8 items-center gap-1.5 rounded-lg border border-sky-200 bg-white/95 px-2.5 text-[11px] font-bold text-sky-700 shadow-sm backdrop-blur transition hover:border-sky-300 hover:bg-sky-50 active:scale-95"
+                    title={`ทำซ้ำหน้าที่ ${pIndex + 1}`}
+                  >
+                    <Copy size={13} />
+                    <span>ทำซ้ำหน้า</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(event) => { event.stopPropagation(); deletePage(page, pIndex); }}
+                    className="flex h-8 items-center gap-1.5 rounded-lg border border-rose-200 bg-white/95 px-2.5 text-[11px] font-bold text-rose-600 shadow-sm backdrop-blur transition hover:border-rose-300 hover:bg-rose-50 active:scale-95"
+                    title={`ลบหน้าที่ ${pIndex + 1} (สามารถ Undo ได้)`}
+                  >
+                    <Trash2 size={13} />
+                    <span>ลบหน้า</span>
+                  </button>
+                </div>
+              )}
+
+              {!isReadOnly && (
+                <button
+                  type="button"
+                  onMouseDown={(event) => event.stopPropagation()}
+                  onClick={(event) => { event.stopPropagation(); addBlankPageAfter(page); }}
+                  className="absolute -right-9 top-1/2 z-[70] hidden h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-indigo-200 bg-white text-indigo-600 shadow-md transition hover:border-indigo-400 hover:bg-indigo-50 hover:shadow-lg active:scale-95 print:hidden md:flex"
+                  title={`เพิ่มหน้ากระดาษต่อจากหน้าที่ ${pIndex + 1}`}
+                  aria-label={`เพิ่มหน้ากระดาษต่อจากหน้าที่ ${pIndex + 1}`}
+                >
+                  <Plus size={17} strokeWidth={2.5} />
+                </button>
+              )}
+
               
               {/* SVG Layer for Symbols */}
               {/* ให้พื้นที่คลิกของสัญลักษณ์อยู่เหนือป้ายกำกับที่ลอยทับบรรทัดถัดไปเสมอ */}
@@ -1463,7 +1730,7 @@ return (
                               }
                               
                               let cellBgClass = 'hover:bg-sky-50 print:bg-transparent';
-                              if (isPlayingNow) cellBgClass = 'bg-emerald-200 ring-[2.5px] ring-inset ring-emerald-400 z-20 print:bg-transparent print:ring-0 transform scale-[1.05] shadow-[0_0_10px_rgba(52,211,153,0.4)]';
+                              if (isPlayingNow) cellBgClass = 'bg-emerald-200 ring-2 ring-inset ring-emerald-500 z-20 print:bg-transparent print:ring-0';
                               else if (isInRange) cellBgClass = 'bg-sky-200 print:bg-transparent';
                               else if (isCursorExact) cellBgClass = 'bg-yellow-100 ring-2 ring-inset ring-blue-400 z-10 print:bg-transparent print:ring-0';
                               if (isCursorExact && isInRange && !isPlayingNow) cellBgClass = 'bg-sky-300 ring-2 ring-inset ring-blue-500 z-10 print:bg-transparent print:ring-0';
@@ -1488,9 +1755,10 @@ return (
                                   onMouseEnter={() => updateSelection(actualRIndex, actualMIndex, cIndex)}
                                   onContextMenu={(e) => handleRightClick(e, actualRIndex, actualMIndex, cIndex)}
                                   // ⭐ ปรับสีตัวหนังสือหน้าทับให้อ่อนลงเล็กน้อย (slate-600) ให้ดูแยกกับโน้ตหลักชัดเจน
-                                  className={`flex items-center justify-center cursor-crosshair transition-all duration-[250ms] ease-out min-h-0 overflow-hidden ${cellBgClass} ${isNathapCurrent ? 'text-slate-600' : ''}`}
+                                  className={`flex items-center justify-center cursor-crosshair transition-colors duration-75 ease-linear min-h-0 overflow-hidden ${cellBgClass} ${isNathapCurrent ? 'text-slate-600' : ''}`}
                                   style={{ 
                                     fontSize: `${cellFontSize}px`, fontFamily: cellCustomStyle.noteFontFamily || noteFontFamily,
+                                    containerType: 'inline-size',
                                     borderRight: (cIndex < measure.length - 1 && layoutConfig.innerBorderWidth > 0) ? `${layoutConfig.innerBorderWidth}px solid ${layoutConfig.borderColor}66` : 'none' 
                                   }}
                                   title={isReadOnly ? undefined : 'ดับเบิลคลิกเพื่อแก้ไขโน้ตแบบหลายตัวในช่องเดียว'}

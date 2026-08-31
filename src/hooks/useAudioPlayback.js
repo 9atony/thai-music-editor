@@ -222,13 +222,26 @@ export const useAudioPlayback = ({
     });
   };
 
+  // Keep only pending visual timers. On long songs the old implementation kept
+  // every completed timer id until playback stopped, which gradually increased
+  // memory/GC work on mobile devices.
+  const scheduleManagedEffectTimer = (callback, delayMs) => {
+    const timerId = setTimeout(() => {
+      const timerIndex = effectTimersRef.current.indexOf(timerId);
+      if (timerIndex !== -1) effectTimersRef.current.splice(timerIndex, 1);
+      callback();
+    }, delayMs);
+    effectTimersRef.current.push(timerId);
+    return timerId;
+  };
+
   const queuePlayModeEvent = (note, hand, whenSec = null) => {
     if (!isShowPlayModeRef.current || !note) return;
     const nowSec = getAudioCurrentTime ? getAudioCurrentTime() : 0;
     const delayMs = whenSec == null ? 0 : Math.max(0, Math.round((whenSec - nowSec) * 1000));
     const dispatchEvent = () => window.dispatchEvent(new CustomEvent('tme-note-played', { detail: { note, hand } }));
     if (delayMs <= 0) dispatchEvent();
-    else effectTimersRef.current.push(setTimeout(dispatchEvent, delayMs));
+    else scheduleManagedEffectTimer(dispatchEvent, delayMs);
   };
 
   const scheduleResolvedInstrumentNote = (noteStr, vol, whenSec, options = {}) => {
@@ -503,9 +516,9 @@ export const useAudioPlayback = ({
     const scheduleUiChange = (cb, whenSec) => {
       const nowSec = getAudioCurrentTime ? getAudioCurrentTime() : 0;
       const delayMs = Math.max(0, Math.round((whenSec - nowSec) * 1000));
-      effectTimersRef.current.push(setTimeout(() => {
+      scheduleManagedEffectTimer(() => {
         if (isPlayingRef.current) cb();
-      }, delayMs));
+      }, delayMs);
     };
 
     const getCellVolume = (r, m, c, subIdx, baseVol) => {
@@ -1010,8 +1023,11 @@ export const useAudioPlayback = ({
   };
 
   const togglePlay = () => {
-    if (isPlaying) stopPlayback();
-    else startPlayback();
+    if (isPlayingRef.current) {
+      stopPlayback();
+      return Promise.resolve();
+    }
+    return startPlayback();
   };
 
   const jumpToSequence = (targetSeqIdx) => {

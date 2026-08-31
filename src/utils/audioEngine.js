@@ -154,7 +154,10 @@ const loadSoundBuffer = async (instrumentId, key) => {
 
 export const initAudioContext = async () => {
   const ctx = getAudioContext();
-  if (ctx.state === 'suspended') {
+  // Mobile Safari can report `interrupted` after locking the screen, switching
+  // apps, or routing audio to another device. Resume every non-running context,
+  // not only the standard `suspended` state.
+  if (ctx.state !== 'running' && ctx.state !== 'closed') {
     await ctx.resume();
   }
   // ⭐ แก้เสียงกระตุกตอนกดเล่น: warm up output node ด้วย BufferSource เงียบ ๆ ตัวสั้น ๆ

@@ -1,6 +1,8 @@
 import React, { useContext, useEffect, useRef, useState } from 'react';
 import { MusicContext } from '../contexts/MusicContext';
 import Sheet from '../components/editor/Sheet'; 
+import MobileMetronomeMenu from '../components/editor/MobileMetronomeMenu';
+import { initAudioContext } from '../utils/audioEngine';
 
 // ⭐ ฟังก์ชันสำหรับล้างแท็ก HTML ให้เหลือแต่ข้อความล้วน
 const getPlainText = (html) => {
@@ -36,6 +38,7 @@ const MobileEditor = ({ onBack }) => {
 
   const sheetContainerRef = useRef(null);
   const [isQueueOpen, setIsQueueOpen] = useState(false);
+  const [isMetronomeOpen, setIsMetronomeOpen] = useState(false);
 
   const isPlayingRef = useRef(isPlaying);
   useEffect(() => {
@@ -60,7 +63,7 @@ const MobileEditor = ({ onBack }) => {
   useEffect(() => {
     window.history.pushState(null, null, window.location.href);
     
-    const handlePopState = (e) => {
+    const handlePopState = () => {
       if (isPlayingRef.current && stopPlayback) {
         stopPlayback();
       }
@@ -109,10 +112,6 @@ const MobileEditor = ({ onBack }) => {
     if (setToolbarMode) setToolbarMode('default');
   }, [setToolbarMode]);
 
-  const currentSequenceLabel = playbackSequence && playbackSequence.length > 0 && activeSequenceIdx < playbackSequence.length
-    ? playbackSequence[activeSequenceIdx].label
-    : "กำลังเล่น";
-
   const handleLoopToggle = () => {
     if (!isLoopAll && !isLoopOne) {
       setIsLoopAll(true);
@@ -134,6 +133,10 @@ const MobileEditor = ({ onBack }) => {
       newSeq[index].loops = newVal;
       setPlaybackSequence(newSeq);
     }
+  };
+
+  const unlockMobileAudio = () => {
+    if (!isPlayingRef.current) initAudioContext().catch(() => {});
   };
 
   return (
@@ -217,8 +220,12 @@ const MobileEditor = ({ onBack }) => {
               <svg className="w-6 h-6 fill-current" viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
             </button>
             <button 
+              type="button"
+              onPointerDown={unlockMobileAudio}
+              onTouchStart={unlockMobileAudio}
               onClick={togglePlay}
-              className={`w-14 h-14 rounded-full flex items-center justify-center text-white shadow-lg active:scale-95 transition-all ${isPlaying ? 'bg-rose-500 hover:bg-rose-600 shadow-rose-500/30' : 'bg-sky-500 hover:bg-sky-600 shadow-sky-500/30'}`}
+              className={`w-14 h-14 touch-manipulation rounded-full flex items-center justify-center text-white shadow-lg active:scale-95 transition-all ${isPlaying ? 'bg-rose-500 hover:bg-rose-600 shadow-rose-500/30' : 'bg-sky-500 hover:bg-sky-600 shadow-sky-500/30'}`}
+              aria-label={isPlaying ? 'หยุดเล่น' : 'เริ่มเล่น'}
             >
               {isPlaying ? (
                 <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
@@ -231,9 +238,20 @@ const MobileEditor = ({ onBack }) => {
             </button>
           </div>
 
-          <div className="w-[20%] flex justify-end">
+          <div className="w-[25%] flex justify-end gap-1">
+            <button
+              type="button"
+              onPointerDown={unlockMobileAudio}
+              onTouchStart={unlockMobileAudio}
+              onClick={() => { setIsQueueOpen(false); setIsMetronomeOpen(true); }}
+              className="w-10 h-10 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600 border border-indigo-200 active:scale-95 transition-all"
+              aria-label="เปิดเมนูเครื่องประกอบจังหวะ"
+              title="เครื่องประกอบจังหวะ"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M4 12h2m2-5v10m4-13v16m4-11v6m4-3h-2" /></svg>
+            </button>
             <button 
-              onClick={() => setIsQueueOpen(true)}
+              onClick={() => { setIsMetronomeOpen(false); setIsQueueOpen(true); }}
               className="w-10 h-10 rounded-full bg-slate-50 flex items-center justify-center text-slate-500 border border-slate-200 hover:bg-slate-100 active:scale-95 transition-all relative"
             >
                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 6h16M4 12h16M4 18h16" /></svg>
@@ -348,6 +366,8 @@ const MobileEditor = ({ onBack }) => {
           </div>
         </div>
       </div>
+
+      <MobileMetronomeMenu isOpen={isMetronomeOpen} onClose={() => setIsMetronomeOpen(false)} />
 
     </div>
   );
