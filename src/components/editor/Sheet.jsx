@@ -869,7 +869,8 @@ return (
             >
               
               {/* SVG Layer for Symbols */}
-              <svg className="absolute top-0 left-0 w-full h-full pointer-events-none z-30 print:z-30 print:w-full print:max-w-full">
+              {/* ให้พื้นที่คลิกของสัญลักษณ์อยู่เหนือป้ายกำกับที่ลอยทับบรรทัดถัดไปเสมอ */}
+              <svg className="absolute top-0 left-0 w-full h-full pointer-events-none z-40 print:z-30 print:w-full print:max-w-full">
                 {(pageSvgPaths[pIndex] || []).map(p => {
                   const isSelected = p.id === selectedSymbolId;
                   const isKro = p.type === 'kro';

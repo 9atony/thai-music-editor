@@ -86,9 +86,10 @@ export const useAudioPlayback = ({
           setMetronomeConfig(prev => ({
             ...prev,
             rhythms: { ching: chingPatterns, klong: klongPatterns, krub: krubPatterns },
-            ching: { ...prev.ching, pattern: chingPatterns.length > 0 ? chingPatterns[0].id : prev.ching.pattern },
-            klong: { ...prev.klong, pattern: klongPatterns.length > 0 ? klongPatterns[0].id : prev.klong.pattern },
-            krub: { ...prev.krub, pattern: krubPatterns.length > 0 ? krubPatterns[0].id : prev.krub.pattern }
+            // ใช้หน้าทับจากไฟล์โปรเจกต์ถ้ายังมีอยู่ในระบบกลาง; ไม่เช่นนั้นค่อยเลือกตัวแรก
+            ching: { ...prev.ching, pattern: chingPatterns.some(p => p.id === prev.ching.pattern) ? prev.ching.pattern : (chingPatterns[0]?.id || '') },
+            klong: { ...prev.klong, pattern: klongPatterns.some(p => p.id === prev.klong.pattern) ? prev.klong.pattern : (klongPatterns[0]?.id || '') },
+            krub: { ...prev.krub, pattern: krubPatterns.some(p => p.id === prev.krub.pattern) ? prev.krub.pattern : (krubPatterns[0]?.id || '') }
           }));
         }
       } catch (error) {
@@ -226,12 +227,16 @@ export const useAudioPlayback = ({
     if (initAudioContext) await initAudioContext();
 
     const currentInstId = currentInstrumentRef.current?.id;
-    if (currentInstId) preloadSounds(currentInstId).catch(() => {});
-    
     const conf = metronomeConfigRef.current;
-    if (conf.ching.active) preloadSounds('ching').catch(() => {});
-    if (conf.klong.active) preloadSounds('klong-khaek').catch(() => {});
-    if (conf.krub.active) preloadSounds('krub').catch(() => {});
+    // รอให้เสียงที่ใช้ในรอบนี้พร้อมก่อนเริ่ม scheduler เสมอ
+    // ถ้าไม่รอ โน้ตที่ buffer ยังโหลดไม่เสร็จจะถูกสร้างช้ากว่าเวลาที่จองไว้
+    // และกลายเป็นเสียงตามจังหวะไม่ทันในช่วงต้นเพลง
+    const instrumentsToPreload = new Set();
+    if (currentInstId) instrumentsToPreload.add(currentInstId);
+    if (conf.ching.active) instrumentsToPreload.add('ching');
+    if (conf.klong.active) instrumentsToPreload.add('klong-khaek');
+    if (conf.krub.active) instrumentsToPreload.add('krub');
+    await Promise.allSettled([...instrumentsToPreload].map((id) => preloadSounds(id)));
 
     setIsPlaying(true);
     isPlayingRef.current = true;

@@ -1,117 +1,33 @@
 import React, { useContext } from 'react';
-import { MusicContext } from '../../contexts/MusicContext'; 
+import { CircleDot, Drum, Hand, Volume2, ChevronDown, AudioLines } from 'lucide-react';
+import { MusicContext } from '../../contexts/MusicContext';
+
+const cards = [
+  { key: 'ching', label: 'ฉิ่ง', caption: 'เสียงโลหะ', Icon: CircleDot, icon: 'bg-emerald-50 text-emerald-600', active: 'bg-emerald-500' },
+  { key: 'klong', label: 'กลองแขก', caption: 'เสียงกลอง', Icon: Drum, icon: 'bg-amber-50 text-amber-600', active: 'bg-amber-500' },
+  { key: 'krub', label: 'กรับ', caption: 'เสียงไม้', Icon: Hand, icon: 'bg-violet-50 text-violet-600', active: 'bg-violet-500' }
+];
 
 const MetronomePanel = ({ isExpanded }) => {
   const { metronomeConfig, setMetronomeConfig } = useContext(MusicContext);
-  const isLoading = metronomeConfig.rhythms.ching.length === 0;
-
-  const updateConfig = (key, changes) => {
-    setMetronomeConfig(prev => ({
-      ...prev,
-      [key]: { ...prev[key], ...changes }
-    }));
-  };
-
-  const updateMasterVol = (vol) => {
-    setMetronomeConfig(prev => ({ ...prev, masterVolume: vol }));
-  };
-
+  const loading = metronomeConfig.rhythms.ching.length === 0;
+  const update = (key, changes) => setMetronomeConfig(prev => ({ ...prev, [key]: { ...prev[key], ...changes } }));
   if (!isExpanded) return null;
 
-  return (
-    <div className="bg-slate-50 border-b border-slate-200 shadow-inner px-4 py-3 animate-slideDown">
-      
-      <div className="flex flex-col md:flex-row items-center gap-4 w-full">
-        
-        {/* เครื่องดนตรี 1: ฉิ่ง */}
-        <div className="flex-1 bg-white border border-slate-200 rounded-xl p-2.5 flex items-center justify-between shadow-sm">
-          <div className="flex items-center gap-3">
-            <span className="text-xl">🪘</span>
-            <span className="font-bold text-slate-700 text-sm">ฉิ่ง</span>
-          </div>
-          <div className="flex items-center gap-3">
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input type="checkbox" className="sr-only peer" checked={metronomeConfig.ching.active} onChange={() => updateConfig('ching', { active: !metronomeConfig.ching.active })} />
-              <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500"></div>
-            </label>
-            <select 
-              className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 outline-none text-slate-600 disabled:opacity-50 min-w-[100px]"
-              value={metronomeConfig.ching.pattern}
-              onChange={(e) => updateConfig('ching', { pattern: e.target.value })}
-              disabled={!metronomeConfig.ching.active || isLoading}
-            >
-              {isLoading ? <option value="">กำลังโหลด...</option> : metronomeConfig.rhythms.ching.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-            </select>
-            <div className={`flex items-center gap-1.5 ${metronomeConfig.ching.active ? 'opacity-100' : 'opacity-40'}`}>
-              <svg className="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5 10c0-1.1.9-2 2-2h1l4-4v16l-4-4H7c-1.1 0-2-.9-2-2v-4z"/></svg>
-              <input type="range" min="0" max="100" value={metronomeConfig.ching.volume} onChange={(e) => updateConfig('ching', { volume: parseInt(e.target.value) })} disabled={!metronomeConfig.ching.active} className="w-16 h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-500" />
-            </div>
-          </div>
-        </div>
-
-        {/* เครื่องดนตรี 2: กลองแขก */}
-        <div className="flex-1 bg-white border border-slate-200 rounded-xl p-2.5 flex items-center justify-between shadow-sm">
-          <div className="flex items-center gap-3">
-            <span className="text-xl">🥁</span>
-            <span className="font-bold text-slate-700 text-sm">กลองแขก</span>
-          </div>
-          <div className="flex items-center gap-3">
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input type="checkbox" className="sr-only peer" checked={metronomeConfig.klong.active} onChange={() => updateConfig('klong', { active: !metronomeConfig.klong.active })} />
-              <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500"></div>
-            </label>
-            <select 
-              className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 outline-none text-slate-600 disabled:opacity-50 min-w-[100px]"
-              value={metronomeConfig.klong.pattern}
-              onChange={(e) => updateConfig('klong', { pattern: e.target.value })}
-              disabled={!metronomeConfig.klong.active || isLoading}
-            >
-              {isLoading ? <option value="">กำลังโหลด...</option> : metronomeConfig.rhythms.klong.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-            </select>
-            <div className={`flex items-center gap-1.5 ${metronomeConfig.klong.active ? 'opacity-100' : 'opacity-40'}`}>
-              <svg className="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5 10c0-1.1.9-2 2-2h1l4-4v16l-4-4H7c-1.1 0-2-.9-2-2v-4z"/></svg>
-              <input type="range" min="0" max="100" value={metronomeConfig.klong.volume} onChange={(e) => updateConfig('klong', { volume: parseInt(e.target.value) })} disabled={!metronomeConfig.klong.active} className="w-16 h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-500" />
-            </div>
-          </div>
-        </div>
-
-        {/* เครื่องดนตรี 3: กรับ */}
-        <div className="flex-1 bg-white border border-slate-200 rounded-xl p-2.5 flex items-center justify-between shadow-sm">
-          <div className="flex items-center gap-3">
-            <span className="text-xl">🪵</span>
-            <span className="font-bold text-slate-700 text-sm">กรับ</span>
-          </div>
-          <div className="flex items-center gap-3">
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input type="checkbox" className="sr-only peer" checked={metronomeConfig.krub.active} onChange={() => updateConfig('krub', { active: !metronomeConfig.krub.active })} />
-              <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500"></div>
-            </label>
-            <select 
-              className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 outline-none text-slate-600 disabled:opacity-50 min-w-[100px]"
-              value={metronomeConfig.krub.pattern}
-              onChange={(e) => updateConfig('krub', { pattern: e.target.value })}
-              disabled={!metronomeConfig.krub.active || isLoading}
-            >
-              {isLoading ? <option value="">กำลังโหลด...</option> : metronomeConfig.rhythms.krub.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-            </select>
-            <div className={`flex items-center gap-1.5 ${metronomeConfig.krub.active ? 'opacity-100' : 'opacity-40'}`}>
-              <svg className="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5 10c0-1.1.9-2 2-2h1l4-4v16l-4-4H7c-1.1 0-2-.9-2-2v-4z"/></svg>
-              <input type="range" min="0" max="100" value={metronomeConfig.krub.volume} onChange={(e) => updateConfig('krub', { volume: parseInt(e.target.value) })} disabled={!metronomeConfig.krub.active} className="w-16 h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-500" />
-            </div>
-          </div>
-        </div>
-
-        {/* Master Volume */}
-        <div className="bg-white border border-slate-200 rounded-xl p-2.5 flex items-center gap-3 shadow-sm shrink-0">
-           <span className="text-xs font-bold text-slate-600">ระดับเสียงรวม</span>
-           <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5 10c0-1.1.9-2 2-2h1l4-4v16l-4-4H7c-1.1 0-2-.9-2-2v-4z"/></svg>
-           <input type="range" min="0" max="100" value={metronomeConfig.masterVolume} onChange={(e) => updateMasterVol(parseInt(e.target.value))} className="w-20 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600" />
-           <span className="text-xs font-bold text-slate-500 w-6 text-right">{metronomeConfig.masterVolume}%</span>
-        </div>
-
+  return <section className="border-t border-slate-200 bg-gradient-to-b from-slate-50 to-white px-2 py-2 sm:px-4" aria-label="เครื่องประกอบจังหวะ">
+    <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-2">
+      <div className="flex items-center justify-between px-1">
+        <div className="flex items-center gap-1.5"><span className="flex h-6 w-6 items-center justify-center rounded-md bg-indigo-100 text-indigo-600"><AudioLines size={14} /></span><h3 className="text-[11px] font-black tracking-wide text-slate-700">เครื่องประกอบจังหวะ</h3></div>
+        <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-1 shadow-sm"><Volume2 size={12} className="text-slate-400" /><span className="text-[9px] font-bold text-slate-500">รวม</span><input aria-label="ระดับเสียงรวม" type="range" min="0" max="100" value={metronomeConfig.masterVolume} onChange={e => setMetronomeConfig(prev => ({ ...prev, masterVolume: parseInt(e.target.value, 10) }))} className="h-1 w-16 accent-indigo-500" /><span className="w-6 text-right text-[9px] font-black tabular-nums text-indigo-600">{metronomeConfig.masterVolume}%</span></div>
+      </div>
+      <div className="grid grid-cols-1 gap-2.5 md:grid-cols-3">
+        {cards.map(({ key, label, caption, Icon, icon, active }) => { const c = metronomeConfig[key]; const patterns = metronomeConfig.rhythms[key]; return <div key={key} className={`rounded-xl border bg-white p-2 shadow-sm ${c.active ? 'border-slate-200' : 'border-slate-100 opacity-70'}`}>
+          <div className="flex items-center gap-2"><span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${icon}`}><Icon size={15} /></span><div className="min-w-0 flex-1"><div className="text-[11px] font-black text-slate-700">{label}</div><div className="text-[9px] text-slate-400">{caption}</div></div><button type="button" aria-label={`${c.active ? 'ปิด' : 'เปิด'}${label}`} onClick={() => update(key, { active: !c.active })} className={`relative h-4 w-7 rounded-full ${c.active ? active : 'bg-slate-300'}`}><span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow-sm transition-transform ${c.active ? 'translate-x-3.5' : 'translate-x-0.5'}`} /></button></div>
+          <div className="mt-1.5 flex items-center gap-1.5 border-t border-slate-100 pt-1.5"><div className="relative min-w-0 flex-1"><select aria-label={`หน้าทับ${label}`} value={c.pattern} onChange={e => update(key, { pattern: e.target.value })} disabled={!c.active || loading} className="w-full appearance-none rounded-md border border-slate-200 bg-slate-50 py-1 pl-1.5 pr-6 text-[9px] font-bold text-slate-600 outline-none focus:border-indigo-300 disabled:opacity-60">{loading ? <option value="">กำลังโหลด...</option> : patterns.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select><ChevronDown size={11} className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400" /></div><div className="flex w-[92px] items-center gap-1"><Volume2 size={11} className="text-slate-400" /><input aria-label={`ระดับเสียง${label}`} type="range" min="0" max="100" value={c.volume} onChange={e => update(key, { volume: parseInt(e.target.value, 10) })} disabled={!c.active} className="h-1 w-full accent-indigo-500" /><span className="w-5 text-right text-[9px] font-bold tabular-nums text-slate-500">{c.volume}</span></div></div>
+        </div>; })}
       </div>
     </div>
-  );
+  </section>;
 };
 
 export default MetronomePanel;

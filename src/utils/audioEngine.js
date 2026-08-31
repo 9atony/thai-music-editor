@@ -305,8 +305,6 @@ export const primeAudioEngine = async () => {
 };
 
 // ⭐ ตัวเลข generation ใช้กันเสียงหลุดหลังกดหยุด: ถ้ากำลังโหลด buffer อยู่แล้วมีคำสั่งหยุดแทรกเข้ามา ให้ยกเลิกการเล่นโน้ตนั้นทิ้ง
-let noteGeneration = 0;
-
 // ⭐ แก้ race condition ของ noteGeneration:
 //    เดิม: ตรวจ noteGeneration แค่จุดเดียว (หลัง await loadSoundBuffer) →
 //      ถ้า generation เปลี่ยนระหว่างนั้น return null แต่ promise การโหลด buffer ยัง resolve อยู่และถูก cache ไว้
@@ -321,6 +319,10 @@ const createToken = () => {
   const id = tokenCounter;
   noteGenerations.set(id, { active: true });
   return id;
+};
+
+const discardToken = (id) => {
+  noteGenerations.delete(id);
 };
 
 const invalidateToken = (id) => {
@@ -347,18 +349,27 @@ const scheduleNote = async (instrumentId, noteChar, whenSec, volumeLevel = 100, 
   let buffer = audioBufferCache[instrumentId]?.[cleanNote];
   if (!buffer) {
     const key = findKeyByFormattedNote(instrumentId, cleanNote);
-    if (!key) { invalidateToken(tokenId); return null; }
+    if (!key) { discardToken(tokenId); return null; }
     buffer = await loadSoundBuffer(instrumentId, key);
-    if (!isTokenActive(tokenId)) return null; // หยุดเล่นไปแล้วระหว่างโหลด
-    if (!buffer) { invalidateToken(tokenId); return null; }
+    if (!isTokenActive(tokenId)) { discardToken(tokenId); return null; } // หยุดเล่นไปแล้วระหว่างโหลด
+    if (!buffer) { discardToken(tokenId); return null; }
   }
 
   // ตรวจ token อีกครั้งหลัง await ทั้งหมดก่อนสร้าง source
-  if (!isTokenActive(tokenId)) return null;
+  if (!isTokenActive(tokenId)) { discardToken(tokenId); return null; }
 
   const src = createBufferedSource(buffer, volumeLevel, whenSec, destination);
   // ผูก token เข้ากับ source เพื่อให้ stopAllScheduledNotes invalidate token ได้ด้วย
-  if (src) src._tokenId = tokenId;
+  if (src) {
+    src._tokenId = tokenId;
+    const previousOnEnded = src.onended;
+    src.onended = () => {
+      discardToken(tokenId);
+      previousOnEnded?.();
+    };
+  } else {
+    discardToken(tokenId);
+  }
   return src;
 };
 
@@ -372,7 +383,10 @@ export const playNote = (instrumentId, noteChar, volumeLevel = 100) => {
 export const stopAllScheduledNotes = () => {
   // ⭐ invalidate token ของทุก source ที่กำลังเล่น/รอเล่นอยู่ — แก้ race condition
   //    ตอนกดหยุดทุก token ที่ยังไม่จบ promise จะถูก mark inactive → scheduleNote() return null ทันที
-  noteGeneration += 1;
+  // ยกเลิกทั้ง source ที่เริ่มแล้วและคำขอโหลด buffer ที่ยังค้างอยู่
+  // พร้อมคืน token ทันที เพื่อไม่ให้ Map โตขึ้นตามจำนวนโน้ตที่เล่น
+  noteGenerations.forEach((token) => { token.active = false; });
+  noteGenerations.clear();
   const ctx = getAudioContext();
   const stopAt = ctx.currentTime;
   Array.from(activeSources).forEach((source) => {

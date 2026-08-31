@@ -12,6 +12,29 @@ import { useAudioPlayback } from '../hooks/useAudioPlayback';
 
 export const MusicContext = createContext();
 
+// เก็บเฉพาะค่าที่เป็นของโปรเจกต์ ไม่บันทึกรายการหน้าทับทั้งหมดซึ่งโหลดจากระบบกลาง
+const getMetronomeProjectSettings = (config) => ({
+  masterVolume: config.masterVolume,
+  ching: { active: config.ching.active, pattern: config.ching.pattern, volume: config.ching.volume },
+  klong: { active: config.klong.active, pattern: config.klong.pattern, volume: config.klong.volume },
+  krub: { active: config.krub.active, pattern: config.krub.pattern, volume: config.krub.volume }
+});
+
+const applyMetronomeProjectSettings = (current, saved) => {
+  if (!saved || typeof saved !== 'object') return current;
+  const mergeInstrument = (key) => ({
+    ...current[key],
+    ...(saved[key] && typeof saved[key] === 'object' ? saved[key] : {})
+  });
+  return {
+    ...current,
+    ...(typeof saved.masterVolume === 'number' ? { masterVolume: saved.masterVolume } : {}),
+    ching: mergeInstrument('ching'),
+    klong: mergeInstrument('klong'),
+    krub: mergeInstrument('krub')
+  };
+};
+
 export const MusicProvider = ({ children }) => {
   const [currentInstrument, setCurrentInstrument] = useState(DEFAULT_INSTRUMENT);
   const [songName, setSongName] = useState("เพลงลาวดวงเดือน");
@@ -234,6 +257,13 @@ export const MusicProvider = ({ children }) => {
     setHeaderDetails(createDefaultHeaderDetails());
     setCurrentInstrument(DEFAULT_INSTRUMENT);
     audioPlayback.setPlaybackSequence([]);
+    audioPlayback.setMetronomeConfig((current) => ({
+      ...current,
+      masterVolume: 80,
+      ching: { ...current.ching, active: true, pattern: '', volume: 80 },
+      klong: { ...current.klong, active: true, pattern: '', volume: 80 },
+      krub: { ...current.krub, active: false, pattern: '', volume: 80 }
+    }));
     setIsLoopAll(false);
     setIsLoopOne(false);
     setIntervalMode('off');
@@ -312,6 +342,7 @@ export const MusicProvider = ({ children }) => {
         setHeaderDetails(data.headerDetails || createDefaultHeaderDetails());
         setCurrentInstrument((data.currentInstrument && INSTRUMENT_CONFIG[data.currentInstrument]) ? INSTRUMENT_CONFIG[data.currentInstrument] : DEFAULT_INSTRUMENT);
         audioPlayback.setPlaybackSequence(data.playbackSequence || []);
+        audioPlayback.setMetronomeConfig((current) => applyMetronomeProjectSettings(current, data.metronomeSettings));
         setIsLoopAll(data.isLoopAll !== undefined ? data.isLoopAll : false);
         setIsLoopOne(data.isLoopOne !== undefined ? data.isLoopOne : false);
         setIntervalMode(data.intervalMode !== undefined ? data.intervalMode : (data.isOctaveMode ? '8' : 'off'));
@@ -360,6 +391,7 @@ export const MusicProvider = ({ children }) => {
       setHeaderDetails(projectData.headerDetails || createDefaultHeaderDetails());
       setCurrentInstrument((projectData.currentInstrument && INSTRUMENT_CONFIG[projectData.currentInstrument]) ? INSTRUMENT_CONFIG[projectData.currentInstrument] : DEFAULT_INSTRUMENT);
       audioPlayback.setPlaybackSequence(projectData.playbackSequence || []);
+      audioPlayback.setMetronomeConfig((current) => applyMetronomeProjectSettings(current, projectData.metronomeSettings));
       setIsLoopAll(projectData.isLoopAll !== undefined ? projectData.isLoopAll : false);
       setIsLoopOne(projectData.isLoopOne !== undefined ? projectData.isLoopOne : false);
       setIntervalMode(projectData.intervalMode !== undefined ? projectData.intervalMode : (projectData.isOctaveMode ? '8' : 'off'));
@@ -380,6 +412,7 @@ export const MusicProvider = ({ children }) => {
       name: projectName, songName, 
       sheetData: sheetEditor.sheetData, rowTypes: sheetEditor.rowTypes, sectionLabels: sheetEditor.sectionLabels, symbols: sheetEditor.symbols, rowMargins: sheetEditor.rowMargins, 
       layoutConfig, headerDetails, currentInstrument: currentInstrument.id, playbackSequence: audioPlayback.playbackSequence,
+      metronomeSettings: getMetronomeProjectSettings(audioPlayback.metronomeConfig),
       isLoopAll, isLoopOne, intervalMode, isReduceMode, isShowPlayMode 
     };
     const url = URL.createObjectURL(new Blob([JSON.stringify(projectData, null, 2)], { type: 'application/json' }));
@@ -428,6 +461,7 @@ export const MusicProvider = ({ children }) => {
         if (data.headerDetails) setHeaderDetails(data.headerDetails);
         if (data.currentInstrument && INSTRUMENT_CONFIG[data.currentInstrument]) setCurrentInstrument(INSTRUMENT_CONFIG[data.currentInstrument]);
         if (data.playbackSequence) audioPlayback.setPlaybackSequence(data.playbackSequence);
+        audioPlayback.setMetronomeConfig((current) => applyMetronomeProjectSettings(current, data.metronomeSettings));
         if (data.isLoopAll !== undefined) setIsLoopAll(data.isLoopAll);
         if (data.isLoopOne !== undefined) setIsLoopOne(data.isLoopOne);
         setIntervalMode(data.intervalMode !== undefined ? data.intervalMode : (data.isOctaveMode ? '8' : 'off'));
@@ -454,6 +488,7 @@ export const MusicProvider = ({ children }) => {
       name: projectName, songName, 
       sheetData: sheetEditor.sheetData, rowTypes: sheetEditor.rowTypes, sectionLabels: sheetEditor.sectionLabels, symbols: sheetEditor.symbols, rowMargins: sheetEditor.rowMargins,
       layoutConfig, headerDetails, currentInstrument: currentInstrument.id, playbackSequence: audioPlayback.playbackSequence,
+      metronomeSettings: getMetronomeProjectSettings(audioPlayback.metronomeConfig),
       isLoopAll, isLoopOne, intervalMode, isReduceMode, isShowPlayMode 
     };
     
@@ -463,7 +498,7 @@ export const MusicProvider = ({ children }) => {
       const debounceTimer = setTimeout(() => autoSaveToFirebase(projectData, projectId), 2000);
       return () => clearTimeout(debounceTimer);
     }
-  }, [isLoaded, projectName, songName, sheetEditor.sheetData, sheetEditor.rowTypes, sheetEditor.sectionLabels, sheetEditor.symbols, layoutConfig, headerDetails, currentInstrument, sheetEditor.rowMargins, audioPlayback.playbackSequence, isLoopAll, isLoopOne, intervalMode, isReduceMode, isShowPlayMode, projectId, sheetEditor.historyIndex, isReadOnly]);
+  }, [isLoaded, projectName, songName, sheetEditor.sheetData, sheetEditor.rowTypes, sheetEditor.sectionLabels, sheetEditor.symbols, layoutConfig, headerDetails, currentInstrument, sheetEditor.rowMargins, audioPlayback.playbackSequence, audioPlayback.metronomeConfig, isLoopAll, isLoopOne, intervalMode, isReduceMode, isShowPlayMode, projectId, sheetEditor.historyIndex, isReadOnly]);
 
   const actionsRef = useRef({});
   useEffect(() => {
@@ -722,7 +757,8 @@ export const MusicProvider = ({ children }) => {
                       const projectData = { 
                         name: projectName, songName, sheetData: sheetEditor.sheetData, rowTypes: sheetEditor.rowTypes, sectionLabels: sheetEditor.sectionLabels, 
                         symbols: sheetEditor.symbols, layoutConfig, headerDetails, currentInstrument: currentInstrument.id, 
-                        rowMargins: sheetEditor.rowMargins, playbackSequence: audioPlayback.playbackSequence 
+                        rowMargins: sheetEditor.rowMargins, playbackSequence: audioPlayback.playbackSequence,
+                        metronomeSettings: getMetronomeProjectSettings(audioPlayback.metronomeConfig)
                       };
                       await autoSaveToFirebase(projectData, projectId);
                       executeAction(pendingAction.type, pendingAction.payload);
