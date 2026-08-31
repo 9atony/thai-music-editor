@@ -3,7 +3,7 @@ import { db } from '../utils/firebase';
 import { doc, getDoc } from 'firebase/firestore';
 import { INSTRUMENT_CONFIG } from '../utils/instrumentConfig';
 import { 
-  preloadSounds, playNote, scheduleNote, initAudioContext, 
+  preloadSounds, preloadNote, scheduleNote, initAudioContext,
   getAudioCurrentTime, stopAllScheduledNotes, 
   claimPlaybackOwnership, releasePlaybackOwnership 
 } from '../utils/audioEngine';
@@ -228,6 +228,50 @@ export const useAudioPlayback = ({
 
     const currentInstId = currentInstrumentRef.current?.id;
     const conf = metronomeConfigRef.current;
+    const currentSheetData = sheetDataRef.current;
+    const currentRowTypes = rowTypesRef.current;
+    const currentSectionLabels = sectionLabelsRef.current;
+
+    // เตรียมเฉพาะเสียงที่อาจดังในจังหวะแรกก่อน เพื่อไม่ให้โน้ตแรกมาช้าปะปนกับจังหวะถัดไป
+    const startupNotes = new Map();
+    const addStartupNote = (instrumentId, note) => {
+      if (!instrumentId || !note || note === '-') return;
+      startupNotes.set(`${instrumentId}:${note}`, { instrumentId, note });
+    };
+    const collectCellNotes = (r, m, c) => {
+      const token = currentSheetData?.[r]?.[m]?.[c];
+      const overrideInstId = layoutConfigRef.current.customStyles?.[`${r}_${m}_${c}`]?.instrumentId;
+      parseCellToken(token, 'flat').forEach((event) => {
+        const actualNote = isReduceModeRef.current ? shiftNoteString(event.note, -1) : event.note;
+        let instrument = overrideInstId && INSTRUMENT_CONFIG[overrideInstId]
+          ? INSTRUMENT_CONFIG[overrideInstId]
+          : currentInstrumentRef.current;
+        if (!overrideInstId) {
+          const percussion = Object.values(INSTRUMENT_CONFIG).find(item => item.type === 'percussion' && item.keys.some(key => key.thai === actualNote));
+          if (percussion) instrument = percussion;
+        }
+        if (intervalModeRef.current !== 'off' && instrument.type !== 'percussion') {
+          const pair = getIntervalPair(instrument, actualNote, intervalModeRef.current);
+          addStartupNote(instrument.id, pair.left);
+          addStartupNote(instrument.id, pair.right);
+        } else addStartupNote(instrument.id, actualNote);
+      });
+    };
+    const initialCell = selectedCellRef.current || [0, 0, 0];
+    collectCellNotes(initialCell[0], initialCell[1], initialCell[2]);
+    if (currentRowTypes[initialCell[0]] === 'double-right') collectCellNotes(initialCell[0] + 1, initialCell[1], initialCell[2]);
+    if (currentRowTypes[initialCell[0]] === 'double-left') collectCellNotes(initialCell[0] - 1, initialCell[1], initialCell[2]);
+
+    [['ching', 'ching'], ['klong', 'klong-khaek'], ['krub', 'krub']].forEach(([key, instrumentId]) => {
+      if (!conf[key].active) return;
+      const selectedPattern = conf.rhythms[key].find(pattern => pattern.id === conf[key].pattern) || conf.rhythms[key][0];
+      (selectedPattern?.pattern || []).forEach(token => splitThaiNoteToken(token).forEach(note => addStartupNote(instrumentId, note)));
+    });
+
+    const startupPreload = Promise.allSettled([...startupNotes.values()].map(({ instrumentId, note }) => preloadNote(instrumentId, note)));
+    // จำกัดเวลารอเพื่อให้การกด Play ยังตอบสนองเร็ว แม้เครือข่ายช้า
+    await Promise.race([startupPreload, new Promise(resolve => setTimeout(resolve, 350))]);
+
     // เริ่มโหลดเสียงทันที แต่ห้ามรอให้โหลดครบทุกโน้ตก่อนเล่น
     // การรอ Promise ทั้งชุดทำให้กดเล่นครั้งแรกช้าเป็นวินาที โดยเฉพาะไฟล์ที่ใช้หลายเครื่อง
     // scheduler มี look-ahead อยู่แล้ว จึงให้เสียงที่เหลือทยอยพร้อมในเบื้องหลังได้
@@ -241,9 +285,6 @@ export const useAudioPlayback = ({
     setIsPlaying(true);
     isPlayingRef.current = true;
 
-    const currentSheetData = sheetDataRef.current;
-    const currentRowTypes = rowTypesRef.current;
-    const currentSectionLabels = sectionLabelsRef.current;
     const sheetSections = [];
     let lastValidRow = 0;
     let lastProcessedVIdx = -1;

@@ -9,6 +9,7 @@ const activeSources = new Set();
 const trackGainNodes = {};
 const clipGainNodes = {};
 const DEFAULT_START_LEAD_TIME = 0.015;
+const MAX_TIMELINE_LATENESS = 0.01;
 let primeAudioPromise = null;
 
 const getAudioContext = () => {
@@ -284,6 +285,17 @@ export const preloadSounds = async (instrumentId) => {
   console.log(`เครื่องดนตรี ${instrumentId} โหลดลง RAM เรียบร้อยแล้ว!`);
 };
 
+// โหลดเฉพาะโน้ตที่ต้องใช้ทันที เช่น โน้ตแรกตอนกด Play
+// ช่วยให้เริ่มได้สะอาดโดยไม่ต้องรอโหลดทั้งเครื่องดนตรี
+export const preloadNote = async (instrumentId, noteChar) => {
+  if (!noteChar || noteChar === '-' || !INSTRUMENT_CONFIG[instrumentId]) return null;
+  const cleanNote = String(noteChar).trim();
+  const cached = audioBufferCache[instrumentId]?.[cleanNote];
+  if (cached) return cached;
+  const key = findKeyByFormattedNote(instrumentId, cleanNote);
+  return key ? loadSoundBuffer(instrumentId, key) : null;
+};
+
 export const preloadAllSounds = async () => {
   const instrumentIds = Object.keys(INSTRUMENT_CONFIG || {});
   await Promise.allSettled(instrumentIds.map((instrumentId) => preloadSounds(instrumentId)));
@@ -339,7 +351,7 @@ const isTokenActive = (id) => {
 //    - ตรวจ token ทุก stage (ก่อน await, หลัง await, ก่อน create source)
 //    - ถ้า token ถูก invalidate ทุก stage คืน null → โน้ตนั้นไม่เล่นเด็ดขาด
 //    - token ถูก invalidate ใน stopAllScheduledNotes()
-const scheduleNote = async (instrumentId, noteChar, whenSec, volumeLevel = 100, destination) => {
+const scheduleNote = async (instrumentId, noteChar, whenSec, volumeLevel = 100, destination, allowLateStart = false) => {
   if (!noteChar || noteChar === '-') return null;
   const cleanNote = noteChar.trim();
   if (!INSTRUMENT_CONFIG[instrumentId]) return null;
@@ -357,6 +369,14 @@ const scheduleNote = async (instrumentId, noteChar, whenSec, volumeLevel = 100, 
 
   // ตรวจ token อีกครั้งหลัง await ทั้งหมดก่อนสร้าง source
   if (!isTokenActive(tokenId)) { discardToken(tokenId); return null; }
+
+  // โน้ตของ timeline ที่โหลดไม่ทันต้องถูกทิ้ง ห้ามเลื่อนไปดังในเวลาปัจจุบัน
+  // ไม่เช่นนั้นโน้ตเก่าจะปะปนกับจังหวะใหม่ตอนเริ่มเล่นหรือหลัง seek
+  const now = safeAudioNow();
+  if (!allowLateStart && typeof whenSec === 'number' && whenSec < now - MAX_TIMELINE_LATENESS) {
+    discardToken(tokenId);
+    return null;
+  }
 
   const src = createBufferedSource(buffer, volumeLevel, whenSec, destination);
   // ผูก token เข้ากับ source เพื่อให้ stopAllScheduledNotes invalidate token ได้ด้วย
@@ -377,7 +397,7 @@ export { scheduleNote };
 
 export const playNote = (instrumentId, noteChar, volumeLevel = 100) => {
   const now = safeAudioNow();
-  return scheduleNote(instrumentId, noteChar, now + DEFAULT_START_LEAD_TIME, volumeLevel);
+  return scheduleNote(instrumentId, noteChar, now + DEFAULT_START_LEAD_TIME, volumeLevel, undefined, true);
 };
 
 export const stopAllScheduledNotes = () => {
