@@ -14,6 +14,7 @@ export const MusicContext = createContext();
 
 // เก็บเฉพาะค่าที่เป็นของโปรเจกต์ ไม่บันทึกรายการหน้าทับทั้งหมดซึ่งโหลดจากระบบกลาง
 const getMetronomeProjectSettings = (config) => ({
+  linked: config.linked !== false,
   masterVolume: config.masterVolume,
   ching: { active: config.ching.active, pattern: config.ching.pattern, volume: config.ching.volume },
   klong: { active: config.klong.active, pattern: config.klong.pattern, volume: config.klong.volume },
@@ -28,6 +29,7 @@ const applyMetronomeProjectSettings = (current, saved) => {
   });
   return {
     ...current,
+    ...(typeof saved.linked === 'boolean' ? { linked: saved.linked } : {}),
     ...(typeof saved.masterVolume === 'number' ? { masterVolume: saved.masterVolume } : {}),
     ching: mergeInstrument('ching'),
     klong: mergeInstrument('klong'),
@@ -259,6 +261,7 @@ export const MusicProvider = ({ children }) => {
     audioPlayback.setPlaybackSequence([]);
     audioPlayback.setMetronomeConfig((current) => ({
       ...current,
+      linked: true,
       masterVolume: 80,
       ching: { ...current.ching, active: true, pattern: '', volume: 80 },
       klong: { ...current.klong, active: true, pattern: '', volume: 80 },

@@ -329,10 +329,10 @@ export const primeAudioEngine = async () => {
 const noteGenerations = new Map();  // ⭐ generation counter ต่อ token id ใช้เช็คทุก stage
 let tokenCounter = 0;
 
-const createToken = () => {
+const createToken = (groupId = null) => {
   tokenCounter += 1;
   const id = tokenCounter;
-  noteGenerations.set(id, { active: true });
+  noteGenerations.set(id, { active: true, groupId });
   return id;
 };
 
@@ -354,12 +354,12 @@ const isTokenActive = (id) => {
 //    - ตรวจ token ทุก stage (ก่อน await, หลัง await, ก่อน create source)
 //    - ถ้า token ถูก invalidate ทุก stage คืน null → โน้ตนั้นไม่เล่นเด็ดขาด
 //    - token ถูก invalidate ใน stopAllScheduledNotes()
-const scheduleNote = async (instrumentId, noteChar, whenSec, volumeLevel = 100, destination, allowLateStart = false) => {
+const scheduleNote = async (instrumentId, noteChar, whenSec, volumeLevel = 100, destination, allowLateStart = false, groupId = null) => {
   if (!noteChar || noteChar === '-') return null;
   const cleanNote = noteChar.trim();
   if (!INSTRUMENT_CONFIG[instrumentId]) return null;
 
-  const tokenId = createToken();
+  const tokenId = createToken(groupId);
 
   let buffer = audioBufferCache[instrumentId]?.[cleanNote];
   if (!buffer) {
@@ -385,6 +385,7 @@ const scheduleNote = async (instrumentId, noteChar, whenSec, volumeLevel = 100, 
   // ผูก token เข้ากับ source เพื่อให้ stopAllScheduledNotes invalidate token ได้ด้วย
   if (src) {
     src._tokenId = tokenId;
+    src._groupId = groupId;
     const previousOnEnded = src.onended;
     src.onended = () => {
       discardToken(tokenId);
@@ -403,16 +404,20 @@ export const playNote = (instrumentId, noteChar, volumeLevel = 100) => {
   return scheduleNote(instrumentId, noteChar, now + DEFAULT_START_LEAD_TIME, volumeLevel, undefined, true);
 };
 
-export const stopAllScheduledNotes = () => {
+export const stopAllScheduledNotes = ({ excludeGroupId = null } = {}) => {
   // ⭐ invalidate token ของทุก source ที่กำลังเล่น/รอเล่นอยู่ — แก้ race condition
   //    ตอนกดหยุดทุก token ที่ยังไม่จบ promise จะถูก mark inactive → scheduleNote() return null ทันที
   // ยกเลิกทั้ง source ที่เริ่มแล้วและคำขอโหลด buffer ที่ยังค้างอยู่
   // พร้อมคืน token ทันที เพื่อไม่ให้ Map โตขึ้นตามจำนวนโน้ตที่เล่น
-  noteGenerations.forEach((token) => { token.active = false; });
-  noteGenerations.clear();
+  noteGenerations.forEach((token, tokenId) => {
+    if (excludeGroupId && token.groupId === excludeGroupId) return;
+    token.active = false;
+    noteGenerations.delete(tokenId);
+  });
   const ctx = getAudioContext();
   const stopAt = ctx.currentTime;
   Array.from(activeSources).forEach((source) => {
+    if (excludeGroupId && source._groupId === excludeGroupId) return;
     if (source._tokenId) invalidateToken(source._tokenId);
     try {
       // ⭐ แก้บั๊กเสียงช็อต (click) ตอนหยุดเล่น:
@@ -453,8 +458,42 @@ export const stopAllScheduledNotes = () => {
     } catch (_) {
       // ignore already-ended sources
     }
+    activeSources.delete(source);
   });
-  activeSources.clear();
+};
+
+// หยุดเฉพาะกลุ่มเสียง เช่น metronome อิสระ โดยไม่กระทบโน้ตบนกระดาษ
+export const stopScheduledNotesByGroup = (groupId) => {
+  if (!groupId) return;
+  noteGenerations.forEach((token, tokenId) => {
+    if (token.groupId !== groupId) return;
+    token.active = false;
+    noteGenerations.delete(tokenId);
+  });
+
+  const ctx = getAudioContext();
+  const now = ctx.currentTime;
+  Array.from(activeSources).forEach((source) => {
+    if (source._groupId !== groupId) return;
+    const startAt = source._startAt || now;
+    const release = source._release || 0.012;
+    const gainNode = source._gainNode;
+    try {
+      if (gainNode) {
+        const fadeAt = Math.max(now, startAt);
+        gainNode.gain.cancelScheduledValues(fadeAt);
+        if (startAt > now) gainNode.gain.setValueAtTime(0.0001, startAt);
+        else {
+          gainNode.gain.setValueAtTime(gainNode.gain.value, now);
+          gainNode.gain.linearRampToValueAtTime(0.0001, now + release);
+        }
+      }
+      source.stop(startAt > now ? startAt + 0.001 : now + release + 0.005);
+    } catch {
+      // Source may already have ended while the group is being stopped.
+    }
+    activeSources.delete(source);
+  });
 };
 
 // ⭐ ระบบ "เจ้าของเสียงเพียงหนึ่งเดียว" (single-owner playback)

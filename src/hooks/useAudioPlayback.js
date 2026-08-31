@@ -4,13 +4,16 @@ import { doc, getDoc } from 'firebase/firestore';
 import { INSTRUMENT_CONFIG } from '../utils/instrumentConfig';
 import { 
   preloadSounds, preloadNote, scheduleNote, initAudioContext,
-  getAudioCurrentTime, stopAllScheduledNotes, 
+  getAudioCurrentTime, stopAllScheduledNotes, stopScheduledNotesByGroup,
   claimPlaybackOwnership, releasePlaybackOwnership 
 } from '../utils/audioEngine';
 import { 
   getVisualIndex, shiftNoteString, getIntervalPair, 
   splitThaiNoteToken, parseCellToken 
 } from '../utils/sheetUtils';
+
+const INDEPENDENT_METRONOME_GROUP = 'editor-independent-metronome';
+const LINKED_METRONOME_GROUP = 'editor-linked-metronome';
 
 export const useAudioPlayback = ({
   sheetDataRef,
@@ -36,6 +39,7 @@ export const useAudioPlayback = ({
   const [activeLoop, setActiveLoop] = useState(1);
 
   const [metronomeConfig, setMetronomeConfig] = useState({
+    linked: true,
     masterVolume: 80,
     ching: { active: true, pattern: '', volume: 80 },
     klong: { active: true, pattern: '', volume: 80 },
@@ -66,6 +70,7 @@ export const useAudioPlayback = ({
   const pendingPlaybackCursorRef = useRef(null);
   const playbackCursorRafRef = useRef(null);
   const sheetMapRef = useRef([]);
+  const independentMetronomeIntervalRef = useRef(null);
 
   useEffect(() => { playbackSequenceRef.current = playbackSequence; }, [playbackSequence]);
   useEffect(() => { metronomeConfigRef.current = metronomeConfig; }, [metronomeConfig]);
@@ -98,6 +103,96 @@ export const useAudioPlayback = ({
     };
     fetchRhythms();
   }, []);
+
+  useEffect(() => {
+    const stopIndependentMetronome = () => {
+      if (independentMetronomeIntervalRef.current) {
+        clearInterval(independentMetronomeIntervalRef.current);
+        independentMetronomeIntervalRef.current = null;
+      }
+      stopScheduledNotesByGroup(INDEPENDENT_METRONOME_GROUP);
+    };
+
+    if (metronomeConfig.linked !== false) {
+      stopIndependentMetronome();
+      return undefined;
+    }
+
+    // Any linked beats already reserved by the sheet look-ahead must not overlap
+    // the newly started independent loop.
+    stopScheduledNotesByGroup(LINKED_METRONOME_GROUP);
+
+    let cancelled = false;
+    let nextBeatTime = 0;
+    let beatIndex = 0;
+
+    const playPatternToken = (instrumentId, token, volume) => {
+      if (!token || token === '-') return;
+      splitThaiNoteToken(token).forEach((note) => {
+        if (!note || note === '-') return;
+        scheduleNote(
+          instrumentId,
+          note,
+          nextBeatTime,
+          volume,
+          undefined,
+          false,
+          INDEPENDENT_METRONOME_GROUP
+        );
+      });
+    };
+
+    const scheduleIndependentBeats = () => {
+      if (cancelled) return;
+      const now = getAudioCurrentTime();
+      const lookAhead = isPageHiddenRef.current ? 1 : 0.25;
+      if (!nextBeatTime || nextBeatTime < now - 0.05) nextBeatTime = now + 0.05;
+
+      while (nextBeatTime < now + lookAhead) {
+        const config = metronomeConfigRef.current;
+        const masterVolume = Math.max(0, Math.min(100, Number(config.masterVolume) || 0)) / 100;
+        const instruments = [
+          ['ching', 'ching'],
+          ['klong', 'klong-khaek'],
+          ['krub', 'krub']
+        ];
+
+        instruments.forEach(([key, instrumentId]) => {
+          const instrument = config[key];
+          const patterns = config.rhythms?.[key] || [];
+          if (!instrument?.active || patterns.length === 0) return;
+          const pattern = patterns.find((item) => item.id === instrument.pattern) || patterns[0];
+          if (!pattern?.pattern?.length) return;
+          const volume = masterVolume * (Number(instrument.volume) || 0);
+          if (volume > 0) playPatternToken(instrumentId, pattern.pattern[beatIndex % pattern.pattern.length], volume);
+        });
+
+        const bpm = Math.max(20, Number(layoutConfigRef.current.bpm) || 80);
+        nextBeatTime += 15 / bpm;
+        beatIndex += 1;
+      }
+    };
+
+    initAudioContext()
+      .then(async () => {
+        if (cancelled) return;
+        const config = metronomeConfigRef.current;
+        const preloadIds = [];
+        if (config.ching?.active) preloadIds.push('ching');
+        if (config.klong?.active) preloadIds.push('klong-khaek');
+        if (config.krub?.active) preloadIds.push('krub');
+        await Promise.allSettled(preloadIds.map((id) => preloadSounds(id)));
+        if (cancelled) return;
+        scheduleIndependentBeats();
+        independentMetronomeIntervalRef.current = setInterval(scheduleIndependentBeats, 50);
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+      stopIndependentMetronome();
+    };
+  }, [metronomeConfig.linked, layoutConfigRef]);
 
   useEffect(() => {
     const handleVisibilityChange = () => {
@@ -212,7 +307,13 @@ export const useAudioPlayback = ({
       uiTimerRef.current = null;
     }
 
-    if (clearScheduled) stopAllScheduledNotes?.();
+    if (clearScheduled) {
+      stopAllScheduledNotes?.({
+        excludeGroupId: metronomeConfigRef.current.linked === false
+          ? INDEPENDENT_METRONOME_GROUP
+          : null
+      });
+    }
     releasePlaybackOwnership(stopPlayback);
 
     if (!preserveSeek) {
@@ -271,7 +372,7 @@ export const useAudioPlayback = ({
     if (currentRowTypes[initialCell[0]] === 'double-right') collectCellNotes(initialCell[0] + 1, initialCell[1], initialCell[2]);
 
     [['ching', 'ching'], ['klong', 'klong-khaek'], ['krub', 'krub']].forEach(([key, instrumentId]) => {
-      if (!conf[key].active) return;
+      if (conf.linked === false || !conf[key].active) return;
       const selectedPattern = conf.rhythms[key].find(pattern => pattern.id === conf[key].pattern) || conf.rhythms[key][0];
       (selectedPattern?.pattern || []).forEach(token => splitThaiNoteToken(token).forEach(note => addStartupNote(instrumentId, note)));
     });
@@ -286,9 +387,9 @@ export const useAudioPlayback = ({
     // scheduler มี look-ahead อยู่แล้ว จึงให้เสียงที่เหลือทยอยพร้อมในเบื้องหลังได้
     const instrumentsToPreload = new Set();
     if (currentInstId) instrumentsToPreload.add(currentInstId);
-    if (conf.ching.active) instrumentsToPreload.add('ching');
-    if (conf.klong.active) instrumentsToPreload.add('klong-khaek');
-    if (conf.krub.active) instrumentsToPreload.add('krub');
+    if (conf.linked !== false && conf.ching.active) instrumentsToPreload.add('ching');
+    if (conf.linked !== false && conf.klong.active) instrumentsToPreload.add('klong-khaek');
+    if (conf.linked !== false && conf.krub.active) instrumentsToPreload.add('krub');
     Promise.allSettled([...instrumentsToPreload].map((id) => preloadSounds(id))).catch(() => {});
 
     setIsPlaying(true);
@@ -357,7 +458,11 @@ export const useAudioPlayback = ({
     schedulerStateRef.current = null;
     nextNoteTimeRef.current = 0;
     runAudioSchedulerRef.current = null;
-    stopAllScheduledNotes?.();
+    stopAllScheduledNotes?.({
+      excludeGroupId: metronomeConfigRef.current.linked === false
+        ? INDEPENDENT_METRONOME_GROUP
+        : null
+    });
 
     let currentCursor = [...selectedCellRef.current];
     let startR = currentCursor[0];
@@ -528,13 +633,13 @@ export const useAudioPlayback = ({
         notesToPlay.forEach(n => {
           if (n && n !== '-') {
             const finalVol = masterVol * baseVol;
-            if (finalVol > 0) scheduleNote(instrument, n, cellStartSec, finalVol);
+            if (finalVol > 0) scheduleNote(instrument, n, cellStartSec, finalVol, undefined, false, LINKED_METRONOME_GROUP);
           }
         });
       };
 
       // ตีกลองเฉพาะตอนที่จังหวะลงล็อกเป๊ะๆ เท่านั้น
-      if (isMetronomeBeat) {
+      if (metronomeConf.linked !== false && isMetronomeBeat) {
         if (metronomeConf.ching.active) {
           const chingP = metronomeConf.rhythms.ching.find(p => p.id === metronomeConf.ching.pattern) || metronomeConf.rhythms.ching[0];
           if (chingP && chingP.pattern.length > 0) {
