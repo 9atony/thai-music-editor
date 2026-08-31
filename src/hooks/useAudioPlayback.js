@@ -228,15 +228,15 @@ export const useAudioPlayback = ({
 
     const currentInstId = currentInstrumentRef.current?.id;
     const conf = metronomeConfigRef.current;
-    // รอให้เสียงที่ใช้ในรอบนี้พร้อมก่อนเริ่ม scheduler เสมอ
-    // ถ้าไม่รอ โน้ตที่ buffer ยังโหลดไม่เสร็จจะถูกสร้างช้ากว่าเวลาที่จองไว้
-    // และกลายเป็นเสียงตามจังหวะไม่ทันในช่วงต้นเพลง
+    // เริ่มโหลดเสียงทันที แต่ห้ามรอให้โหลดครบทุกโน้ตก่อนเล่น
+    // การรอ Promise ทั้งชุดทำให้กดเล่นครั้งแรกช้าเป็นวินาที โดยเฉพาะไฟล์ที่ใช้หลายเครื่อง
+    // scheduler มี look-ahead อยู่แล้ว จึงให้เสียงที่เหลือทยอยพร้อมในเบื้องหลังได้
     const instrumentsToPreload = new Set();
     if (currentInstId) instrumentsToPreload.add(currentInstId);
     if (conf.ching.active) instrumentsToPreload.add('ching');
     if (conf.klong.active) instrumentsToPreload.add('klong-khaek');
     if (conf.krub.active) instrumentsToPreload.add('krub');
-    await Promise.allSettled([...instrumentsToPreload].map((id) => preloadSounds(id)));
+    Promise.allSettled([...instrumentsToPreload].map((id) => preloadSounds(id))).catch(() => {});
 
     setIsPlaying(true);
     isPlayingRef.current = true;
@@ -745,7 +745,8 @@ export const useAudioPlayback = ({
       return { r: nextR, m: nextM, c: nextC };
     };
 
-    const audioStartSec = (getAudioCurrentTime ? getAudioCurrentTime() : 0) + 0.025;
+    // เผื่อเวลาให้ browser เปิด output path และสร้างโน้ตแรก โดยไม่ทำให้ผู้ใช้รู้สึกว่ากดเล่นช้า
+    const audioStartSec = (getAudioCurrentTime ? getAudioCurrentTime() : 0) + 0.08;
     schedulerStateRef.current = { r: currentCursor[0], m: currentCursor[1], c: currentCursor[2] };
     nextNoteTimeRef.current = audioStartSec;
 
