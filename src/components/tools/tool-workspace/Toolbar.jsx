@@ -34,6 +34,13 @@ const BLACK_SCROLLBAR_STYLE = `
   }
 `;
 
+const WORKSPACE_TOOLS = [
+  { id: 'select', name: 'เลือก', icon: '↖' },
+  { id: 'erase', name: 'ลบ', icon: '⌫' },
+  { id: 'split', name: 'ตัด', icon: '✂' },
+  { id: 'zoom', name: 'ซูม', icon: '⌕' },
+];
+
 export default function Toolbar() {
   const {
     activeTool,
@@ -46,15 +53,8 @@ export default function Toolbar() {
     fitTimeline,
   } = useWorkspace();
 
-  const tools = [
-    { id: 'select', name: 'เลือก', icon: '↖' },
-    { id: 'erase', name: 'ลบ', icon: '⌫' },
-    { id: 'split', name: 'ตัด', icon: '✂' },
-    { id: 'zoom', name: 'ซูม', icon: '⌕' },
-  ];
-
   useEffect(() => {
-    if (!tools.some((tool) => tool.id === activeTool)) {
+    if (!WORKSPACE_TOOLS.some((tool) => tool.id === activeTool)) {
       setActiveTool('select');
     }
   }, [activeTool, setActiveTool]);
@@ -88,7 +88,7 @@ export default function Toolbar() {
       <div className="w-full rounded-[22px] border border-white/10 bg-gradient-to-b from-white/[0.06] to-white/[0.02] p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
         <div className="mb-2 px-1 text-center text-[9px] uppercase tracking-[0.22em] text-white/35">Tools</div>
         <div className="space-y-2">
-          {tools.map((tool) => {
+          {WORKSPACE_TOOLS.map((tool) => {
             const active = activeTool === tool.id;
             return (
               <button

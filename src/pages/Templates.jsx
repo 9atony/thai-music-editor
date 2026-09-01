@@ -5,6 +5,8 @@ import previewBlank from '../assets/templates/preview-blank.png';
 import previewStandard from '../assets/templates/preview-standard.png';
 import previewWorksheet from '../assets/templates/preview-worksheet.png';
 import previewFormal from '../assets/templates/preview-formal.png';
+import { LayoutTemplate } from 'lucide-react';
+import PageHeader from '../components/layout/PageHeader';
 
 const Templates = ({ onNewProject, userProfile }) => {
   const isAdmin = userProfile?.role === 'admin';
@@ -106,17 +108,11 @@ const Templates = ({ onNewProject, userProfile }) => {
 
   return (
     <div 
-      className="max-w-6xl mx-auto w-full animate-fadeIn text-slate-800 pt-6 md:pt-10 px-5 md:px-8 pb-12 min-h-screen"
+      className="app-page-shell animate-fadeIn text-slate-800"
       style={{ fontFamily: 'Prompt, sans-serif' }}
       onClick={() => setAdminMenuOpen(null)} // คลิกที่ว่างเพื่อปิดเมนูแอดมิน
     >
-      {/* Header & สร้างปุ่มด้านบน */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-8 px-1 gap-4">
-        <div>
-          <h2 className="text-2xl md:text-3xl font-extrabold text-slate-900 mb-1 md:mb-2">เทมเพลต 🗂️</h2>
-          <p className="text-xs md:text-sm text-slate-500 font-medium">เริ่มต้นสร้างผลงานหรือแบบฝึกหัดอย่างรวดเร็วด้วยโครงสร้างมาตรฐาน</p>
-        </div>
-        
+      <PageHeader icon={LayoutTemplate} badge="Templates" title="เทมเพลต" subtitle="เริ่มต้นสร้างผลงานหรือแบบฝึกหัดอย่างรวดเร็วด้วยโครงสร้างมาตรฐาน">
         {isAdmin && (
           <button 
             onClick={handleCreateNew}
@@ -125,7 +121,7 @@ const Templates = ({ onNewProject, userProfile }) => {
             <span>+ สร้างเทมเพลตใหม่</span>
           </button>
         )}
-      </div>
+      </PageHeader>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6 md:gap-8">
         {templates.map((template) => (

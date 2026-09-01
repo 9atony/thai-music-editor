@@ -4,6 +4,8 @@ import { fetchRecentProjects } from '../utils/firebase';
 import { doc, deleteDoc, updateDoc, serverTimestamp, collection, query, orderBy, getDocs } from 'firebase/firestore';
 import { MusicContext } from '../contexts/MusicContext';
 import TmeIcon from '../assets/icon.png';
+import { FolderKanban } from 'lucide-react';
+import PageHeader from '../components/layout/PageHeader';
 
 const MyProjects = ({ onNewProject }) => {
   const { newProject, loadProjectFromFirebase, loadProject } = useContext(MusicContext);
@@ -177,13 +179,8 @@ const MyProjects = ({ onNewProject }) => {
   };
 
   return (
-    <div className="max-w-7xl mx-auto w-full animate-fadeIn text-slate-800 flex flex-col min-h-full pt-4 md:pt-10 px-5 md:px-8 pb-12" style={{ fontFamily: 'Prompt, sans-serif' }}>
-      <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 md:mb-8 gap-4">
-        <div className="hidden md:block">
-          <h2 className="text-2xl font-extrabold text-slate-900 mb-1">โปรเจกต์ของฉัน</h2>
-          <p className="text-sm text-slate-500 font-medium">จัดการไฟล์โปรเจกต์ของคุณ</p>
-        </div>
-        
+    <div className="app-page-shell app-page-with-floating-footer animate-fadeIn text-slate-800 flex flex-col" style={{ fontFamily: 'Prompt, sans-serif' }}>
+      <PageHeader icon={FolderKanban} badge="Project Library" title="โปรเจกต์ของฉัน" subtitle="จัดการ ค้นหา และเปิดไฟล์โปรเจกต์ของคุณ">
         <div className="flex items-center gap-3 w-full md:w-auto">
           <div className="relative w-full md:w-64">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -196,7 +193,7 @@ const MyProjects = ({ onNewProject }) => {
             />
           </div>
         </div>
-      </div>
+      </PageHeader>
 
       <input type="file" accept=".json,.tme,.thai" ref={fileInputRef} style={{ display: 'none' }} onChange={handleFileUpload} />
 
@@ -269,7 +266,7 @@ const MyProjects = ({ onNewProject }) => {
         </div>
       </div>
 
-      <div className="flex-1 flex flex-col min-h-[250px]">
+      <div className="flex flex-col min-h-[250px]">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-base font-bold text-slate-800">ไฟล์ทั้งหมด</h3>
           <div className="relative z-30">
@@ -288,8 +285,8 @@ const MyProjects = ({ onNewProject }) => {
           </div>
         </div>
 
-        <div className="hidden md:block bg-white border border-slate-200 rounded-2xl overflow-hidden flex-1 mb-6">
-          <div className="overflow-x-auto overflow-y-auto max-h-[500px]">
+        <div className="hidden md:block bg-white border border-slate-200 rounded-2xl overflow-hidden mb-6">
+          <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse relative">
               <thead className="sticky top-0 z-20 bg-slate-50/95 backdrop-blur shadow-sm">
                 <tr className="border-b border-slate-100">
@@ -323,7 +320,7 @@ const MyProjects = ({ onNewProject }) => {
           </div>
         </div>
 
-        <div className="flex flex-col gap-3 md:hidden mb-6 flex-1 overflow-y-auto max-h-[500px] pr-1">
+        <div className="flex flex-col gap-3 md:hidden mb-6">
           {displayedProjects.map((file) => (
             <div key={`mlist-${file.id}`} onClick={() => handleOpenProject(file)} className="flex items-center p-3 bg-white border border-slate-100 shadow-sm rounded-2xl active:scale-[0.98] transition-transform w-full text-left relative">
               <div className="w-12 h-14 bg-slate-50 rounded-xl flex items-center justify-center border border-slate-200/60 shrink-0 mr-3"><img src={TmeIcon} alt="Icon" className="w-8 h-8 object-contain drop-shadow-sm" /></div>
@@ -348,8 +345,10 @@ const MyProjects = ({ onNewProject }) => {
         </div>
       </div>
 
-      {/* ⭐ 3. แถบแสดงสถานะอัปเดตตามยศ (User / Premium / Admin) */}
-      {(() => {
+      {/* แถบพื้นที่จัดเก็บลอยติดขอบล่าง และยกเหนือ Bottom Navigation บนมือถือ */}
+      <div className="pointer-events-none fixed bottom-20 left-4 right-4 z-40 md:bottom-4 md:left-[calc(16rem+2rem)] md:right-8">
+        <div className="pointer-events-auto mx-auto w-full max-w-[1480px] rounded-2xl bg-slate-50/80 p-1.5 shadow-[0_18px_50px_rgba(15,23,42,0.18)] backdrop-blur-xl">
+        {(() => {
         const usedBytes = calculateTotalStorageUsed();
         
         // 🚀 แถบของ Admin (ไม่จำกัด)
@@ -407,7 +406,9 @@ const MyProjects = ({ onNewProject }) => {
             </div>
           </div>
         );
-      })()}
+        })()}
+        </div>
+      </div>
 
       {renameModalOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fadeIn">

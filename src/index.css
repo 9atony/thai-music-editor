@@ -9,3 +9,26 @@
 body {
   font-family: 'Prompt', sans-serif;
 }
+
+/* กรอบเนื้อหามาตรฐานสำหรับทุกหน้าที่เข้าจาก Sidebar */
+.app-page-shell {
+  width: 100%;
+  max-width: 1480px;
+  min-height: 100%;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 6rem;
+}
+
+.app-page-shell.app-page-with-floating-footer {
+  padding-bottom: 11rem;
+}
+
+@media (min-width: 768px) {
+  .app-page-shell {
+    padding: 2.5rem 2rem 3rem;
+  }
+
+  .app-page-shell.app-page-with-floating-footer {
+    padding-bottom: 7rem;
+  }
+}

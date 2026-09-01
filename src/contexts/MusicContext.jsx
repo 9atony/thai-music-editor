@@ -521,6 +521,10 @@ export const MusicProvider = ({ children }) => {
     let isCtrlCombination = false; 
 
     const handleKeyDown = (e) => {
+      // คีย์ลัดชุดนี้เป็นของหน้า Editor เท่านั้น ไม่ให้ Space/ปุ่มแก้ไขโน้ต
+      // ทำงานจากหน้าหลัก หน้าเครื่องมือ หรือหน้าอื่นที่ยังใช้ MusicProvider ร่วมกัน
+      if (!document.getElementById('music-editor-root')) return;
+
       // ⭐ สกัดกั้นตรงนี้: ถ้าหน้าจัดวง (Arranger) เปิดอยู่ ให้ตัดจบคำสั่งทันที! ป้องกันเสียงซ้อน
       if (document.getElementById('workspace-overlay')) return;
 
@@ -648,6 +652,8 @@ export const MusicProvider = ({ children }) => {
     };
 
     const handleKeyUp = (e) => {
+      if (!document.getElementById('music-editor-root')) return;
+
       const tag = e.target?.tagName;
       const isEditable = e.target?.isContentEditable || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
       if (isEditable) return; 

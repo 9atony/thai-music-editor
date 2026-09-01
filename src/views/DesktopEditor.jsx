@@ -56,7 +56,7 @@ function DesktopEditor({ onBack }) {
   }, []); 
 
   return (
-    <div className="h-screen w-full flex flex-col bg-slate-100 font-sans overflow-hidden">
+    <div id="music-editor-root" className="h-screen w-full flex flex-col bg-slate-100 font-sans overflow-hidden">
       
       <Navbar onPrint={handlePrint} onOpenSettings={handleOpenSettings} onBack={onBack} />
 

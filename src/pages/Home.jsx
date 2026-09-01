@@ -3,10 +3,12 @@ import { auth } from '../utils/firebase';
 import { fetchRecentProjects } from '../utils/firebase'; 
 import { db } from '../utils/firebase';
 import { collection, getDocs, query, orderBy, limit } from 'firebase/firestore';
+import { Hand, Sparkles } from 'lucide-react';
 
 import { MusicContext } from '../contexts/MusicContext';
 import TmeIcon from '../assets/icon.png'; 
 import AdminUpdateForm from '../components/AdminUpdateForm'; // 👈 นำเข้าฟอร์มแอดมิน
+import PageHeader from '../components/layout/PageHeader';
 
 const Home = ({ onNewProject, onPageChange, userProfile, isMobile = false }) => {
   const { newProject, loadProjectFromFirebase, loadProject } = useContext(MusicContext);
@@ -110,7 +112,7 @@ const Home = ({ onNewProject, onPageChange, userProfile, isMobile = false }) => 
 
   return (
     <div 
-      className="max-w-6xl mx-auto w-full animate-fadeIn text-slate-800 pt-6 md:pt-10 px-5 md:px-8 pb-12 relative"
+      className="app-page-shell animate-fadeIn text-slate-800 relative"
       style={{ fontFamily: 'Prompt, sans-serif' }}
     >
       
@@ -181,13 +183,7 @@ const Home = ({ onNewProject, onPageChange, userProfile, isMobile = false }) => 
         </div>
       )}
 
-      {/* หัวเว็บ */}
-      <div className="flex justify-between items-start mb-6 md:mb-8 px-1">
-        <div>
-          <h2 className="text-2xl md:text-3xl font-extrabold text-slate-900 mb-1 md:mb-2">ยินดีต้อนรับกลับมา 👋</h2>
-          <p className="text-xs md:text-sm text-slate-500 font-medium">ใช้งาน Thai Music Editor อย่างสร้างสรรค์ในทุกจังหวะของคุณ</p>
-        </div>
-        
+      <PageHeader icon={Hand} badge="Dashboard" title="ยินดีต้อนรับกลับมา" subtitle="ใช้งาน Thai Music Editor อย่างสร้างสรรค์ในทุกจังหวะของคุณ" hideActionsOnMobile>
         <div className="flex items-center gap-3">
             {/* 🔴 ปุ่มโพสต์ประกาศ จะเห็นเฉพาะถ้าเป็น Admin */}
             {isAdmin && (
@@ -195,7 +191,7 @@ const Home = ({ onNewProject, onPageChange, userProfile, isMobile = false }) => 
                     onClick={() => setIsAdminFormOpen(true)}
                     className="hidden md:flex items-center gap-2 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-full text-sm font-bold shadow-sm transition-colors cursor-pointer"
                 >
-                    <span className="text-sky-400">✨</span> สร้างประกาศ
+                    <Sparkles size={16} className="text-sky-400" /> สร้างประกาศ
                 </button>
             )}
 
@@ -245,7 +241,7 @@ const Home = ({ onNewProject, onPageChange, userProfile, isMobile = false }) => 
             )}
             </div>
         </div>
-      </div>
+      </PageHeader>
 
       <input type="file" accept=".json, .thai, .tme" ref={fileInputRef} style={{ display: 'none' }} onChange={handleFileUpload} />
 

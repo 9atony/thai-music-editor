@@ -3,6 +3,8 @@ import { MusicContext } from '../contexts/MusicContext';
 import { auth, fetchAllProjects } from '../utils/firebase'; 
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
+import { FilePenLine, HardDriveDownload, Keyboard, Settings2, Volume2 } from 'lucide-react';
+import PageHeader from '../components/layout/PageHeader';
 
 const Settings = () => {
   const { 
@@ -84,13 +86,10 @@ const Settings = () => {
 
   return (
     <div 
-      className="max-w-4xl mx-auto w-full animate-fadeIn text-slate-800 pt-6 md:pt-10 px-5 md:px-8 pb-24"
+      className="app-page-shell animate-fadeIn text-slate-800"
       style={{ fontFamily: 'Prompt, sans-serif' }}
     >
-      <div className="mb-8 px-1">
-        <h2 className="text-2xl md:text-3xl font-extrabold text-slate-900 mb-2">การตั้งค่า ⚙️</h2>
-        <p className="text-sm text-slate-500 font-medium">ปรับแต่งสภาพแวดล้อมการทำงานและดูคีย์ลัดของแอป</p>
-      </div>
+      <PageHeader icon={Settings2} badge="Preferences" title="การตั้งค่า" subtitle="ปรับแต่งสภาพแวดล้อมการทำงานและดูคีย์ลัดของแอป" />
 
       <div className="space-y-6">
         
@@ -98,7 +97,7 @@ const Settings = () => {
         <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="px-5 md:px-6 py-4 border-b border-slate-100 bg-slate-50/50">
             <h3 className="font-bold text-slate-800 flex items-center gap-2 text-sm md:text-base">
-              <span className="text-lg">🎵</span> เสียงและการเล่น
+              <Volume2 size={18} className="text-sky-500" /> เสียงและการเล่น
             </h3>
           </div>
           <div className="p-5 md:p-6 space-y-6">
@@ -126,7 +125,7 @@ const Settings = () => {
         <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="px-5 md:px-6 py-4 border-b border-slate-100 bg-slate-50/50">
             <h3 className="font-bold text-slate-800 flex items-center gap-2 text-sm md:text-base">
-              <span className="text-lg">📝</span> หน้ากระดาษและตัวโน้ต
+              <FilePenLine size={18} className="text-violet-500" /> หน้ากระดาษและตัวโน้ต
             </h3>
           </div>
           <div className="p-5 md:p-6 space-y-6">
@@ -148,7 +147,7 @@ const Settings = () => {
         <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="px-5 md:px-6 py-4 border-b border-slate-100 bg-slate-50/50">
             <h3 className="font-bold text-slate-800 flex items-center gap-2 text-sm md:text-base">
-              <span className="text-lg">⌨️</span> คีย์ลัด (Keyboard Shortcuts)
+              <Keyboard size={18} className="text-amber-500" /> คีย์ลัด (Keyboard Shortcuts)
             </h3>
           </div>
           <div className="p-5 md:p-6">
@@ -169,7 +168,7 @@ const Settings = () => {
         <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden mb-6">
           <div className="px-5 md:px-6 py-4 border-b border-slate-100 bg-slate-50/50">
             <h3 className="font-bold text-slate-800 flex items-center gap-2 text-sm md:text-base">
-              <span className="text-lg">🔄</span> การสำรองข้อมูล
+              <HardDriveDownload size={18} className="text-emerald-500" /> การสำรองข้อมูล
             </h3>
           </div>
           <div className="p-5 md:p-6 space-y-6">

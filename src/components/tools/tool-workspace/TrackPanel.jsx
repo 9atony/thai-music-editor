@@ -1,16 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useWorkspace, MIN_TRACK_LANE_HEIGHT, MAX_TRACK_LANE_HEIGHT, DEFAULT_TRACK_LANE_HEIGHT, COLLAPSED_TRACK_HEIGHT } from '../../../contexts/WorkspaceContext';
 import { INSTRUMENT_CONFIG } from '../../../utils/instrumentConfig';
 import { auth, fetchAllProjects } from '../../../utils/firebase';
-
-const getClipInstrumentName = (clip, fallbackInstrumentId) => {
-  const clipInstrumentId = clip?.sourceMeta?.currentInstrument || clip?.sourceInstrumentId || fallbackInstrumentId;
-  return clip?.sourceMeta?.currentInstrumentName
-    || clip?.instrumentLabel
-    || INSTRUMENT_CONFIG[clipInstrumentId]?.name
-    || INSTRUMENT_CONFIG[fallbackInstrumentId]?.name
-    || 'ไม่ระบุเครื่องดนตรี';
-};
 
 const BLACK_SCROLLBAR_STYLE = `
   .track-panel-scroll,
@@ -86,6 +77,23 @@ export default function TrackPanel() {
   );
 
   const [panelWidth, setPanelWidth] = useState(320);
+  const dragCleanupRef = useRef(() => {});
+
+  useEffect(() => () => dragCleanupRef.current(), []);
+
+  const bindDocumentDrag = (onMouseMove) => {
+    dragCleanupRef.current();
+    const cleanup = () => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', cleanup);
+      window.removeEventListener('blur', cleanup);
+      dragCleanupRef.current = () => {};
+    };
+    dragCleanupRef.current = cleanup;
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', cleanup);
+    window.addEventListener('blur', cleanup);
+  };
 
   const handlePanelWidthDrag = (e) => {
     e.preventDefault(); e.stopPropagation();
@@ -95,8 +103,7 @@ export default function TrackPanel() {
         setPanelWidth(Math.max(240, Math.min(600, startW + (moveEvent.clientX - startX))));
       });
     };
-    const onMouseUp = () => { document.removeEventListener('mousemove', onMouseMove); document.removeEventListener('mouseup', onMouseUp); };
-    document.addEventListener('mousemove', onMouseMove); document.addEventListener('mouseup', onMouseUp);
+    bindDocumentDrag(onMouseMove);
   };
 
   const handleTrackHeightDrag = (e, trackId, startHeight) => {
@@ -111,8 +118,7 @@ export default function TrackPanel() {
         }
       });
     };
-    const onMouseUp = () => { document.removeEventListener('mousemove', onMouseMove); document.removeEventListener('mouseup', onMouseUp); };
-    document.addEventListener('mousemove', onMouseMove); document.addEventListener('mouseup', onMouseUp);
+    bindDocumentDrag(onMouseMove);
   };
 
   // ⭐ เพิ่มฟังก์ชันดักจับการเลื่อน แล้วส่งไปบังคับให้ Timeline เลื่อนตาม
@@ -160,7 +166,9 @@ export default function TrackPanel() {
           return;
         }
       }
-    } catch (err) {}
+    } catch {
+      // Ignore non-track drag payloads; file drops are handled below.
+    }
     const file = event.dataTransfer?.files?.[0];
     if (file) {
       if (!/\.(tme|json|thai)$/i.test(file.name)) {
@@ -461,7 +469,9 @@ export default function TrackPanel() {
                                           if (data.type === 'clip' && data.trackId === track.id && data.index !== idx) {
                                             reorderTrackClips(track.id, data.index, idx);
                                           }
-                                        } catch(err) {}
+                                        } catch {
+                                          // Ignore malformed drag payloads.
+                                        }
                                       }}
                                       className={`group shrink-0 flex items-center gap-1 px-1.5 py-0.5 bg-white/10 border border-white/5 rounded transition-all duration-200 ${isLocked ? 'cursor-not-allowed opacity-60' : 'cursor-grab'} ${isDraggingMe ? 'opacity-30 scale-95' : 'hover:bg-white/20 hover:border-white/20'} ${isDragOverMe && !isDraggingMe ? 'border-sky-400 bg-sky-500/20 scale-105 shadow-md shadow-sky-500/10' : ''}`}
                                       title={isLocked ? 'แทร็กล็อคอยู่' : `${clip.name} • ลากเพื่อสลับลำดับ`}

@@ -24,6 +24,17 @@ import { primeAudioEngine } from './utils/audioEngine';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from './utils/firebase';
 
+const VIEW_SESSION_KEY = 'thaiMusicEditorCurrentView';
+const PREVIOUS_VIEW_SESSION_KEY = 'thaiMusicEditorPreviousView';
+const EDITOR_MODE_SESSION_KEY = 'thaiMusicEditorEditorMode';
+const ACTIVE_TOOL_SESSION_KEY = 'thaiMusicEditorActiveTool';
+const validViews = new Set(['home', 'my-projects', 'templates', 'samples', 'tools', 'settings', 'admin-users', 'editor']);
+
+const getStoredView = (key, fallback) => {
+  const storedView = sessionStorage.getItem(key);
+  return validViews.has(storedView) ? storedView : fallback;
+};
+
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
@@ -34,14 +45,22 @@ function App() {
  // State สำหรับควบคุมการแสดงหน้า Login เมื่อยังไม่ได้ล็อกอิน
   const [showLogin, setShowLogin] = useState(false);
   
-  const [currentView, setCurrentView] = useState('home'); 
+  const [currentView, setCurrentView] = useState(() => getStoredView(VIEW_SESSION_KEY, 'home'));
   
   // State สำหรับจดจำหน้าก่อนหน้าที่จะเข้า Editor
-  const [previousView, setPreviousView] = useState('home');
+  const [previousView, setPreviousView] = useState(() => getStoredView(PREVIOUS_VIEW_SESSION_KEY, 'home'));
 
   const { isMobile } = useDevice();
   const { applyTemplate, loadProjectFromFirebase } = useContext(MusicContext);
-  const [editorMode, setEditorMode] = useState('normal');
+  const [editorMode, setEditorMode] = useState(() => sessionStorage.getItem(EDITOR_MODE_SESSION_KEY) || 'normal');
+  const [toolsVisit, setToolsVisit] = useState(0);
+
+  // Keep the current workspace open after a browser refresh in this tab.
+  useEffect(() => {
+    sessionStorage.setItem(VIEW_SESSION_KEY, currentView);
+    sessionStorage.setItem(PREVIOUS_VIEW_SESSION_KEY, previousView);
+    sessionStorage.setItem(EDITOR_MODE_SESSION_KEY, editorMode);
+  }, [currentView, previousView, editorMode]);
 
   // 2. ปรับแก้ส่วน useEffect เดิม เป็นแบบนี้ครับ
   useEffect(() => {
@@ -65,7 +84,6 @@ function App() {
         }
 
         setUserProfile(profileData);
-        setCurrentView('home');
       } else {
         setIsAuthenticated(false);
         setUserProfile(null); 
@@ -136,6 +154,16 @@ function App() {
     return <Landing onLoginClick={() => setShowLogin(true)} />;
   }
 
+  // การกดเมนู “เครื่องมือ” เป็นการกลับไปหน้ารวมเสมอ แม้กำลังอยู่ในเครื่องมือย่อย
+  // ส่วนการรีเฟรชหน้ายังคงเปิดเครื่องมือเดิมได้ เพราะไม่ได้เรียก handler นี้
+  const handlePageChange = (page) => {
+    if (page === 'tools') {
+      sessionStorage.removeItem(ACTIVE_TOOL_SESSION_KEY);
+      setToolsVisit((current) => current + 1);
+    }
+    setCurrentView(page);
+  };
+
   const handleOpenEditor = (projectId = null, projectData = null, options = {}) => {
     const isSampleView = options?.readOnly === true;
     setEditorMode(isSampleView ? 'sample-readonly' : 'normal');
@@ -175,7 +203,7 @@ function App() {
             setEditorMode('normal');
             handleOpenEditor(...args);
           }} 
-          onPageChange={(page) => setCurrentView(page)} 
+          onPageChange={handlePageChange}
         />
       )}
       
@@ -205,7 +233,7 @@ function App() {
       )}
 
       {currentView === 'tools' && (
-        <Tools userProfile={userProfile} onPageChange={(page) => setCurrentView(page)} />
+        <Tools key={toolsVisit} userProfile={userProfile} />
       )}
 
       {currentView === 'settings' && (
@@ -221,14 +249,14 @@ function App() {
 
   if (isMobile) {
     return (
-      <MobileLayout currentPage={currentView} onPageChange={(page) => setCurrentView(page)} userProfile={userProfile}>
+      <MobileLayout currentPage={currentView} onPageChange={handlePageChange} userProfile={userProfile}>
         <Suspense fallback={<LoadingScreen />}>{renderContent()}</Suspense>
       </MobileLayout>
     );
   }
 
   return (
-    <DesktopLayout currentPage={currentView} onPageChange={(page) => setCurrentView(page)}>
+    <DesktopLayout currentPage={currentView} onPageChange={handlePageChange}>
       <Suspense fallback={<LoadingScreen />}>{renderContent()}</Suspense>
     </DesktopLayout>
   );

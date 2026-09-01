@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { db, upgradeUserToPremium } from '../utils/firebase'; 
 import { collection, getDocs, doc, updateDoc } from 'firebase/firestore';
+import { ShieldCheck } from 'lucide-react';
+import PageHeader from '../components/layout/PageHeader';
 
 const formatBytes = (bytes) => {
   if (bytes === 0) return "0 KB";
@@ -237,11 +239,8 @@ const AdminDashboard = ({ userProfile }) => {
   const countAdmin = users.filter(u => u.role === 'admin').length;
 
   return (
-    <div className="max-w-6xl mx-auto w-full animate-fadeIn text-slate-800 pt-6 md:pt-10 px-5 md:px-8 pb-12" style={{ fontFamily: 'Prompt, sans-serif' }}>
-      <div className="mb-6 md:mb-8 px-1">
-        <h2 className="text-2xl md:text-3xl font-extrabold text-slate-900 mb-1 md:mb-2">จัดการผู้ใช้งาน 🛡️</h2>
-        <p className="text-xs md:text-sm text-slate-500 font-medium">ดูรายชื่อผู้ใช้งานทั้งหมด และกำหนดสิทธิ์การเข้าถึง (User, Premium, Admin)</p>
-      </div>
+    <div className="app-page-shell animate-fadeIn text-slate-800" style={{ fontFamily: 'Prompt, sans-serif' }}>
+      <PageHeader icon={ShieldCheck} badge="Admin Console" title="จัดการผู้ใช้งาน" subtitle="ดูรายชื่อผู้ใช้งานทั้งหมด และกำหนดสิทธิ์การเข้าถึง (User, Premium, Admin)" />
 
       <div className="bg-white border border-slate-200 rounded-2xl p-5 md:p-6 shadow-sm mb-6 flex flex-col md:flex-row items-center gap-6">
         <div className="w-16 h-16 rounded-full bg-blue-50 text-blue-500 flex items-center justify-center shrink-0">

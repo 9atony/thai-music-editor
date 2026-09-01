@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { db } from '../utils/firebase'; 
 import { collection, onSnapshot, addDoc, doc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
 import TmeIcon from '../assets/icon.png'; 
+import { Music2 } from 'lucide-react';
+import PageHeader from '../components/layout/PageHeader';
 
 const Samples = ({ onOpenProject, userProfile }) => {
   const isAdmin = userProfile?.role === 'admin';
@@ -162,16 +164,11 @@ const Samples = ({ onOpenProject, userProfile }) => {
 
   return (
     <div 
-      className="max-w-6xl mx-auto w-full animate-fadeIn text-slate-800 pt-6 md:pt-10 px-5 md:px-8 pb-12 relative min-h-screen"
+      className="app-page-shell animate-fadeIn text-slate-800 relative"
       style={{ fontFamily: 'Prompt, sans-serif' }}
       onClick={() => setAdminMenuOpen(null)} // คลิกพื้นที่ว่างเพื่อปิดเมนูแอดมิน
     >
-      {/* Header & Add Button */}
-      <div className="flex flex-col md:flex-row md:justify-between md:items-end mb-6 gap-4">
-        <div>
-          <h2 className="text-2xl md:text-3xl font-extrabold text-slate-900 mb-1 md:mb-2">ตัวอย่างเพลง 🎵</h2>
-          <p className="text-xs md:text-sm text-slate-500 font-medium">ศึกษาและเรียนรู้จากโน้ตเพลงไทยมาตรฐานที่จัดทำไว้สมบูรณ์แล้ว</p>
-        </div>
+      <PageHeader icon={Music2} badge="Learning Library" title="ตัวอย่างเพลง" subtitle="ศึกษาและเรียนรู้จากโน้ตเพลงไทยมาตรฐานที่จัดทำไว้สมบูรณ์แล้ว">
         {isAdmin && (
           <button 
             onClick={handleUploadNew}
@@ -180,7 +177,7 @@ const Samples = ({ onOpenProject, userProfile }) => {
             <span>+ เพิ่มไฟล์ .tme</span>
           </button>
         )}
-      </div>
+      </PageHeader>
 
       {/* ⭐ Toolbar: Search, Filter, Tabs */}
       <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-sm mb-6 flex flex-col md:flex-row gap-3 items-center sticky top-4 z-30">

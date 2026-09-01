@@ -21,7 +21,8 @@ const TRACK_COLORS = ['#ef4444', '#f59e0b', '#22c55e', '#3b82f6', '#8b5cf6', '#e
 const DEFAULT_MEASURE_WIDTH = 90;
 const MIN_ZOOM = 10;
 const MAX_ZOOM = 240;
-const THAI_NOTE_COMBINER_PATTERN = /[ั-๎​]/;
+const THAI_NOTE_COMBINER_PATTERN = /[\u0E31-\u0E4E\u200B]/;
+const getMonotonicTime = () => performance.now();
 
 // ⭐ Single source of truth สำหรับความสูงของแทร็ก (ใช้ร่วมกันทั้ง Toolbar slider + Timeline lane + TrackPanel drag)
 export const MIN_TRACK_LANE_HEIGHT = 54;        // ⭐ ครึ่งหนึ่งของค่าเดิม (108/132 -> 54/66) ตามที่ผู้ใช้ต้องการเล็กที่สุด
@@ -77,14 +78,6 @@ const createEmptyTrack = (id, color) => ({
   sourceProjectName: '',
   clips: [],
 });
-
-const getFormattedInstrumentNote = (key) => {
-  const octave = parseInt(String(key.eng || '').replace(/\D/g, ''), 10);
-  if (octave >= 5) return `${key.thai}\u0E4D`;
-  if (octave === 2) return `${key.thai}\u0E3A\u200B`;
-  if (octave === 3) return `${key.thai}\u0E3A`;
-  return key.thai;
-};
 
 const normalizeCellToken = (value) => {
   if (typeof value !== 'string') return value && value !== '-' ? String(value) : '-';
@@ -396,6 +389,7 @@ export const WorkspaceProvider = ({ children }) => {
 
   const playbackRef = useRef({ rafId: null, startedAt: 0, durationSec: 0 });
   const schedulerIntervalRef = useRef(null);
+  const playbackRequestRef = useRef(0);
   const clipboardRef = useRef(null);
   const [hasClipboard, setHasClipboard] = useState(false);
   
@@ -453,13 +447,10 @@ export const WorkspaceProvider = ({ children }) => {
     return Math.max(16, Math.ceil(maxClipEnd + 4));
   }, [tracks]);
 
-  const activeTracks = useMemo(() => {
-    const hasSolo = tracks.some((track) => track.isSolo);
-    return tracks.filter((track) => hasSolo ? track.isSolo && !track.isMuted : !track.isMuted);
-  }, [tracks]);
-
   // ⭐ เปลี่ยนระบบ: การกด Stop (หยุดด้วยมือ) เสียงต้องตัดขาดทันที อันนี้ทำงานถูกต้องแล้ว
-  const stopPlayback = () => {
+  const stopPlayback = useCallback(() => {
+    playbackRequestRef.current += 1;
+    isPlayingRef.current = false;
     setIsPlaying(false);
     if (playbackRef.current.rafId) cancelAnimationFrame(playbackRef.current.rafId);
     playbackRef.current.rafId = null;
@@ -468,39 +459,19 @@ export const WorkspaceProvider = ({ children }) => {
       schedulerIntervalRef.current = null;
     }
     stopAllScheduledNotes?.(); 
-    releasePlaybackOwnership(stopPlayback);
-  };
+    releasePlaybackOwnership(stopPlaybackRef.current);
+  }, []);
 
   useEffect(() => () => {
-    if (playbackRef.current.rafId) cancelAnimationFrame(playbackRef.current.rafId);
-    if (schedulerIntervalRef.current) clearInterval(schedulerIntervalRef.current);
-    stopAllScheduledNotes?.();
-    releasePlaybackOwnership(stopPlayback);
-  }, []);
+    stopPlayback();
+  }, [stopPlayback]);
 
   useEffect(() => {
     isPlayingRef.current = isPlaying;
   }, [isPlaying]);
 
-  useEffect(() => {
-    startPlaybackRef.current = startPlayback;
-    stopPlaybackRef.current = stopPlayback;
-  });
-
-  useEffect(() => {
-    const onKeyDown = (e) => {
-      if (e.code !== 'Space' || e.repeat) return;
-      e.preventDefault();
-      e.stopPropagation();
-      if (isPlayingRef.current) stopPlaybackRef.current?.();
-      else startPlaybackRef.current?.();
-    };
-    window.addEventListener('keydown', onKeyDown, true);
-    return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, []);
-
   const animatePlayback = () => {
-    const elapsedSec = (performance.now() - playbackRef.current.startedAt) / 1000;
+    const elapsedSec = (getMonotonicTime() - playbackRef.current.startedAt) / 1000;
     const start = playbackRef.current.startTime || 0;
     const duration = playbackRef.current.durationSec || 0;
 
@@ -512,10 +483,12 @@ export const WorkspaceProvider = ({ children }) => {
       if (schedulerIntervalRef.current) clearInterval(schedulerIntervalRef.current);
       playbackRef.current.rafId = null;
       schedulerIntervalRef.current = null;
+      isPlayingRef.current = false;
+      releasePlaybackOwnership(stopPlayback);
       return;
     }
 
-    const now = performance.now();
+    const now = getMonotonicTime();
     if (now - (playbackRef.current.lastUiUpdate || 0) > 80) {
       playbackRef.current.lastUiUpdate = now;
       // ล็อกเส้น Playhead ให้ไปหยุดสุดพอดีที่ขอบท้ายโปรเจกต์ (แม้ว่าจะรอหางเสียงอยู่ก็ตาม)
@@ -526,11 +499,21 @@ export const WorkspaceProvider = ({ children }) => {
 
   const startPlayback = async () => {
     stopPlayback();
+    const requestId = playbackRequestRef.current;
     // ⭐ ยึดสิทธิ์เป็นเจ้าของเสียงตัวเดียว: ถ้าตัวเล่นตัวโน้ต (Music Editor) ยังค้างเล่นอยู่
     //    จะถูกสั่งหยุดทันที ไม่ให้เสียงซ้อนจากโปรเจกต์อื่นเบื้องหลัง
     claimPlaybackOwnership(stopPlayback);
 
-    await initAudioContext();
+    try {
+      await initAudioContext();
+    } catch (error) {
+      if (playbackRequestRef.current === requestId) {
+        releasePlaybackOwnership(stopPlayback);
+        console.error('ไม่สามารถเริ่มระบบเสียงของ Arranger ได้:', error);
+      }
+      return;
+    }
+    if (playbackRequestRef.current !== requestId) return;
 
     const secPerMeasure = 60 / Math.max(20, Number(bpm) || 120);
     const startTime = Math.max(0, currentTimeRef.current || 0);
@@ -581,6 +564,7 @@ export const WorkspaceProvider = ({ children }) => {
     });
 
     await Promise.allSettled([...usedInstruments].map((id) => preloadSounds(id)));
+    if (playbackRequestRef.current !== requestId) return;
 
     events.sort((a, b) => a.whenSec - b.whenSec);
 
@@ -590,7 +574,7 @@ export const WorkspaceProvider = ({ children }) => {
     setTotalTime(totalDuration);
     setCurrentTimeWrapper(startTime);
 
-    playbackRef.current.startedAt = performance.now();
+    playbackRef.current.startedAt = getMonotonicTime();
     playbackRef.current.startTime = startTime;
     playbackRef.current.durationSec = Math.max(durationSec, 0.01);
     playbackRef.current.events = playEvents;
@@ -598,12 +582,14 @@ export const WorkspaceProvider = ({ children }) => {
     playbackRef.current.startAudioTime = getAudioCurrentTime?.() || 0;
     playbackRef.current.lastUiUpdate = 0;
 
+    isPlayingRef.current = true;
     setIsPlaying(true);
 
     schedulerIntervalRef.current = setInterval(() => {
       try {
+        if (playbackRequestRef.current !== requestId) return;
         const audioNow = getAudioCurrentTime?.() || 0;
-        const elapsedSec = (performance.now() - playbackRef.current.startedAt) / 1000;
+        const elapsedSec = (getMonotonicTime() - playbackRef.current.startedAt) / 1000;
         const horizon = audioNow + 1.5;
         const evs = playbackRef.current.events || [];
 
@@ -627,13 +613,36 @@ export const WorkspaceProvider = ({ children }) => {
     playbackRef.current.rafId = requestAnimationFrame(animatePlayback);
   };
 
+  useEffect(() => {
+    startPlaybackRef.current = startPlayback;
+    stopPlaybackRef.current = stopPlayback;
+  });
+
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if (event.code !== 'Space' || event.repeat) return;
+      const target = event.target;
+      if (
+        target instanceof HTMLElement
+        && (target.isContentEditable || target.closest('input, textarea, select, button, [contenteditable="true"]'))
+      ) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      if (isPlayingRef.current) stopPlaybackRef.current?.();
+      else startPlaybackRef.current?.();
+    };
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, []);
+
   // ⭐ 3. ระบบซิงค์ระดับเสียง (Gain) กับ AudioEngine ทันทีที่ State มีการเปลี่ยนแปลง
   // ลดอาการหน่วง เพราะให้ React จับตาดู tracks แล้วอัปเดตตรงไปที่ระบบเสียงทันที
   useEffect(() => {
     const hasSolo = tracks.some((t) => t.isSolo);
     tracks.forEach((track) => {
       const muted = track.isMuted || (hasSolo && !track.isSolo);
-      const trackVolume = clamp(Number(track.volume) != null ? Number(track.volume) : 100, 0, 200) / 100;
+      const trackVolume = clamp(track.volume != null ? Number(track.volume) : 100, 0, 200) / 100;
       setTrackGain(track.id, muted ? 0 : trackVolume);
     });
   }, [tracks]); 
@@ -1117,6 +1126,7 @@ export const WorkspaceProvider = ({ children }) => {
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;
 };
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useWorkspace = () => {
   const context = useContext(WorkspaceContext);
   if (!context) throw new Error('useWorkspace must be used inside WorkspaceProvider');
