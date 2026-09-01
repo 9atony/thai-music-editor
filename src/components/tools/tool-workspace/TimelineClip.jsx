@@ -11,6 +11,29 @@ const getClipInstrumentName = (clip, track) => {
     || 'ไม่ระบุเครื่องดนตรี';
 };
 
+const buildNotationFromEvents = (clip, cellsPerMeasure = 8) => {
+  const measureCount = Math.max(1, Math.ceil(Number(clip.playback?.measureCount) || Number(clip.width) || 1));
+  const events = clip.playback?.events || [];
+  const hasBottom = events.some((event) => event.rowIndex === 1);
+  const measures = Array.from({ length: measureCount }, (_, index) => ({
+    index,
+    top: Array(cellsPerMeasure).fill('-'),
+    bottom: hasBottom ? Array(cellsPerMeasure).fill('-') : null,
+  }));
+
+  events.forEach((event) => {
+    const offset = Math.max(0, Number(event.measureOffset) || 0);
+    const measureIndex = Math.floor(offset);
+    const measure = measures[measureIndex];
+    if (!measure || !event.note || event.note === '-') return;
+    const cellIndex = Math.min(cellsPerMeasure - 1, Math.floor((offset - measureIndex) * cellsPerMeasure + 0.0001));
+    const row = event.rowIndex === 1 && measure.bottom ? measure.bottom : measure.top;
+    row[cellIndex] = row[cellIndex] === '-' ? event.note : `${row[cellIndex]}${event.note}`;
+  });
+
+  return measures;
+};
+
 export default function TimelineClip({
   clip,
   track,
@@ -46,7 +69,7 @@ export default function TimelineClip({
         left: `${clip.start * measureWidth}px`,
         width: `${clip.width * measureWidth}px`,
         backgroundColor: `${track.color}18`,
-        border: `1px solid ${track.color}66`,
+        boxShadow: `inset 0 0 0 1px ${track.color}66`,
         transitionDuration: (isDragging || isResizing) ? '0ms' : '250ms',
       }}
     >
@@ -78,36 +101,109 @@ export default function TimelineClip({
       </div>
 
       {/* ⭐ Body ของ clip (สำหรับแสดงโน้ต) */}
-      <div className="relative w-full overflow-hidden pointer-events-none" style={{ height: `${clipMetrics.bodyHeight}px` }}>
+      <div
+        className="relative w-full overflow-hidden pointer-events-none"
+        style={{
+          height: `${clipMetrics.bodyHeight}px`,
+          backgroundImage: `repeating-linear-gradient(to right, rgba(255,255,255,0.34) 0, rgba(255,255,255,0.34) 1px, transparent 1px, transparent ${measureWidth}px)`,
+          backgroundPosition: `${-(Number(clip.start) || 0) * measureWidth}px 0`,
+        }}
+      >
         {clipMetrics.showNotes && (() => {
-          const evs = clip.playback?.events || [];
-          const hasLeftHand = evs.some(e => e.rowIndex === 1);
-          const noteTopByRow = hasLeftHand ? { 0: '4px', 1: '20px' } : { 0: '8px' };
+          const trimOffset = Number(clip.trimOffset) || 0;
+          const notationMeasures = Array.isArray(clip.playback?.notationMeasures)
+            ? clip.playback.notationMeasures
+            : buildNotationFromEvents(clip);
+          const notationSymbols = Array.isArray(clip.playback?.notationSymbols)
+            ? clip.playback.notationSymbols
+            : [];
+          const noteFontSize = Math.max(7, Math.min(12, measureWidth / 8));
           
           return (
             <div className="absolute inset-0">
-              <div className="absolute left-0 right-0 border-t border-white/[0.06]" style={{ top: hasLeftHand ? '12px' : '16px' }} />
-              {hasLeftHand && <div className="absolute left-0 right-0 border-t border-white/[0.06]" style={{ top: '28px' }} />}
-              
-              {evs.map((ev, idx) => {
-                const trimOffset = clip.trimOffset || 0;
-                const renderOffset = ev.measureOffset - trimOffset;
-                if (renderOffset < 0 || renderOffset > clip.width) return null;
-                const topPos = noteTopByRow[ev.rowIndex] || noteTopByRow[0];
+              {notationMeasures.map((measure, measureArrayIndex) => {
+                const measureIndex = Number.isFinite(Number(measure.index)) ? Number(measure.index) : measureArrayIndex;
+                const left = (measureIndex - trimOffset) * measureWidth;
+                if (left + measureWidth < 0 || left > clip.width * measureWidth) return null;
+                const rows = measure.bottom ? [measure.top, measure.bottom] : [measure.top];
+
                 return (
-                  <div key={ev.id || idx}
-                       className="absolute text-[8px] font-bold px-1 rounded-[2px] bg-[#11151a]/95 border border-white/10 whitespace-nowrap z-10 shadow-sm"
-                       style={{
-                         left: `${renderOffset * measureWidth}px`,
-                         top: topPos,
-                         color: track.color,
-                         lineHeight: '1.1',
-                         maxHeight: `${clipMetrics.bodyHeight}px`,
-                       }}>
-                    {ev.note}
+                  <div
+                    key={`${measureIndex}_${measureArrayIndex}`}
+                    className="absolute top-0 bottom-0 flex flex-col"
+                    style={{ left: `${left}px`, width: `${measureWidth}px` }}
+                  >
+                    {rows.map((cells, rowIndex) => (
+                      <div
+                        key={rowIndex}
+                        className={`grid min-h-0 flex-1 items-center ${rowIndex > 0 ? 'border-t border-white/25' : ''}`}
+                        style={{ gridTemplateColumns: `repeat(${Math.max(1, cells?.length || 1)}, minmax(0, 1fr))` }}
+                      >
+                        {(cells?.length ? cells : ['-']).map((token, cellIndex) => (
+                          <span
+                            key={cellIndex}
+                            className="overflow-visible whitespace-nowrap text-center font-semibold text-white/90"
+                            style={{
+                              fontSize: `${noteFontSize}px`,
+                              lineHeight: 1,
+                              textShadow: '0 1px 3px rgba(0,0,0,0.95)',
+                            }}
+                          >
+                            {token || '-'}
+                          </span>
+                        ))}
+                      </div>
+                    ))}
                   </div>
                 );
               })}
+              {notationSymbols.length > 0 && (
+                <svg className="absolute inset-0 z-[15] h-full w-full overflow-visible" aria-label="สัญลักษณ์กำกับโน้ต">
+                  {notationSymbols.map((symbol) => {
+                    const x1 = (Number(symbol.startOffset) - trimOffset) * measureWidth;
+                    const x2 = (Number(symbol.endOffset) - trimOffset) * measureWidth;
+                    if (Math.max(x1, x2) < 0 || Math.min(x1, x2) > clip.width * measureWidth) return null;
+
+                    const isKro = symbol.type === 'kro';
+                    const bodyHeight = Math.max(18, clipMetrics.bodyHeight);
+                    const hasLowerRow = notationMeasures.some((measure) => Array.isArray(measure.bottom));
+                    const startY = isKro
+                      ? (symbol.startRowIndex === 1 || !hasLowerRow ? bodyHeight - 4 : Math.floor(bodyHeight / 2) - 3)
+                      : (symbol.startRowIndex === 1 ? Math.floor(bodyHeight / 2) + 5 : 7);
+                    const endY = isKro
+                      ? (symbol.endRowIndex === 1 || !hasLowerRow ? bodyHeight - 4 : Math.floor(bodyHeight / 2) - 3)
+                      : (symbol.endRowIndex === 1 ? Math.floor(bodyHeight / 2) + 5 : 7);
+                    const midpoint = (x1 + x2) / 2;
+                    const path = isKro
+                      ? `M ${x1} ${startY} Q ${midpoint} ${Math.min(bodyHeight - 2, Math.max(startY, endY) + 5)} ${x2} ${endY}`
+                      : `M ${x1} ${startY} Q ${midpoint} ${Math.max(1, Math.min(startY, endY) - 9)} ${x2} ${endY}`;
+
+                    return (
+                      <g key={symbol.id}>
+                        <path
+                          d={path}
+                          fill="none"
+                          stroke={symbol.color || (isKro ? '#38bdf8' : '#fbbf24')}
+                          strokeWidth={Math.max(1, Math.min(3, Number(symbol.strokeWidth) || 2))}
+                          strokeLinecap="round"
+                          strokeDasharray={isKro ? '3 1.5' : undefined}
+                          opacity="0.95"
+                        />
+                        <text
+                          x={midpoint}
+                          y={isKro ? Math.min(bodyHeight - 7, Math.max(startY, endY) + 8) : Math.max(8, Math.min(startY, endY) - 10)}
+                          textAnchor="middle"
+                          fill={symbol.color || (isKro ? '#38bdf8' : '#fbbf24')}
+                          fontSize="7"
+                          fontWeight="700"
+                        >
+                          {isKro ? 'กรอ' : 'สะบัด'}
+                        </text>
+                      </g>
+                    );
+                  })}
+                </svg>
+              )}
             </div>
           );
         })()}

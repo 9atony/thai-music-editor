@@ -7,6 +7,8 @@ import {
   getAudioCurrentTime,
   getTrackGainNode,
   setTrackGain,
+  setTrackPan as setAudioTrackPan,
+  setMasterGain,
   getClipGainNode,
   connectClipGain,
   setClipGain,
@@ -71,6 +73,7 @@ const createEmptyTrack = (id, color) => ({
   color,
   instrumentId: 'ranat-ek',
   volume: 100,
+  pan: 0,
   isMuted: false,
   isSolo: false,
   isCollapsed: false,
@@ -203,6 +206,9 @@ const buildPlaybackEvents = (parsedData, section, fallbackInstrumentId, loops = 
   const bpm = Number(parsedData?.layoutConfig?.bpm) || 80;
   const secPerWholeMeasure = 60 / bpm;
   const events = [];
+  const notationMeasures = [];
+  const notationSymbols = [];
+  const sourceSymbols = Array.isArray(parsedData?.symbols) ? parsedData.symbols : [];
 
   const oneLoopMeasureCount = countMeasuresInSection(sheetData, rowTypes, section.startRow, section.endRow);
 
@@ -223,6 +229,7 @@ const buildPlaybackEvents = (parsedData, section, fallbackInstrumentId, loops = 
 
   for (let loopIndex = 0; loopIndex < loops; loopIndex += 1) {
     let measureCursor = 0;
+    const cellPositions = new Map();
 
     for (let r = section.startRow; r <= section.endRow; r += 1) {
       const rowType = rowTypes[r];
@@ -233,17 +240,32 @@ const buildPlaybackEvents = (parsedData, section, fallbackInstrumentId, loops = 
 
       for (let m = startMeasure; m < row.length; m += 1) {
         const cells = Array.isArray(row[m]) ? row[m] : [];
-        const cellCount = Math.max(1, cells.length);
+        const bottomCells = rowType === 'double-right' && Array.isArray(sheetData[r + 1]?.[m])
+          ? sheetData[r + 1][m]
+          : [];
+        const cellCount = Math.max(1, cells.length, bottomCells.length);
         const measureBase = loopIndex * oneLoopMeasureCount + measureCursor;
+
+        notationMeasures.push({
+          index: measureBase,
+          top: Array.from({ length: cellCount }, (_, cellIndex) => normalizeCellToken(cells[cellIndex])),
+          bottom: rowType === 'double-right'
+            ? Array.from({ length: cellCount }, (_, cellIndex) => normalizeCellToken(bottomCells[cellIndex]))
+            : null,
+        });
 
         for (let c = 0; c < cellCount; c += 1) {
           const baseMeasureOffset = measureBase + (c / cellCount);
+          const cellCenterOffset = measureBase + ((c + 0.5) / cellCount);
+          cellPositions.set(`${r}_${m}_${c}`, { offset: cellCenterOffset, rowIndex: 0 });
+          if (rowType === 'double-right') {
+            cellPositions.set(`${r + 1}_${m}_${c}`, { offset: cellCenterOffset, rowIndex: 1 });
+          }
           const topInstrumentId = getCustomInstrumentId(layoutConfig, r, m, c, fallbackInstrumentId);
           const topVolume = Number(layoutConfig?.customStyles?.[`${r}_${m}_${c}`]?.velocity) || 100;
 
           if (rowType === 'double-right') {
-            const bottomRow = sheetData[r + 1] || [];
-            const bottomToken = bottomRow[m]?.[c] ?? '-';
+            const bottomToken = bottomCells[c] ?? '-';
             const bottomInstrumentId = getCustomInstrumentId(layoutConfig, r + 1, m, c, fallbackInstrumentId);
             const bottomVolume = Number(layoutConfig?.customStyles?.[`${r + 1}_${m}_${c}`]?.velocity) || 100;
 
@@ -274,12 +296,32 @@ const buildPlaybackEvents = (parsedData, section, fallbackInstrumentId, loops = 
         measureCursor += 1;
       }
     }
+
+    sourceSymbols.forEach((symbol, symbolIndex) => {
+      const start = Array.isArray(symbol?.start) ? cellPositions.get(symbol.start.join('_')) : null;
+      const end = Array.isArray(symbol?.end) ? cellPositions.get(symbol.end.join('_')) : null;
+      if (!start || !end || !['sabat', 'kro'].includes(symbol.type)) return;
+
+      const isKro = symbol.type === 'kro';
+      notationSymbols.push({
+        id: `${symbol.id || `symbol_${symbolIndex}`}_${loopIndex}`,
+        type: symbol.type,
+        startOffset: start.offset,
+        endOffset: end.offset,
+        startRowIndex: start.rowIndex,
+        endRowIndex: end.rowIndex,
+        color: symbol.color || (isKro ? (layoutConfig.kroColor || '#38bdf8') : (layoutConfig.sabatColor || '#fbbf24')),
+        strokeWidth: Number(symbol.strokewidth ?? symbol.strokeWidth) || (isKro ? Number(layoutConfig.kroStrokeWidth) || 2 : Number(layoutConfig.sabatStrokeWidth) || 2),
+      });
+    });
   }
 
   return {
     measureCount: Math.max(1, oneLoopMeasureCount * loops),
     durationSec: Math.max(0.01, oneLoopMeasureCount * loops * secPerWholeMeasure),
     events,
+    notationMeasures,
+    notationSymbols,
   };
 };
 
@@ -369,6 +411,7 @@ const serializeWorkspace = (state) => ({
   snapGrid: state.snapGrid,
   zoomLevel: state.zoomLevel,
   trackLaneHeight: state.trackLaneHeight,
+  masterVolume: state.masterVolume,
   tracks: state.tracks,
 });
 
@@ -382,10 +425,8 @@ export const WorkspaceProvider = ({ children }) => {
   const [snapGrid, setSnapGrid] = useState(1);
   const [zoomLevel, setZoomLevel] = useState(100);
   const [trackLaneHeight, setTrackLaneHeight] = useState(DEFAULT_TRACK_LANE_HEIGHT);
-  const [tracks, setTracks] = useState([
-    createEmptyTrack(1, TRACK_COLORS[0]),
-    createEmptyTrack(2, TRACK_COLORS[1]),
-  ]);
+  const [masterVolume, setMasterVolumeState] = useState(100);
+  const [tracks, setTracks] = useState([]);
 
   const playbackRef = useRef({ rafId: null, startedAt: 0, durationSec: 0 });
   const schedulerIntervalRef = useRef(null);
@@ -622,10 +663,11 @@ export const WorkspaceProvider = ({ children }) => {
     const onKeyDown = (event) => {
       if (event.code !== 'Space' || event.repeat) return;
       const target = event.target;
-      if (
-        target instanceof HTMLElement
-        && (target.isContentEditable || target.closest('input, textarea, select, button, [contenteditable="true"]'))
-      ) return;
+      if (target instanceof HTMLElement) {
+        const isTextInput = target instanceof HTMLInputElement && !['range', 'button', 'submit', 'reset'].includes(target.type);
+        const isEditing = target.isContentEditable || target.closest('textarea, select, [contenteditable="true"]');
+        if (isTextInput || isEditing) return;
+      }
 
       event.preventDefault();
       event.stopPropagation();
@@ -644,8 +686,13 @@ export const WorkspaceProvider = ({ children }) => {
       const muted = track.isMuted || (hasSolo && !track.isSolo);
       const trackVolume = clamp(track.volume != null ? Number(track.volume) : 100, 0, 200) / 100;
       setTrackGain(track.id, muted ? 0 : trackVolume);
+      setAudioTrackPan(track.id, clamp(Number(track.pan) || 0, -100, 100) / 100);
     });
   }, [tracks]); 
+
+  useEffect(() => {
+    setMasterGain(clamp(Number(masterVolume) || 0, 0, 150) / 100);
+  }, [masterVolume]);
 
   const toggleMute = (trackId) => {
     setTracks((prev) => prev.map((track) => track.id === trackId ? { ...track, isMuted: !track.isMuted } : track));
@@ -658,6 +705,15 @@ export const WorkspaceProvider = ({ children }) => {
   const setTrackVolume = (trackId, volume) => {
     const v = clamp(Number(volume) || 0, 0, 200);
     setTracks((prev) => prev.map((track) => (track.id === trackId ? { ...track, volume: v } : track)));
+  };
+
+  const setTrackPan = (trackId, pan) => {
+    const value = clamp(Number(pan) || 0, -100, 100);
+    setTracks((prev) => prev.map((track) => (track.id === trackId ? { ...track, pan: value } : track)));
+  };
+
+  const setMasterVolume = (volume) => {
+    setMasterVolumeState(clamp(Number(volume) || 0, 0, 150));
   };
 
   // ⭐ ทั้งค่า global และ custom ต้อง clamp ด้วย min/max ตัวเดียวกันเสมอ — เลิกใช้ magic number ลอยๆ
@@ -1021,7 +1077,7 @@ export const WorkspaceProvider = ({ children }) => {
   };
 
   const exportWorkspace = () => {
-    const payload = serializeWorkspace({ projectName, bpm, snapGrid, zoomLevel, trackLaneHeight, tracks });
+    const payload = serializeWorkspace({ projectName, bpm, snapGrid, zoomLevel, trackLaneHeight, masterVolume, tracks });
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -1040,6 +1096,7 @@ export const WorkspaceProvider = ({ children }) => {
       if (data.snapGrid !== undefined) setSnapGrid(data.snapGrid);
       if (data.zoomLevel) setZoomLevel(data.zoomLevel);
       if (data.trackLaneHeight) setTrackLaneHeight(data.trackLaneHeight);
+      if (data.masterVolume !== undefined) setMasterVolume(data.masterVolume);
       if (data.tracks && Array.isArray(data.tracks)) {
         setTracks(data.tracks);
       }
@@ -1096,6 +1153,9 @@ export const WorkspaceProvider = ({ children }) => {
     toggleMute,
     toggleSolo,
     setTrackVolume,
+    setTrackPan,
+    masterVolume,
+    setMasterVolume,
     setTrackCustomHeight, // ⭐ ส่งคำสั่งนี้ออกไปให้ Track Panel ใช้
     setClipVolume,
     setClipLoops,

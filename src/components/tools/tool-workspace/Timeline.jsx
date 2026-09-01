@@ -105,10 +105,12 @@ export default function Timeline() {
       return { top: 2, height: COLLAPSED_TRACK_HEIGHT - 6, bodyHeight: 0, compact: true, showNotes: false };
     }
     const laneHeight = getTrackHeight(track);
-    const showNotes = laneHeight >= MIN_VIEWPORT_FOR_NOTES;
+    // Keep the notation visible even on short lanes. The clip decides whether
+    // to use one compact line or two full note lines from the available height.
+    const showNotes = laneHeight >= MIN_TRACK_LANE_HEIGHT;
     const headerH = 22;
     const bodyH = Math.max(0, laneHeight - headerH - 4);
-    return { top: 2, height: laneHeight - 4, bodyHeight: bodyH, compact: !showNotes, showNotes };
+    return { top: 2, height: laneHeight - 4, bodyHeight: bodyH, compact: laneHeight < MIN_VIEWPORT_FOR_NOTES, showNotes };
   };
 
   const handleHeaderClick = (e) => {

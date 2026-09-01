@@ -3,10 +3,13 @@ import { INSTRUMENT_CONFIG } from './instrumentConfig';
 let audioCtx = null;
 let masterGainNode = null;
 let masterCompressorNode = null;
+let masterAnalyserNode = null;
 const audioBufferCache = {};
 const audioBufferPromiseCache = {};
 const activeSources = new Set();
 const trackGainNodes = {};
+const trackPanNodes = {};
+const trackAnalyserNodes = {};
 const clipGainNodes = {};
 const DEFAULT_START_LEAD_TIME = 0.015;
 const MAX_TIMELINE_LATENESS = 0.01;
@@ -31,8 +34,13 @@ const getAudioContext = () => {
   masterCompressorNode.attack.value = 0.008;
   masterCompressorNode.release.value = 0.22;
 
+  masterAnalyserNode = audioCtx.createAnalyser();
+  masterAnalyserNode.fftSize = 256;
+  masterAnalyserNode.smoothingTimeConstant = 0.72;
+
   masterGainNode.connect(masterCompressorNode);
-  masterCompressorNode.connect(audioCtx.destination);
+  masterCompressorNode.connect(masterAnalyserNode);
+  masterAnalyserNode.connect(audioCtx.destination);
 
   return audioCtx;
 };
@@ -185,18 +193,58 @@ export const getTrackGainNode = (trackId) => {
   const ctx = getAudioContext();
   if (!trackGainNodes[trackId]) {
     const g = ctx.createGain();
+    const panner = typeof ctx.createStereoPanner === 'function' ? ctx.createStereoPanner() : ctx.createGain();
+    const analyser = ctx.createAnalyser();
     g.gain.value = 1;
-    g.connect(getOutputNode());
+    analyser.fftSize = 256;
+    analyser.smoothingTimeConstant = 0.72;
+    g.connect(panner);
+    panner.connect(analyser);
+    analyser.connect(getOutputNode());
     trackGainNodes[trackId] = g;
+    trackPanNodes[trackId] = panner;
+    trackAnalyserNodes[trackId] = analyser;
   }
   return trackGainNodes[trackId];
 };
+
+export const setTrackPan = (trackId, value) => {
+  getTrackGainNode(trackId);
+  const panner = trackPanNodes[trackId];
+  if (!panner?.pan) return;
+  const ctx = getAudioContext();
+  const v = Math.max(-1, Math.min(1, Number(value) || 0));
+  panner.pan.cancelScheduledValues(ctx.currentTime);
+  panner.pan.setValueAtTime(v, ctx.currentTime);
+};
+
+export const setMasterGain = (value) => {
+  const ctx = getAudioContext();
+  const v = Math.max(0, Math.min(2, Number(value) || 0));
+  masterGainNode.gain.cancelScheduledValues(ctx.currentTime);
+  masterGainNode.gain.setValueAtTime(v, ctx.currentTime);
+};
+
+const readAnalyserLevel = (analyser) => {
+  if (!analyser) return 0;
+  const samples = new Uint8Array(analyser.fftSize);
+  analyser.getByteTimeDomainData(samples);
+  let sum = 0;
+  for (let i = 0; i < samples.length; i += 1) {
+    const sample = (samples[i] - 128) / 128;
+    sum += sample * sample;
+  }
+  return Math.min(1, Math.sqrt(sum / samples.length) * 2.8);
+};
+
+export const getTrackLevel = (trackId) => readAnalyserLevel(trackAnalyserNodes[trackId]);
+export const getMasterLevel = () => readAnalyserLevel(masterAnalyserNode);
 
 export const setTrackGain = (trackId, value) => {
   const g = trackGainNodes[trackId];
   if (g) {
     const ctx = getAudioContext();
-    const v = Math.max(0, Math.min(1, Number(value) || 0));
+    const v = Math.max(0, Math.min(2, Number(value) || 0));
     // ⭐ แก้บั๊กดีเลขณะปรับระดับเสียง (เร็วขึ้น + ไม่มีคลิก):
     //    รูปแบบเดิม: anchor + linearRampToValueAtTime(0.010s = 10ms)
     //      - slider ส่ง onChange ~60Hz ขณะลาก → ทุก event ยกเลิก ramp เก่าและเริ่ม ramp ใหม่ 10ms

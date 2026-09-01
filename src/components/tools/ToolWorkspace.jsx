@@ -4,6 +4,7 @@ import TopBar from "./tool-workspace/TopBar";
 import Toolbar from "./tool-workspace/Toolbar";
 import TrackPanel from "./tool-workspace/TrackPanel";
 import Timeline from "./tool-workspace/Timeline";
+import MixerPanel from "./tool-workspace/MixerPanel";
 
 import { WorkspaceProvider } from "../../contexts/WorkspaceContext";
 import { MusicContext } from "../../contexts/MusicContext";
@@ -47,9 +48,12 @@ export default function ToolWorkspace({ onBack }) {
           <div className="flex flex-1 min-h-0">
             <Toolbar />
 
-            <div className="flex flex-1 min-w-0">
-              <TrackPanel />
-              <Timeline />
+            <div className="flex flex-1 min-w-0 min-h-0 flex-col">
+              <div className="flex flex-1 min-w-0 min-h-0">
+                <TrackPanel />
+                <Timeline />
+              </div>
+              <MixerPanel />
             </div>
           </div>
         </div>
