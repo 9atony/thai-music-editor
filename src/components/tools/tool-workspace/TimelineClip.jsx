@@ -11,14 +11,29 @@ const getClipInstrumentName = (clip, track) => {
     || 'ไม่ระบุเครื่องดนตรี';
 };
 
-const buildNotationFromEvents = (clip, cellsPerMeasure = 8) => {
+const getMeasureCellCount = (events, measureIndex) => {
+  const offsets = events
+    .map((event) => Number(event.measureOffset))
+    .filter((offset) => Number.isFinite(offset) && Math.floor(offset) === measureIndex)
+    .map((offset) => offset - measureIndex);
+
+  // Older .arranger.json files only retain playback events. Infer the smallest
+  // familiar Editor grid that fits their event offsets; empty measures remain
+  // the Editor default of four cells instead of being padded to eight.
+  const supportedCellCounts = [4, 8, 12, 16];
+  return supportedCellCounts.find((cellCount) => offsets.every((offset) => (
+    Math.abs((offset * cellCount) - Math.round(offset * cellCount)) < 0.0001
+  ))) || 4;
+};
+
+const buildNotationFromEvents = (clip) => {
   const measureCount = Math.max(1, Math.ceil(Number(clip.playback?.measureCount) || Number(clip.width) || 1));
   const events = clip.playback?.events || [];
   const hasBottom = events.some((event) => event.rowIndex === 1);
   const measures = Array.from({ length: measureCount }, (_, index) => ({
     index,
-    top: Array(cellsPerMeasure).fill('-'),
-    bottom: hasBottom ? Array(cellsPerMeasure).fill('-') : null,
+    top: Array(getMeasureCellCount(events, index)).fill('-'),
+    bottom: hasBottom ? Array(getMeasureCellCount(events, index)).fill('-') : null,
   }));
 
   events.forEach((event) => {
@@ -26,7 +41,8 @@ const buildNotationFromEvents = (clip, cellsPerMeasure = 8) => {
     const measureIndex = Math.floor(offset);
     const measure = measures[measureIndex];
     if (!measure || !event.note || event.note === '-') return;
-    const cellIndex = Math.min(cellsPerMeasure - 1, Math.floor((offset - measureIndex) * cellsPerMeasure + 0.0001));
+    const cellCount = measure.top.length;
+    const cellIndex = Math.min(cellCount - 1, Math.floor((offset - measureIndex) * cellCount + 0.0001));
     const row = event.rowIndex === 1 && measure.bottom ? measure.bottom : measure.top;
     row[cellIndex] = row[cellIndex] === '-' ? event.note : `${row[cellIndex]}${event.note}`;
   });
@@ -183,7 +199,7 @@ export default function TimelineClip({
                         <path
                           d={path}
                           fill="none"
-                          stroke={symbol.color || (isKro ? '#38bdf8' : '#fbbf24')}
+                          stroke={isKro ? (symbol.color || '#38bdf8') : 'rgba(255, 255, 255, 0.82)'}
                           strokeWidth={Math.max(1, Math.min(3, Number(symbol.strokeWidth) || 2))}
                           strokeLinecap="round"
                           strokeDasharray={isKro ? '3 1.5' : undefined}
@@ -193,9 +209,10 @@ export default function TimelineClip({
                           x={midpoint}
                           y={isKro ? Math.min(bodyHeight - 7, Math.max(startY, endY) + 8) : Math.max(8, Math.min(startY, endY) - 10)}
                           textAnchor="middle"
-                          fill={symbol.color || (isKro ? '#38bdf8' : '#fbbf24')}
+                          fill={isKro ? (symbol.color || '#38bdf8') : 'rgba(255, 255, 255, 0.88)'}
                           fontSize="7"
                           fontWeight="700"
+                          style={{ paintOrder: 'stroke', stroke: 'rgba(15, 23, 42, 0.72)', strokeWidth: 1.5 }}
                         >
                           {isKro ? 'กรอ' : 'สะบัด'}
                         </text>

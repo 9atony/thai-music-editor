@@ -1,7 +1,7 @@
 import React, { useRef, useState, useEffect, useContext } from 'react';
 import { auth, db, getUserProfile } from '../utils/firebase'; 
 import { fetchRecentProjects } from '../utils/firebase'; 
-import { doc, deleteDoc, updateDoc, serverTimestamp, collection, query, orderBy, getDocs } from 'firebase/firestore';
+import { addDoc, doc, deleteDoc, updateDoc, serverTimestamp, collection, query, orderBy, getDocs } from 'firebase/firestore';
 import { MusicContext } from '../contexts/MusicContext';
 import TmeIcon from '../assets/icon.png';
 import { FolderKanban } from 'lucide-react';
@@ -14,6 +14,7 @@ const MyProjects = ({ onNewProject }) => {
   const [projects, setProjects] = useState([]);
   const [searchQuery, setSearchQuery] = useState(""); 
   const [openMenuId, setOpenMenuId] = useState(null); 
+  const [duplicatingProjectId, setDuplicatingProjectId] = useState(null);
   
   // ⭐ State สำหรับเก็บยศของผู้ใช้ (user, premium, admin)
   const [userRole, setUserRole] = useState("user"); 
@@ -151,6 +152,47 @@ const MyProjects = ({ onNewProject }) => {
       setRenameModalOpen(false);
     } catch (error) { alert("เกิดข้อผิดพลาดในการเปลี่ยนชื่อครับ"); }
   };
+
+  const handleDuplicateProject = async (e, project) => {
+    e.stopPropagation();
+    if (duplicatingProjectId) return;
+
+    const { id, createdAt, updatedAt, ...projectData } = project;
+    const duplicateName = `${project.name || 'โปรเจกต์ไม่มีชื่อ'} (สำเนา)`;
+    const duplicateSize = new Blob([JSON.stringify({ ...projectData, name: duplicateName })]).size;
+    if (!isCreationAllowed(duplicateSize)) {
+      setOpenMenuId(null);
+      setStorageLimitModalOpen(true);
+      return;
+    }
+
+    const uid = auth.currentUser?.uid;
+    if (!uid) return;
+
+    setDuplicatingProjectId(project.id);
+    try {
+      const now = { seconds: Date.now() / 1000 };
+      const duplicateRef = await addDoc(collection(db, 'users', uid, 'projects'), {
+        ...projectData,
+        name: duplicateName,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+      setProjects((prev) => [{
+        ...projectData,
+        id: duplicateRef.id,
+        name: duplicateName,
+        createdAt: now,
+        updatedAt: now,
+      }, ...prev]);
+      setOpenMenuId(null);
+    } catch (error) {
+      console.error('เกิดข้อผิดพลาดในการทำซ้ำโปรเจกต์:', error);
+      alert('ไม่สามารถทำซ้ำโปรเจกต์ได้ครับ');
+    } finally {
+      setDuplicatingProjectId(null);
+    }
+  };
   
   const handleDeleteProject = async (e, projectId) => {
     e.stopPropagation(); setOpenMenuId(null); 
@@ -234,6 +276,7 @@ const MyProjects = ({ onNewProject }) => {
                 {openMenuId === project.id && (
                   <div className="absolute right-0 mt-1 w-32 bg-white border border-slate-100 rounded-xl shadow-[0_4px_20px_rgba(0,0,0,0.1)] py-1.5 z-50 animate-fadeIn">
                     <div onClick={(e) => openRenameModal(e, project)} className="w-full text-left px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer">เปลี่ยนชื่อ</div>
+                    <div onClick={(e) => handleDuplicateProject(e, project)} className="w-full text-left px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer">{duplicatingProjectId === project.id ? 'กำลังทำซ้ำ...' : 'ทำซ้ำ'}</div>
                     <div onClick={(e) => handleDeleteProject(e, project.id)} className="w-full text-left px-4 py-2 text-sm font-semibold text-red-500 hover:bg-red-50 transition-colors cursor-pointer">ลบ</div>
                   </div>
                 )}
@@ -254,6 +297,7 @@ const MyProjects = ({ onNewProject }) => {
                 {openMenuId === `h-${project.id}` && (
                   <div className="absolute right-0 mt-1 w-28 bg-white border border-slate-100 rounded-xl shadow-lg py-1.5 z-50">
                     <div onClick={(e) => openRenameModal(e, project)} className="px-3 py-2 text-[11px] font-semibold text-slate-600">เปลี่ยนชื่อ</div>
+                    <div onClick={(e) => handleDuplicateProject(e, project)} className="px-3 py-2 text-[11px] font-semibold text-slate-600">{duplicatingProjectId === project.id ? 'กำลังทำซ้ำ...' : 'ทำซ้ำ'}</div>
                     <div onClick={(e) => handleDeleteProject(e, project.id)} className="px-3 py-2 text-[11px] font-semibold text-red-500">ลบ</div>
                   </div>
                 )}
@@ -308,6 +352,7 @@ const MyProjects = ({ onNewProject }) => {
                         {openMenuId === `list-${file.id}` && (
                           <div className="absolute right-0 top-full mt-1 w-32 bg-white border border-slate-100 rounded-xl shadow-[0_4px_20px_rgba(0,0,0,0.1)] py-1.5 z-50 animate-fadeIn">
                             <div onClick={(e) => openRenameModal(e, file)} className="w-full text-left px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer">เปลี่ยนชื่อ</div>
+                            <div onClick={(e) => handleDuplicateProject(e, file)} className="w-full text-left px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer">{duplicatingProjectId === file.id ? 'กำลังทำซ้ำ...' : 'ทำซ้ำ'}</div>
                             <div onClick={(e) => handleDeleteProject(e, file.id)} className="w-full text-left px-4 py-2 text-sm font-semibold text-red-500 hover:bg-red-50 transition-colors cursor-pointer">ลบ</div>
                           </div>
                         )}
@@ -336,6 +381,7 @@ const MyProjects = ({ onNewProject }) => {
                  {openMenuId === `mlist-${file.id}` && (
                     <div className="absolute right-0 top-10 mt-1 w-28 bg-white border border-slate-100 rounded-xl shadow-lg py-1.5 z-50">
                       <div onClick={(e) => openRenameModal(e, file)} className="px-3 py-2 text-[11px] font-semibold text-slate-600">เปลี่ยนชื่อ</div>
+                      <div onClick={(e) => handleDuplicateProject(e, file)} className="px-3 py-2 text-[11px] font-semibold text-slate-600">{duplicatingProjectId === file.id ? 'กำลังทำซ้ำ...' : 'ทำซ้ำ'}</div>
                       <div onClick={(e) => handleDeleteProject(e, file.id)} className="px-3 py-2 text-[11px] font-semibold text-red-500">ลบ</div>
                     </div>
                  )}

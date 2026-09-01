@@ -2,7 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { INSTRUMENT_CONFIG } from '../utils/instrumentConfig';
 import {
   initAudioContext,
-  preloadSounds,
+  preloadNote,
   scheduleNote,
   getAudioCurrentTime,
   getTrackGainNode,
@@ -25,6 +25,12 @@ const MIN_ZOOM = 10;
 const MAX_ZOOM = 240;
 const THAI_NOTE_COMBINER_PATTERN = /[\u0E31-\u0E4E\u200B]/;
 const getMonotonicTime = () => performance.now();
+// The Editor defines one measure as four beat units.  Keep this conversion in
+// one place so imported clips and the Editor always advance at the same rate.
+const EDITOR_BEATS_PER_MEASURE = 4;
+const getEditorMeasureDurationSec = (tempo) => (
+  (15000 / Math.max(20, Number(tempo) || 80)) * EDITOR_BEATS_PER_MEASURE
+) / 1000;
 
 // ⭐ Single source of truth สำหรับความสูงของแทร็ก (ใช้ร่วมกันทั้ง Toolbar slider + Timeline lane + TrackPanel drag)
 export const MIN_TRACK_LANE_HEIGHT = 54;        // ⭐ ครึ่งหนึ่งของค่าเดิม (108/132 -> 54/66) ตามที่ผู้ใช้ต้องการเล็กที่สุด
@@ -204,7 +210,7 @@ const buildPlaybackEvents = (parsedData, section, fallbackInstrumentId, loops = 
   const rowTypes = parsedData?.rowTypes || [];
   const layoutConfig = parsedData?.layoutConfig || {};
   const bpm = Number(parsedData?.layoutConfig?.bpm) || 80;
-  const secPerWholeMeasure = 60 / bpm;
+  const secPerWholeMeasure = getEditorMeasureDurationSec(bpm);
   const events = [];
   const notationMeasures = [];
   const notationSymbols = [];
@@ -349,15 +355,19 @@ const parseTmeFile = (fileContent, fileName = 'เพลงที่นำเข
   let cursor = 0;
 
   const appendClipFromSection = (section, sequenceLabel = section.label, loops = 1) => {
-    const playback = buildPlaybackEvents(parsedData, section, fallbackInstrumentId, loops);
+    // Store the source section once, then let the Arranger repeat that same
+    // section.  Previously the events were expanded here and repeated again
+    // during Arranger playback, causing imported rhythms to drift from Editor.
+    const repeatCount = Math.max(1, Number(loops) || 1);
+    const playback = buildPlaybackEvents(parsedData, section, fallbackInstrumentId, 1);
     const displayLabel = safeDisplayName(sequenceLabel, section.label || projectName);
     const clip = {
       id: makeId('clip'),
       start: cursor,
-      width: playback.measureCount,
-      name: loops > 1 ? `${displayLabel} ×${loops}` : displayLabel,
+      width: playback.measureCount * repeatCount,
+      name: repeatCount > 1 ? `${displayLabel} ×${repeatCount}` : displayLabel,
       sectionLabel: displayLabel,
-      loops,
+      loops: repeatCount,
       notesPreview: section.previewNotes || [],
       sourceInstrumentId: fallbackInstrumentId,
       sourceBpm,
@@ -371,7 +381,7 @@ const parseTmeFile = (fileContent, fileName = 'เพลงที่นำเข
       },
     };
     clips.push(clip);
-    cursor += playback.measureCount;
+    cursor += playback.measureCount * repeatCount;
   };
 
   if (playbackSequence.length > 0) {
@@ -440,22 +450,6 @@ export const WorkspaceProvider = ({ children }) => {
     tracksRef.current = tracks;
   }, [tracks]);
 
-  useEffect(() => {
-    const instrumentIds = new Set();
-    tracks.forEach((track) => {
-      if (track?.instrumentId && INSTRUMENT_CONFIG[track.instrumentId]) instrumentIds.add(track.instrumentId);
-      (track?.clips || []).forEach((clip) => {
-        if (clip?.sourceInstrumentId && INSTRUMENT_CONFIG[clip.sourceInstrumentId]) instrumentIds.add(clip.sourceInstrumentId);
-        (clip?.playback?.events || []).forEach((event) => {
-          if (event?.instrumentId && INSTRUMENT_CONFIG[event.instrumentId]) instrumentIds.add(event.instrumentId);
-        });
-      });
-    });
-
-    instrumentIds.forEach((instrumentId) => {
-      preloadSounds(instrumentId).catch(() => {});
-    });
-  }, [tracks]);
   const currentTimeRef = useRef(0);
   const isPlayingRef = useRef(false);
   const startPlaybackRef = useRef(null);
@@ -556,10 +550,9 @@ export const WorkspaceProvider = ({ children }) => {
     }
     if (playbackRequestRef.current !== requestId) return;
 
-    const secPerMeasure = 60 / Math.max(20, Number(bpm) || 120);
+    const secPerMeasure = getEditorMeasureDurationSec(bpm);
     const startTime = Math.max(0, currentTimeRef.current || 0);
     const events = [];
-    const usedInstruments = new Set();
     let totalDuration = 0;
 
     // สร้าง Gain ของทุก Track + ทุกแทรก 
@@ -575,21 +568,22 @@ export const WorkspaceProvider = ({ children }) => {
     // โยนการอัปเดต Volume ไปให้ useEffect จัดการ
 
     tracks.forEach((track) => {
-      if (track.instrumentId) usedInstruments.add(track.instrumentId);
       track.clips.forEach((clip) => {
         const clipStartSec = (clip.start || 0) * secPerMeasure;
         const trimOffset = Number(clip.trimOffset) || 0;
         const clipGain = getClipGainNode(clip.id);
         const loops = Math.max(1, Number(clip.loops) || 1);
-        const clipWidthSec = (clip.width || 0) * secPerMeasure;
+        const clipMeasureWidth = Math.max(0, Number(clip.width) || 0);
+        const clipWidthSec = clipMeasureWidth * secPerMeasure;
+        const loopMeasureWidth = clipMeasureWidth / loops;
+        const loopWidthSec = loopMeasureWidth * secPerMeasure;
         
         for (let lp = 0; lp < loops; lp += 1) {
-          const loopStartSec = clipStartSec + (lp * clipWidthSec);
+          const loopStartSec = clipStartSec + (lp * loopWidthSec);
           (clip.playback?.events || []).forEach((event) => {
             const offset = (event.measureOffset || 0) - trimOffset;
-            if (offset < 0) return; 
+            if (offset < 0 || offset >= loopMeasureWidth) return;
             const instrumentId = INSTRUMENT_CONFIG[event.instrumentId] ? event.instrumentId : (track.instrumentId || clip.sourceInstrumentId || 'ranat-ek');
-            usedInstruments.add(instrumentId);
             events.push({
               whenSec: loopStartSec + (offset * secPerMeasure),
               instrumentId,
@@ -600,17 +594,26 @@ export const WorkspaceProvider = ({ children }) => {
             });
           });
         }
-        totalDuration = Math.max(totalDuration, clipStartSec + (loops * clipWidthSec));
+        totalDuration = Math.max(totalDuration, clipStartSec + clipWidthSec);
       });
     });
-
-    await Promise.allSettled([...usedInstruments].map((id) => preloadSounds(id)));
-    if (playbackRequestRef.current !== requestId) return;
 
     events.sort((a, b) => a.whenSec - b.whenSec);
 
     const playEvents = events.filter((ev) => ev.whenSec >= startTime);
     const durationSec = Math.max(0, totalDuration - startTime);
+
+    // Do not block Play while every sample from every instrument is decoded.
+    // Preparing only the first chord prevents a dropped first note; later notes
+    // continue to be loaded by the normal look-ahead scheduler.
+    const firstEventTime = playEvents[0]?.whenSec;
+    if (firstEventTime !== undefined) {
+      const initialNotes = playEvents
+        .filter((event) => event.whenSec === firstEventTime)
+        .slice(0, 16);
+      await Promise.allSettled(initialNotes.map((event) => preloadNote(event.instrumentId, event.note)));
+      if (playbackRequestRef.current !== requestId) return;
+    }
 
     setTotalTime(totalDuration);
     setCurrentTimeWrapper(startTime);
@@ -626,7 +629,7 @@ export const WorkspaceProvider = ({ children }) => {
     isPlayingRef.current = true;
     setIsPlaying(true);
 
-    schedulerIntervalRef.current = setInterval(() => {
+    const scheduleAhead = () => {
       try {
         if (playbackRequestRef.current !== requestId) return;
         const audioNow = getAudioCurrentTime?.() || 0;
@@ -649,7 +652,12 @@ export const WorkspaceProvider = ({ children }) => {
       } catch (err) {
         console.error('เกิดข้อผิดพลาดในการจัดตารางเสียง:', err);
       }
-    }, 100);
+    };
+
+    // Schedule the first look-ahead window now instead of waiting for the
+    // interval's first 100ms tick, which was visible as a pause on Play.
+    scheduleAhead();
+    schedulerIntervalRef.current = setInterval(scheduleAhead, 100);
 
     playbackRef.current.rafId = requestAnimationFrame(animatePlayback);
   };
