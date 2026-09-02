@@ -201,13 +201,14 @@ export const createDefaultHeaderDetails = () => ([
 
 export const createDefaultLayoutConfig = () => ({
   fontSize: 20, isBold: false, isItalic: false, measureHeight: 48,
-  rowGap: 32, songNameSize: 48, authorSize: 16, detailsAlign: 'between',
-  borderWidth: 2, innerBorderWidth: 1, borderColor: '#1e293b', borderRadius: 0,
+  rowGap: 20, songNameSize: 48, authorSize: 16, detailsAlign: 'between',
+  borderWidth: 2, innerBorderWidth: 0, borderColor: '#1e293b', borderRadius: 0,
   bpm: 80, volume: 100,
   sabatColor: '#1e293b', sabatStrokeWidth: 2.5, sabatCurve: 20, sabatOffset: 4, sabatStyle: 'crescendo',
   kroColor: '#3b82f6', kroStrokeWidth: 2.5, kroOffset: 30, kroSpeed: 65, kroStartHand: 'right',
   activeSymbol: 'sabat', symbolColor: '#1e293b', symbolStrokeWidth: 2.5, symbolHeight: 20,
   marginTop: 48, marginBottom: 48, marginLeft: 48, marginRight: 48,
+  headerBottomSpacing: 8,
   marginUnit: 'px', textLineHeight: 1.5, textFontSize: 16,
   customStyles: {}
 });

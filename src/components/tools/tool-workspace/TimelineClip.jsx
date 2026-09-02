@@ -62,7 +62,12 @@ export default function TimelineClip({
   handleClipMouseDown,
   handleResizeStart,
   openClipMenu,
-  removeClipById
+  removeClipById,
+  selectedNotationCell,
+  selectNotationCell,
+  notationSymbolTool,
+  onSymbolPointerDown,
+  onSymbolPointerUp,
 }) {
   const isLocked = track.isLocked;
   const instrumentName = getClipInstrumentName(clip, track);
@@ -71,6 +76,7 @@ export default function TimelineClip({
   return (
     <div
       onMouseDown={(e) => handleClipMouseDown(track.id, sourceClipIndex, clip.start, e)}
+      onClick={(event) => event.stopPropagation()}
       data-width={clip.width}
       className={`absolute rounded overflow-hidden group transition-all ${
         isLocked ? 'opacity-30 grayscale cursor-not-allowed'
@@ -98,7 +104,12 @@ export default function TimelineClip({
            title="ลากเพื่อบีบ/ยืด (ขอบขวา)" />
 
       {/* ⭐ Header ของ clip */}
-      <div className="px-2 flex items-center justify-between gap-1.5 shrink-0" style={{ height: '22px', backgroundColor: `${track.color}24` }}>
+      <div
+        onMouseDown={(event) => handleClipMouseDown(track.id, sourceClipIndex, clip.start, event, true)}
+        className="px-2 flex cursor-grab items-center justify-between gap-1.5 shrink-0 active:cursor-grabbing"
+        style={{ height: '22px', backgroundColor: `${track.color}24` }}
+        title="ลากเพื่อย้ายไฟล์โน้ต"
+      >
         <div className="flex items-center min-w-0 gap-1.5">
           <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: track.color }} />
           <span className="text-[10px] text-white/80 truncate">{clip.name}</span>
@@ -118,7 +129,7 @@ export default function TimelineClip({
 
       {/* ⭐ Body ของ clip (สำหรับแสดงโน้ต) */}
       <div
-        className="relative w-full overflow-hidden pointer-events-none"
+        className="relative w-full overflow-hidden"
         style={{
           height: `${clipMetrics.bodyHeight}px`,
           backgroundImage: `repeating-linear-gradient(to right, rgba(255,255,255,0.34) 0, rgba(255,255,255,0.34) 1px, transparent 1px, transparent ${measureWidth}px)`,
@@ -156,9 +167,26 @@ export default function TimelineClip({
                         style={{ gridTemplateColumns: `repeat(${Math.max(1, cells?.length || 1)}, minmax(0, 1fr))` }}
                       >
                         {(cells?.length ? cells : ['-']).map((token, cellIndex) => (
-                          <span
+                          <button
+                            type="button"
                             key={cellIndex}
-                            className="overflow-visible whitespace-nowrap text-center font-semibold text-white/90"
+                            title={activeTool === 'note' ? `${rowIndex === 1 ? 'มือซ้าย' : measure.bottom ? 'มือขวา' : 'โน้ต'} · ห้อง ${measureIndex + 1} · ช่อง ${cellIndex + 1}` : undefined}
+                            onPointerDown={(event) => {
+                              if (!notationSymbolTool) return;
+                              onSymbolPointerDown({ trackId: track.id, clipId: clip.id, measureIndex, cellIndex, rowIndex }, event);
+                            }}
+                            onPointerUp={(event) => {
+                              if (!notationSymbolTool) return;
+                              onSymbolPointerUp({ trackId: track.id, clipId: clip.id, measureIndex, cellIndex, rowIndex }, event);
+                            }}
+                            onMouseDown={(event) => {
+                              if (notationSymbolTool) return;
+                              if (activeTool === 'erase' || activeTool === 'split') return;
+                              event.preventDefault();
+                              event.stopPropagation();
+                              selectNotationCell({ trackId: track.id, clipId: clip.id, measureIndex, cellIndex, rowIndex });
+                            }}
+                            className={`overflow-visible whitespace-nowrap text-center font-semibold text-white/90 ${notationSymbolTool ? 'cursor-crosshair hover:bg-amber-300/15' : activeTool === 'erase' || activeTool === 'split' ? 'pointer-events-none' : 'cursor-cell hover:bg-white/15'} ${selectedNotationCell?.trackId === track.id && selectedNotationCell?.clipId === clip.id && selectedNotationCell?.measureIndex === measureIndex && selectedNotationCell?.cellIndex === cellIndex && selectedNotationCell?.rowIndex === rowIndex ? 'bg-sky-300/30 ring-1 ring-inset ring-sky-200/80' : ''}`}
                             style={{
                               fontSize: `${noteFontSize}px`,
                               lineHeight: 1,
@@ -166,7 +194,7 @@ export default function TimelineClip({
                             }}
                           >
                             {token || '-'}
-                          </span>
+                          </button>
                         ))}
                       </div>
                     ))}
@@ -205,17 +233,6 @@ export default function TimelineClip({
                           strokeDasharray={isKro ? '3 1.5' : undefined}
                           opacity="0.95"
                         />
-                        <text
-                          x={midpoint}
-                          y={isKro ? Math.min(bodyHeight - 7, Math.max(startY, endY) + 8) : Math.max(8, Math.min(startY, endY) - 10)}
-                          textAnchor="middle"
-                          fill={isKro ? (symbol.color || '#38bdf8') : 'rgba(255, 255, 255, 0.88)'}
-                          fontSize="7"
-                          fontWeight="700"
-                          style={{ paintOrder: 'stroke', stroke: 'rgba(15, 23, 42, 0.72)', strokeWidth: 1.5 }}
-                        >
-                          {isKro ? 'กรอ' : 'สะบัด'}
-                        </text>
                       </g>
                     );
                   })}

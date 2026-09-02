@@ -9,17 +9,17 @@ const TableTab = () => {
   };
 
   return (
-    <div className="flex flex-col h-full bg-slate-50/50 animate-fadeIn">
-      <div className="p-3 bg-emerald-50 border-b border-emerald-100 flex justify-between items-center shrink-0">
+    <div className="tool-tab-root flex flex-col h-full animate-fadeIn">
+      <div className="tool-tab-header flex justify-between items-center shrink-0 border-b">
         <h3 className="text-xs font-black text-emerald-800 flex items-center gap-1.5">
           <svg className="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
           ตั้งค่าตาราง
         </h3>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-3 custom-scrollbar space-y-4">
+      <div className="tool-tab-body flex-1 overflow-y-auto custom-scrollbar space-y-4">
         {/* --- ส่วนที่ 1: สัดส่วนตาราง --- */}
-        <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm">
+        <div className="tool-tab-card bg-white p-3 border border-slate-200 shadow-sm">
           <h4 className="text-[11px] font-bold text-slate-700 mb-3 flex items-center gap-1.5 border-b border-slate-100 pb-2">
             📏 สัดส่วนตาราง
           </h4>
@@ -34,15 +34,23 @@ const TableTab = () => {
             <div>
               <label className="text-xs text-slate-500 flex justify-between mb-1.5">
                 <span>ระยะห่างระหว่างบรรทัด</span>
-                <span className="font-bold text-emerald-600">{layoutConfig?.rowGap || 10}px</span>
+                <span className="font-bold text-emerald-600">{layoutConfig?.rowGap ?? 20}px</span>
               </label>
-              <input type="range" min="0" max="100" value={layoutConfig?.rowGap || 10} onChange={(e) => updateLayout('rowGap', parseInt(e.target.value))} className="w-full h-1.5 bg-slate-200 rounded-lg accent-emerald-500 cursor-pointer" />
+              <input type="range" min="0" max="100" value={layoutConfig?.rowGap ?? 20} onChange={(e) => updateLayout('rowGap', parseInt(e.target.value))} className="w-full h-1.5 bg-slate-200 rounded-lg accent-emerald-500 cursor-pointer" />
+            </div>
+            <div>
+              <label className="text-xs text-slate-500 flex justify-between mb-1.5">
+                <span>ระยะห่างก่อนเส้นใต้ชื่อเพลง</span>
+                <span className="font-bold text-emerald-600">{layoutConfig?.headerBottomSpacing ?? 8}px</span>
+              </label>
+              <input type="range" min="0" max="48" value={layoutConfig?.headerBottomSpacing ?? 8} onChange={(e) => updateLayout('headerBottomSpacing', parseInt(e.target.value))} className="w-full h-1.5 bg-slate-200 rounded-lg accent-emerald-500 cursor-pointer" />
+              <p className="mt-1 text-[10px] text-slate-400">ลดค่าเพื่อเลื่อนเส้นขึ้นและให้บรรทัดเพลงถดขึ้น</p>
             </div>
           </div>
         </div>
 
         {/* --- ส่วนที่ 2: เส้นตาราง --- */}
-        <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm">
+        <div className="tool-tab-card bg-white p-3 border border-slate-200 shadow-sm">
           <div className="flex justify-between items-center mb-3 border-b border-slate-100 pb-2">
             <h4 className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5">✍️ เส้นตาราง</h4>
             <input type="color" value={layoutConfig?.borderColor || '#0f172a'} onChange={(e) => updateLayout('borderColor', e.target.value)} className="w-5 h-5 p-0 border-0 rounded cursor-pointer" title="สีเส้นตาราง" />
@@ -73,7 +81,7 @@ const TableTab = () => {
         </div>
           
         {/* --- ส่วนที่ 3: เลข/เส้นระบุบรรทัด --- */}
-        <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm">
+        <div className="tool-tab-card bg-white p-3 border border-slate-200 shadow-sm">
           <div className="flex justify-between items-center mb-3 border-b border-slate-100 pb-2">
             <h4 className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5">🔢 เลข/เส้นระบุบรรทัด</h4>
             <div className="flex items-center gap-3">

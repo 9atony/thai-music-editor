@@ -38,9 +38,9 @@ const KroTab = () => {
   const currentLevel = msToSpeedLevel(currentSpeedMs);
 
   return (
-    <div className="flex flex-col h-full bg-slate-50/50 animate-fadeIn">
+    <div className="tool-tab-root flex flex-col h-full animate-fadeIn">
       {/* Header */}
-      <div className={`p-3 border-b flex justify-between items-center shrink-0 ${isGlobal ? 'bg-blue-50 border-blue-100' : 'bg-sky-100 border-sky-200'}`}>
+      <div className="tool-tab-header flex justify-between items-center shrink-0 border-b">
         <div>
           <h3 className="text-xs font-black text-blue-800 flex items-center gap-1.5">
             <svg className="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 12h16M4 12l2-2m-2 2l2 2m14-2l-2-2m2 2l-2 2" /></svg>
@@ -55,10 +55,10 @@ const KroTab = () => {
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto p-3 custom-scrollbar space-y-4">
+      <div className="tool-tab-body flex-1 overflow-y-auto custom-scrollbar space-y-4">
         
         {/* --- 1. หมวดการเล่นเสียง --- */}
-        <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm">
+        <div className="tool-tab-card bg-white p-3 border border-slate-200 shadow-sm">
           <h4 className="text-[11px] font-bold text-slate-700 mb-3 flex items-center gap-1.5 border-b border-slate-100 pb-2">
             🔊 การเล่นเสียง (Playback)
           </h4>
@@ -108,7 +108,7 @@ const KroTab = () => {
         </div>
 
         {/* --- 2. หมวดรูปลักษณ์เส้น --- */}
-        <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm">
+        <div className="tool-tab-card bg-white p-3 border border-slate-200 shadow-sm">
           <h4 className="text-[11px] font-bold text-slate-700 mb-3 flex items-center gap-1.5 border-b border-slate-100 pb-2">
             👁️ รูปลักษณ์เส้นกราฟิก
           </h4>

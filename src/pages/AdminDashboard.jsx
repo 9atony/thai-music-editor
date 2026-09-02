@@ -1,482 +1,571 @@
-import React, { useState, useEffect } from 'react';
-import { db, upgradeUserToPremium } from '../utils/firebase'; 
-import { collection, getDocs, doc, updateDoc } from 'firebase/firestore';
-import { ShieldCheck } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  Activity,
+  Archive,
+  BarChart3,
+  BookOpenText,
+  Clock3,
+  Crown,
+  Database,
+  Download,
+  FileMusic,
+  FolderKanban,
+  HardDrive,
+  LayoutTemplate,
+  RefreshCw,
+  Search,
+  ShieldCheck,
+  SlidersHorizontal,
+  Sparkles,
+  UserRound,
+  Users,
+  X,
+} from 'lucide-react';
+import {
+  collection,
+  doc,
+  getDocs,
+  updateDoc,
+} from 'firebase/firestore';
+import { db, upgradeUserToPremium } from '../utils/firebase';
 import PageHeader from '../components/layout/PageHeader';
+import SystemAnalyticsPanel from '../components/admin/SystemAnalyticsPanel';
 
-const formatBytes = (bytes) => {
-  if (bytes === 0) return "0 KB";
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
-  if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024 * 1024)).toFixed(2) + " MB";
-  return (bytes / (1024 * 1024 * 1024)).toFixed(2) + " GB";
+const GIB = 1024 * 1024 * 1024;
+const PREMIUM_BYTES = 5 * 1024 * 1024;
+const BUILT_IN_TEMPLATE_COUNT = 4;
+
+const SYSTEM_COLLECTIONS = [
+  { id: 'samples', label: 'เพลงตัวอย่าง', Icon: FileMusic, color: 'text-sky-600 bg-sky-50' },
+  { id: 'updates', label: 'ข่าวและประกาศ', Icon: Activity, color: 'text-emerald-600 bg-emerald-50' },
+  { id: 'system_rhythms', label: 'คลังจังหวะกลาง', Icon: SlidersHorizontal, color: 'text-orange-600 bg-orange-50' },
+  { id: 'ranat_dictionary', label: 'พจนานุกรมระนาด', Icon: BookOpenText, color: 'text-violet-600 bg-violet-50' },
+  { id: 'tuning_dataset', label: 'ชุดข้อมูลจูน AI', Icon: Sparkles, color: 'text-fuchsia-600 bg-fuchsia-50' },
+  { id: 'templates', label: 'เทมเพลตบน Cloud', Icon: LayoutTemplate, color: 'text-indigo-600 bg-indigo-50' },
+];
+
+const utf8Size = (value) => new TextEncoder().encode(String(value)).length + 1;
+
+const firestoreFieldsSize = (value) => Object.entries(value || {}).reduce(
+  (sum, [key, fieldValue]) => sum + utf8Size(key) + firestoreValueSize(fieldValue),
+  0,
+);
+
+const firestoreValueSize = (value) => {
+  if (value == null) return 1;
+  if (typeof value === 'boolean') return 1;
+  if (typeof value === 'number') return 8;
+  if (typeof value === 'string') return utf8Size(value);
+  if (value instanceof Date || typeof value?.toDate === 'function') return 8;
+  if (value instanceof Uint8Array) return value.byteLength;
+  if (Array.isArray(value)) return value.reduce((sum, item) => sum + firestoreValueSize(item), 0);
+  if (typeof value === 'object') return firestoreFieldsSize(value) + 32;
+  return utf8Size(value);
+};
+
+const firestoreDocumentNameSize = (path) => (
+  String(path || '').split('/').filter(Boolean).reduce((sum, segment) => sum + utf8Size(segment), 16)
+);
+
+const estimateDocumentBytes = (snapshot) => (
+  firestoreDocumentNameSize(snapshot.ref.path) + firestoreFieldsSize(snapshot.data()) + 32
+);
+
+const summarizeSnapshot = (snapshot) => {
+  let bytes = 0;
+  snapshot.docs.forEach((documentSnapshot) => { bytes += estimateDocumentBytes(documentSnapshot); });
+  return { count: snapshot.size, bytes };
+};
+
+const formatBytes = (bytes = 0) => {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < GIB) return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  return `${(bytes / GIB).toFixed(2)} GB`;
 };
 
 const formatDate = (timestamp) => {
-  if (!timestamp || !timestamp.seconds) return "ไม่ระบุ";
-  const date = new Date(timestamp.seconds * 1000);
-  return date.toLocaleDateString('th-TH', { 
-    year: 'numeric', 
-    month: 'short', 
+  const date = typeof timestamp?.toDate === 'function'
+    ? timestamp.toDate()
+    : timestamp?.seconds
+      ? new Date(timestamp.seconds * 1000)
+      : null;
+  if (!date) return 'ไม่ระบุ';
+  return date.toLocaleDateString('th-TH', {
+    year: 'numeric',
+    month: 'short',
     day: 'numeric',
     hour: '2-digit',
-    minute: '2-digit'
+    minute: '2-digit',
   });
 };
 
-// ⭐ ฟังก์ชันคำนวณเวลานับถอยหลัง (วัน/ชั่วโมง/นาที)
-const calculateTimeLeft = (premiumUntil, currentTime) => {
-  if (!premiumUntil) return null;
-  const expirationDate = premiumUntil.toDate();
-  const diffTime = expirationDate.getTime() - currentTime.getTime();
-
+const calculateTimeLeft = (premiumUntil, now) => {
+  if (!premiumUntil || typeof premiumUntil.toDate !== 'function') return null;
+  const diffTime = premiumUntil.toDate().getTime() - now.getTime();
   if (diffTime <= 0) return { expired: true };
-
-  const days = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-  const hours = Math.floor((diffTime / (1000 * 60 * 60)) % 24);
-  const minutes = Math.floor((diffTime / 1000 / 60) % 60);
-
-  return { expired: false, days, hours, minutes };
+  return {
+    expired: false,
+    days: Math.floor(diffTime / 86400000),
+    hours: Math.floor((diffTime / 3600000) % 24),
+    minutes: Math.floor((diffTime / 60000) % 60),
+  };
 };
 
+const roleStyle = {
+  admin: 'border-violet-200 bg-violet-50 text-violet-700',
+  premium: 'border-amber-200 bg-amber-50 text-amber-700',
+  user: 'border-slate-200 bg-slate-50 text-slate-600',
+};
+
+const StatCard = ({ label, value, detail, Icon, iconClass }) => (
+  <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+    <div className="flex items-start justify-between gap-4">
+      <div>
+        <p className="text-xs font-semibold text-slate-500">{label}</p>
+        <p className="mt-2 text-2xl font-black tracking-tight text-slate-900">{value}</p>
+        <p className="mt-1 text-[11px] text-slate-400">{detail}</p>
+      </div>
+      <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ${iconClass}`}>
+        {React.createElement(Icon, { size: 20 })}
+      </span>
+    </div>
+  </div>
+);
+
 const AdminDashboard = ({ userProfile }) => {
-  const [users, setUsers] = useState([]);
+  const [usersData, setUsersData] = useState([]);
+  const [systemCollections, setSystemCollections] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isUpdating, setIsUpdating] = useState(false);
-  const [totalSystemBytes, setTotalSystemBytes] = useState(0);
-
-  const [searchQuery, setSearchQuery] = useState("");
-  const [sortOrder, setSortOrder] = useState('latest'); 
-  const [isSortMenuOpen, setIsSortMenuOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState('all'); 
-
+  const [loadError, setLoadError] = useState('');
+  const [lastUpdated, setLastUpdated] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortOrder, setSortOrder] = useState('latest');
+  const [roleFilter, setRoleFilter] = useState('all');
+  const [activeSection, setActiveSection] = useState('analytics');
   const [selectedUser, setSelectedUser] = useState(null);
-  const [userProjects, setUserProjects] = useState([]);
-  const [isLoadingProjects, setIsLoadingProjects] = useState(false);
-
-  // ⭐ State สำหรับเก็บเวลาปัจจุบัน เพื่อทำ Live Countdown
   const [now, setNow] = useState(new Date());
 
   const isAdmin = userProfile?.role === 'admin';
-  const SYSTEM_MAX_BYTES = 1024 * 1024 * 1024; 
 
-  // ⭐ อัปเดตเวลาปัจจุบันทุกๆ 1 นาทีเพื่อให้นับถอยหลังแบบเรียลไทม์
   useEffect(() => {
-    const timer = setInterval(() => {
-      setNow(new Date());
-    }, 60000); 
-    return () => clearInterval(timer);
+    const timer = window.setInterval(() => setNow(new Date()), 60000);
+    return () => window.clearInterval(timer);
   }, []);
 
-  const fetchUsers = async () => {
+  const fetchDashboardData = useCallback(async () => {
+    if (!isAdmin) return;
     setIsLoading(true);
+    setLoadError('');
+
     try {
-      const querySnapshot = await getDocs(collection(db, "users"));
-      let globalBytes = 0;
+      const [usersSnapshot, ...collectionResults] = await Promise.all([
+        getDocs(collection(db, 'users')),
+        ...SYSTEM_COLLECTIONS.map(async (definition) => {
+          try {
+            const snapshot = await getDocs(collection(db, definition.id));
+            return { ...definition, ...summarizeSnapshot(snapshot), available: true };
+          } catch (error) {
+            console.warn(`อ่าน collection ${definition.id} ไม่สำเร็จ:`, error);
+            return { ...definition, count: 0, bytes: 0, available: false };
+          }
+        }),
+      ]);
 
-      const usersPromises = querySnapshot.docs.map(async (userDoc) => {
-        const userData = userDoc.data();
-        const userId = userDoc.id;
+      const nextUsers = [];
+      const batchSize = 20;
+      for (let index = 0; index < usersSnapshot.docs.length; index += batchSize) {
+        const userBatch = usersSnapshot.docs.slice(index, index + batchSize);
+        const batchResults = await Promise.all(userBatch.map(async (userSnapshot) => {
+          const [editorSnapshot, arrangerSnapshot] = await Promise.all([
+            getDocs(collection(db, `users/${userSnapshot.id}/projects`)),
+            getDocs(collection(db, `users/${userSnapshot.id}/arrangerProjects`)),
+          ]);
+          const editorProjects = editorSnapshot.docs.map((projectSnapshot) => {
+            const bytes = estimateDocumentBytes(projectSnapshot);
+            return { id: projectSnapshot.id, kind: 'editor', bytes, ...projectSnapshot.data() };
+          });
+          const arrangerProjects = arrangerSnapshot.docs.map((projectSnapshot) => {
+            const bytes = estimateDocumentBytes(projectSnapshot);
+            return { id: projectSnapshot.id, kind: 'arranger', bytes, ...projectSnapshot.data() };
+          });
+          const profileBytes = estimateDocumentBytes(userSnapshot);
+          const editorBytes = editorProjects.reduce((sum, project) => sum + project.bytes, 0);
+          const arrangerBytes = arrangerProjects.reduce((sum, project) => sum + project.bytes, 0);
+          return {
+            id: userSnapshot.id,
+            ...userSnapshot.data(),
+            profileBytes,
+            editorBytes,
+            arrangerBytes,
+            editorProjectCount: editorProjects.length,
+            arrangerProjectCount: arrangerProjects.length,
+            projectCount: editorProjects.length + arrangerProjects.length,
+            storageUsed: profileBytes + editorBytes + arrangerBytes,
+            projects: [...editorProjects, ...arrangerProjects],
+          };
+        }));
+        nextUsers.push(...batchResults);
+      }
 
-        const projectsRef = collection(db, `users/${userId}/projects`);
-        const projectsSnap = await getDocs(projectsRef);
-
-        let userBytes = 0;
-        projectsSnap.forEach(p => { userBytes += new Blob([JSON.stringify(p.data())]).size; });
-
-        globalBytes += userBytes;
-
-        return { id: userId, ...userData, storageUsed: userBytes, projectCount: projectsSnap.size };
-      });
-
-      const usersList = await Promise.all(usersPromises);
-      setUsers(usersList);
-      setTotalSystemBytes(globalBytes); 
-
+      setUsersData(nextUsers);
+      setSystemCollections(collectionResults);
+      setLastUpdated(new Date());
     } catch (error) {
-      alert("เกิดข้อผิดพลาดในการดึงข้อมูลผู้ใช้");
+      console.error('โหลดข้อมูล Admin Dashboard ไม่สำเร็จ:', error);
+      setLoadError('ไม่สามารถโหลดข้อมูลภาพรวมจาก Firebase ได้ กรุณาตรวจสอบสิทธิ์ Admin และ Firestore Rules');
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [isAdmin]);
 
-  useEffect(() => { if (isAdmin) fetchUsers(); }, [isAdmin]);
+  useEffect(() => { fetchDashboardData(); }, [fetchDashboardData]);
 
-  useEffect(() => {
-    const handleClickOutside = () => setIsSortMenuOpen(false);
-    window.addEventListener('click', handleClickOutside);
-    return () => window.removeEventListener('click', handleClickOutside);
-  }, []);
+  const totals = useMemo(() => {
+    const userProfileBytes = usersData.reduce((sum, user) => sum + user.profileBytes, 0);
+    const editorBytes = usersData.reduce((sum, user) => sum + user.editorBytes, 0);
+    const arrangerBytes = usersData.reduce((sum, user) => sum + user.arrangerBytes, 0);
+    const systemBytes = systemCollections.reduce((sum, item) => sum + item.bytes, 0);
+    const editorProjects = usersData.reduce((sum, user) => sum + user.editorProjectCount, 0);
+    const arrangerProjects = usersData.reduce((sum, user) => sum + user.arrangerProjectCount, 0);
+    const systemDocuments = systemCollections.reduce((sum, item) => sum + item.count, 0);
+    return {
+      userProfileBytes,
+      editorBytes,
+      arrangerBytes,
+      systemBytes,
+      totalBytes: userProfileBytes + editorBytes + arrangerBytes + systemBytes,
+      editorProjects,
+      arrangerProjects,
+      totalProjects: editorProjects + arrangerProjects,
+      systemDocuments,
+      totalDocuments: usersData.length + editorProjects + arrangerProjects + systemDocuments,
+    };
+  }, [usersData, systemCollections]);
+
+  const roleCounts = useMemo(() => ({
+    all: usersData.length,
+    user: usersData.filter((user) => (user.role || 'user') === 'user').length,
+    premium: usersData.filter((user) => user.role === 'premium').length,
+    admin: usersData.filter((user) => user.role === 'admin').length,
+  }), [usersData]);
+
+  const displayedUsers = useMemo(() => {
+    const normalizedQuery = searchQuery.trim().toLowerCase();
+    return usersData
+      .filter((user) => {
+        const role = user.role || 'user';
+        const matchesRole = roleFilter === 'all' || role === roleFilter;
+        const searchable = `${user.displayName || ''} ${user.email || ''} ${user.id}`.toLowerCase();
+        return matchesRole && searchable.includes(normalizedQuery);
+      })
+      .sort((a, b) => {
+        if (sortOrder === 'storage') return b.storageUsed - a.storageUsed;
+        if (sortOrder === 'projects') return b.projectCount - a.projectCount;
+        if (sortOrder === 'name') return String(a.displayName || a.email || '').localeCompare(String(b.displayName || b.email || ''), 'th');
+        return (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0);
+      });
+  }, [usersData, searchQuery, roleFilter, sortOrder]);
+
+  const storageSegments = useMemo(() => [
+    { label: 'โปรเจกต์ Editor', bytes: totals.editorBytes, className: 'bg-blue-500' },
+    { label: 'โปรเจกต์จัดวง', bytes: totals.arrangerBytes, className: 'bg-violet-500' },
+    { label: 'ข้อมูลระบบ', bytes: totals.systemBytes, className: 'bg-emerald-500' },
+    { label: 'บัญชีผู้ใช้', bytes: totals.userProfileBytes, className: 'bg-slate-400' },
+  ], [totals]);
 
   const handleRoleChange = async (userId, newRole) => {
-    if (!window.confirm(`คุณแน่ใจหรือไม่ว่าต้องการเปลี่ยนยศผู้ใช้นี้เป็น ${newRole}?`)) return;
-
+    if (!window.confirm(`ยืนยันการเปลี่ยนสิทธิ์เป็น ${newRole}?`)) return;
     setIsUpdating(true);
     try {
       if (newRole === 'premium') {
         await upgradeUserToPremium(userId, 1);
-        fetchUsers(); 
+        await fetchDashboardData();
       } else {
-        const userRef = doc(db, "users", userId);
-        await updateDoc(userRef, { role: newRole });
-        setUsers(users.map(user => user.id === userId ? { ...user, role: newRole } : user));
+        await updateDoc(doc(db, 'users', userId), { role: newRole });
+        setUsersData((current) => current.map((user) => (
+          user.id === userId ? { ...user, role: newRole } : user
+        )));
       }
     } catch (error) {
-      alert("เกิดข้อผิดพลาดในการเปลี่ยนยศ");
+      console.error('เปลี่ยนสิทธิ์ไม่สำเร็จ:', error);
+      alert('ไม่สามารถเปลี่ยนสิทธิ์ผู้ใช้ได้');
     } finally {
       setIsUpdating(false);
     }
   };
 
   const handleExtendPremium = async (userId) => {
-    if (!window.confirm(`ยืนยันการต่ออายุ Premium เพิ่ม 1 เดือน?`)) return;
+    if (!window.confirm('ยืนยันการต่ออายุ Premium เพิ่ม 1 เดือน?')) return;
     setIsUpdating(true);
     try {
       await upgradeUserToPremium(userId, 1);
-      fetchUsers(); 
-    } catch(e) {
-      alert("เกิดข้อผิดพลาดในการต่ออายุ");
+      await fetchDashboardData();
+    } catch (error) {
+      console.error('ต่ออายุ Premium ไม่สำเร็จ:', error);
+      alert('ไม่สามารถต่ออายุ Premium ได้');
     } finally {
       setIsUpdating(false);
     }
   };
 
-  const handleOpenUserModal = async (user) => {
-    setSelectedUser(user);
-    setIsLoadingProjects(true);
-    try {
-      const projectsRef = collection(db, `users/${user.id}/projects`);
-      const querySnapshot = await getDocs(projectsRef);
-      const list = querySnapshot.docs.map(docSnap => ({
-        id: docSnap.id,
-        ...docSnap.data()
-      }));
-      setUserProjects(list);
-    } catch (error) {
-      console.error("ดึงโปรเจกต์ไม่สำเร็จ:", error);
-      alert("ไม่สามารถดึงข้อมูลโปรเจกต์ของผู้ใช้คนนี้ได้");
-    } finally {
-      setIsLoadingProjects(false);
-    }
-  };
-
   const handleDownloadProject = (project) => {
-    try {
-      let sheetDataParsed = project.sheetData;
-      if (typeof project.sheetData === 'string') {
-        try { sheetDataParsed = JSON.parse(project.sheetData); } catch(e) {}
-      }
-
-      const projectData = {
-        ...project,
-        sheetData: sheetDataParsed
-      };
-
-      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(projectData, null, 2));
-      const downloadAnchor = document.createElement('a');
-      downloadAnchor.setAttribute("href", dataStr);
-      downloadAnchor.setAttribute("download", `${project.name || 'project'}.tme`);
-      document.body.appendChild(downloadAnchor);
-      downloadAnchor.click();
-      downloadAnchor.remove();
-    } catch (error) {
-      console.error("ดาวน์โหลดไม่สำเร็จ:", error);
-      alert("เกิดข้อผิดพลาดในการดาวน์โหลดไฟล์");
+    const projectData = { ...project };
+    delete projectData.bytes;
+    delete projectData.kind;
+    if (typeof projectData.sheetData === 'string') {
+      try { projectData.sheetData = JSON.parse(projectData.sheetData); } catch { /* keep source data */ }
     }
-  };
-
-  let displayedUsers = users.filter(user => {
-    const role = user.role || 'user';
-    const matchesTab = activeTab === 'all' || role === activeTab;
-
-    const searchLower = searchQuery.toLowerCase();
-    const name = (user.displayName || "").toLowerCase();
-    const email = (user.email || "").toLowerCase();
-    const id = (user.id || "").toLowerCase();
-    return matchesTab && (name.includes(searchLower) || email.includes(searchLower) || id.includes(searchLower));
-  });
-
-  displayedUsers.sort((a, b) => {
-    if (sortOrder === 'latest') return (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0);
-    if (sortOrder === 'oldest') return (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0);
-    if (sortOrder === 'sizeDesc') return b.storageUsed - a.storageUsed; 
-    if (sortOrder === 'sizeAsc') return a.storageUsed - b.storageUsed;  
-    if (sortOrder === 'nameAsc') {
-      const nameA = a.displayName || a.email?.split('@')[0] || "";
-      const nameB = b.displayName || b.email?.split('@')[0] || "";
-      return nameA.localeCompare(nameB, 'th');
-    }
-    if (sortOrder === 'nameDesc') {
-      const nameA = a.displayName || a.email?.split('@')[0] || "";
-      const nameB = b.displayName || b.email?.split('@')[0] || "";
-      return nameB.localeCompare(nameA, 'th');
-    }
-    return 0;
-  });
-
-  const getSortLabel = () => {
-    switch(sortOrder) {
-      case 'latest': return 'สมัครล่าสุด';
-      case 'oldest': return 'สมัครเก่าสุด';
-      case 'sizeDesc': return 'พื้นที่มากสุด';
-      case 'sizeAsc': return 'พื้นที่น้อยสุด';
-      case 'nameAsc': return 'ชื่อ ก - ฮ (A-Z)';
-      case 'nameDesc': return 'ชื่อ ฮ - ก (Z-A)';
-      default: return 'สมัครล่าสุด';
-    }
+    const blob = new Blob([JSON.stringify(projectData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = project.kind === 'arranger'
+      ? `${project.name || 'arranger-project'}.arranger.json`
+      : `${project.name || 'project'}.tme`;
+    link.click();
+    URL.revokeObjectURL(url);
   };
 
   if (!isAdmin) {
     return (
-      <div className="flex flex-col items-center justify-center h-full text-slate-500">
-        <div className="text-6xl mb-4">⛔</div><h3 className="text-xl font-bold text-slate-800">ไม่มีสิทธิ์เข้าถึง</h3><p>หน้านี้สงวนไว้สำหรับผู้ดูแลระบบเท่านั้น</p>
+      <div className="flex h-full flex-col items-center justify-center px-6 text-center text-slate-500">
+        <span className="flex h-16 w-16 items-center justify-center rounded-2xl bg-rose-50 text-rose-500"><ShieldCheck size={30} /></span>
+        <h3 className="mt-5 text-xl font-bold text-slate-800">ไม่มีสิทธิ์เข้าถึง</h3>
+        <p className="mt-2 text-sm">หน้านี้สงวนไว้สำหรับผู้ดูแลระบบเท่านั้น</p>
       </div>
     );
   }
 
-  const countAll = users.length;
-  const countUser = users.filter(u => (u.role || 'user') === 'user').length;
-  const countPremium = users.filter(u => u.role === 'premium').length;
-  const countAdmin = users.filter(u => u.role === 'admin').length;
-
   return (
     <div className="app-page-shell animate-fadeIn text-slate-800" style={{ fontFamily: 'Prompt, sans-serif' }}>
-      <PageHeader icon={ShieldCheck} badge="Admin Console" title="จัดการผู้ใช้งาน" subtitle="ดูรายชื่อผู้ใช้งานทั้งหมด และกำหนดสิทธิ์การเข้าถึง (User, Premium, Admin)" />
+      <PageHeader
+        icon={ShieldCheck}
+        badge="Admin Console"
+        title="System Analytics"
+        subtitle="ติดตามผู้ใช้งาน กิจกรรมระบบ และ Firebase quota จากศูนย์กลางเดียว"
+      >
+        <button type="button" onClick={fetchDashboardData} disabled={isLoading} className="flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-xs font-bold text-slate-600 shadow-sm transition-colors hover:bg-slate-50 disabled:opacity-50">
+          <RefreshCw size={15} className={isLoading ? 'animate-spin' : ''} />
+          รีเฟรชข้อมูล
+        </button>
+      </PageHeader>
 
-      <div className="bg-white border border-slate-200 rounded-2xl p-5 md:p-6 shadow-sm mb-6 flex flex-col md:flex-row items-center gap-6">
-        <div className="w-16 h-16 rounded-full bg-blue-50 text-blue-500 flex items-center justify-center shrink-0">
-          <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" /></svg>
-        </div>
-        <div className="flex-1 w-full">
-          <div className="flex items-center justify-between mb-2">
-            <div><h3 className="text-lg font-bold text-slate-800">พื้นที่จัดเก็บรวมของระบบ (Firebase)</h3><p className="text-xs text-slate-500">รวมข้อมูลจากผู้ใช้ทั้งหมด {users.length} บัญชี</p></div>
-            <div className="text-right"><span className="text-lg font-black text-blue-600">{formatBytes(totalSystemBytes)}</span><span className="text-xs text-slate-400 block">จาก 1 GB (โควตาฟรี)</span></div>
-          </div>
-          <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden">
-            <div className={`h-full rounded-full transition-all duration-1000 ${(totalSystemBytes / SYSTEM_MAX_BYTES) > 0.9 ? 'bg-red-500' : 'bg-blue-500'}`} style={{ width: `${Math.max((totalSystemBytes / SYSTEM_MAX_BYTES) * 100, 0.5)}%` }}></div>
-          </div>
-        </div>
-      </div>
+      {loadError && <div className="mb-5 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{loadError}</div>}
 
-      <div className="flex space-x-1.5 bg-slate-100/70 p-1.5 rounded-2xl mb-5 overflow-x-auto hide-scrollbar border border-slate-200/50">
-        <button onClick={() => setActiveTab('all')} className={`flex-1 min-w-[100px] py-2.5 px-4 text-[13px] font-bold rounded-xl transition-all whitespace-nowrap ${activeTab === 'all' ? 'bg-white text-slate-800 shadow-[0_2px_8px_rgba(0,0,0,0.06)]' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'}`}>ทั้งหมด ({countAll})</button>
-        <button onClick={() => setActiveTab('user')} className={`flex-1 min-w-[100px] py-2.5 px-4 text-[13px] font-bold rounded-xl transition-all whitespace-nowrap ${activeTab === 'user' ? 'bg-white text-sky-600 shadow-[0_2px_8px_rgba(0,0,0,0.06)]' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'}`}>ผู้ใช้งานทั่วไป ({countUser})</button>
-        <button onClick={() => setActiveTab('premium')} className={`flex-1 min-w-[100px] py-2.5 px-4 text-[13px] font-bold rounded-xl transition-all whitespace-nowrap ${activeTab === 'premium' ? 'bg-white text-amber-600 shadow-[0_2px_8px_rgba(0,0,0,0.06)]' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'}`}>พรีเมียม ({countPremium})</button>
-        <button onClick={() => setActiveTab('admin')} className={`flex-1 min-w-[100px] py-2.5 px-4 text-[13px] font-bold rounded-xl transition-all whitespace-nowrap ${activeTab === 'admin' ? 'bg-white text-violet-600 shadow-[0_2px_8px_rgba(0,0,0,0.06)]' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'}`}>แอดมิน ({countAdmin})</button>
-      </div>
-
-      <div className="flex flex-col md:flex-row items-center justify-between mb-4 gap-4 w-full">
-        <div className="relative w-full md:w-80">
-          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none"><svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg></div>
-          <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="ค้นหาชื่อ, อีเมล, หรือ ID..." className="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 shadow-sm rounded-xl text-sm focus:outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-400 transition-all placeholder:text-slate-400" />
-        </div>
-
-        <div className="relative z-30 w-full md:w-auto">
-          <button onClick={(e) => { e.stopPropagation(); setIsSortMenuOpen(!isSortMenuOpen); }} className="flex items-center justify-between w-full md:w-auto min-w-[160px] gap-2 px-4 py-2 bg-white border border-slate-200 rounded-xl text-sm font-semibold text-slate-600 shadow-sm hover:border-slate-300 transition-colors">
-            <span className="flex items-center gap-2"><svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12" /></svg>{getSortLabel()}</span>
-            <svg className={`w-4 h-4 text-slate-400 transition-transform ${isSortMenuOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+      <div className="mb-6 flex gap-1 overflow-x-auto rounded-2xl border border-slate-200 bg-slate-100/70 p-1.5">
+        {[
+          ['analytics', 'System Analytics', Activity],
+          ['overview', 'ภาพรวม', BarChart3],
+          ['users', 'จัดการผู้ใช้', Users],
+          ['database', 'ข้อมูล Firebase', Database],
+        ].map(([id, label, Icon]) => (
+          <button key={id} type="button" onClick={() => setActiveSection(id)} className={`flex min-w-36 flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold transition-all ${activeSection === id ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>
+            {React.createElement(Icon, { size: 15 })} {label}
           </button>
-          
-          {isSortMenuOpen && (
-            <div className="absolute right-0 mt-1.5 w-48 bg-white border border-slate-100 rounded-xl shadow-[0_4px_24px_rgba(0,0,0,0.12)] py-1.5 z-50 animate-fadeIn">
-              <div onClick={() => { setSortOrder('sizeDesc'); setIsSortMenuOpen(false); }} className={`px-4 py-2 text-sm font-medium cursor-pointer transition-colors ${sortOrder === 'sizeDesc' ? 'bg-sky-50 text-sky-600' : 'text-slate-600 hover:bg-slate-50'}`}>พื้นที่มากสุด</div>
-              <div onClick={() => { setSortOrder('sizeAsc'); setIsSortMenuOpen(false); }} className={`px-4 py-2 text-sm font-medium cursor-pointer transition-colors ${sortOrder === 'sizeAsc' ? 'bg-sky-50 text-sky-600' : 'text-slate-600 hover:bg-slate-50'}`}>พื้นที่น้อยสุด</div>
-              <div className="h-px bg-slate-100 my-1"></div>
-              <div onClick={() => { setSortOrder('nameAsc'); setIsSortMenuOpen(false); }} className={`px-4 py-2 text-sm font-medium cursor-pointer transition-colors ${sortOrder === 'nameAsc' ? 'bg-sky-50 text-sky-600' : 'text-slate-600 hover:bg-slate-50'}`}>ชื่อ ก - ฮ (A-Z)</div>
-              <div onClick={() => { setSortOrder('nameDesc'); setIsSortMenuOpen(false); }} className={`px-4 py-2 text-sm font-medium cursor-pointer transition-colors ${sortOrder === 'nameDesc' ? 'bg-sky-50 text-sky-600' : 'text-slate-600 hover:bg-slate-50'}`}>ชื่อ ฮ - ก (Z-A)</div>
-              <div className="h-px bg-slate-100 my-1"></div>
-              <div onClick={() => { setSortOrder('latest'); setIsSortMenuOpen(false); }} className={`px-4 py-2 text-sm font-medium cursor-pointer transition-colors ${sortOrder === 'latest' ? 'bg-sky-50 text-sky-600' : 'text-slate-600 hover:bg-slate-50'}`}>สมัครล่าสุด</div>
-              <div onClick={() => { setSortOrder('oldest'); setIsSortMenuOpen(false); }} className={`px-4 py-2 text-sm font-medium cursor-pointer transition-colors ${sortOrder === 'oldest' ? 'bg-sky-50 text-sky-600' : 'text-slate-600 hover:bg-slate-50'}`}>สมัครเก่าสุด</div>
-            </div>
-          )}
-        </div>
+        ))}
       </div>
 
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-slate-50 text-slate-500 text-sm border-b border-slate-200">
-                <th className="px-6 py-4 font-bold">ชื่อผู้ใช้ / อีเมล</th>
-                <th className="px-6 py-4 font-bold">โควตา / ข้อมูลพรีเมียม</th>
-                <th className="px-6 py-4 font-bold text-center">จัดการสิทธิ์</th>
-              </tr>
-            </thead>
-            <tbody>
-              {isLoading ? (
-                <tr><td colSpan="3" className="px-6 py-10 text-center text-slate-500 font-medium">กำลังคำนวณพื้นที่จัดเก็บ กรุณารอสักครู่...</td></tr>
-              ) : displayedUsers.length === 0 ? (
-                <tr>
-                  <td colSpan="3" className="px-6 py-10 text-center text-slate-500 font-medium">
-                    {searchQuery ? `ไม่พบข้อมูลที่ตรงกับ "${searchQuery}"` : "ไม่พบข้อมูลผู้ใช้งานในหมวดหมู่นี้"}
-                  </td>
-                </tr>
-              ) : (
-                displayedUsers.map(user => {
-                  const role = user.role || 'user';
-                  // ⭐ คำนวณเวลาที่เหลือแบบใหม่ โดยเปรียบเทียบกับตัวแปร now ที่วิ่งตลอดเวลา
-                  const timeLeft = calculateTimeLeft(user.premiumUntil, now);
-                  const isExpired = timeLeft !== null && timeLeft.expired;
-                  
-                  let usagePercent = 0;
-                  if (role === 'user') usagePercent = Math.min((user.projectCount / 10) * 100, 100);
-                  if (role === 'premium') usagePercent = Math.min((user.storageUsed / (5 * 1024 * 1024)) * 100, 100);
+      {activeSection === 'analytics' && (
+        <SystemAnalyticsPanel
+          users={usersData}
+          totalProjects={totals.totalProjects}
+          estimatedStorageBytes={totals.totalBytes}
+        />
+      )}
 
-                  return (
-                    <tr key={user.id} className="border-b border-slate-100 hover:bg-sky-50/40 transition-colors">
-                      <td className="px-6 py-4 cursor-pointer" onClick={() => handleOpenUserModal(user)} title="คลิกเพื่อดูไฟล์ของยูสเซอร์นี้">
-                        <div className="font-bold text-slate-800 hover:text-sky-600 transition-colors flex items-center gap-1.5">
-                          {user.displayName || user.email?.split('@')[0] || 'ผู้ใช้งาน'}
-                          <svg className="w-3.5 h-3.5 text-sky-500 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
-                        </div>
-                        <div className="text-xs text-slate-500">{user.email}</div>
-                        <div className="text-[11px] text-sky-600 font-medium mt-1">📅 สมัครเมื่อ: {formatDate(user.createdAt)}</div>
-                        <div className="text-[10px] text-slate-300 uppercase mt-0.5">ID: {user.id}</div>
-                      </td>
-                      
-                      <td className="px-6 py-4">
-                        <div className="flex flex-col gap-1 w-52">
-                          <div className="flex items-center justify-between text-xs font-bold text-slate-700">
-                            {role === 'user' ? (
-                              <><span>{user.projectCount} ไฟล์</span><span className="text-[10px] text-slate-400 font-normal">({formatBytes(user.storageUsed)})</span></>
-                            ) : (
-                              <><span>{formatBytes(user.storageUsed)}</span><span className="text-[10px] text-slate-400 font-normal">({user.projectCount} ไฟล์)</span></>
-                            )}
-                          </div>
-                          
-                          {role === 'user' ? (
-                            <><div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden"><div className={`h-full rounded-full transition-all ${usagePercent >= 100 ? 'bg-red-500' : 'bg-sky-400'}`} style={{ width: `${Math.max(usagePercent, 1)}%` }}></div></div><div className="text-[9px] text-slate-400 text-right">จากโควตา 10 ไฟล์</div></>
-                          ) : role === 'premium' ? (
-                            <><div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden"><div className={`h-full rounded-full transition-all ${usagePercent >= 100 ? 'bg-red-500' : 'bg-amber-400'}`} style={{ width: `${Math.max(usagePercent, 1)}%` }}></div></div><div className="text-[9px] text-slate-400 text-right mb-1.5">จากโควตา 5 MB</div></>
-                          ) : (
-                            <div className="w-full h-1.5 bg-violet-100 rounded-full overflow-hidden mt-0.5"><div className="h-full bg-violet-400 rounded-full w-full"></div></div>
-                          )}
+      {activeSection === 'overview' && (
+        <>
+          <section className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <StatCard label="ผู้ใช้งานทั้งหมด" value={usersData.length.toLocaleString()} detail={`Premium ${roleCounts.premium} · Admin ${roleCounts.admin}`} Icon={Users} iconClass="bg-sky-50 text-sky-600" />
+            <StatCard label="โปรเจกต์ทั้งหมด" value={totals.totalProjects.toLocaleString()} detail={`Editor ${totals.editorProjects} · จัดวง ${totals.arrangerProjects}`} Icon={FolderKanban} iconClass="bg-violet-50 text-violet-600" />
+            <StatCard label="เอกสารบน Firebase" value={totals.totalDocuments.toLocaleString()} detail="รวมเอกสารผู้ใช้และข้อมูลระบบ" Icon={Archive} iconClass="bg-emerald-50 text-emerald-600" />
+            <StatCard label="ขนาดข้อมูลโดยประมาณ" value={formatBytes(totals.totalBytes)} detail="ตามสูตรเอกสาร Firestore ไม่รวมดัชนี" Icon={HardDrive} iconClass="bg-orange-50 text-orange-600" />
+          </section>
 
-                          {/* ⭐ ส่วนแสดงข้อมูลเวลานับถอยหลัง */}
-                          {role === 'premium' && (
-                            <div className="mt-1 pt-1.5 border-t border-slate-100">
-                              {timeLeft !== null ? (
-                                isExpired ? (
-                                  <div className="text-[11px] font-bold text-red-500 flex items-center gap-1">
-                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                    สิ้นสุดการใช้งานแล้ว
-                                  </div>
-                                ) : (
-                                  <div className="text-[11px] font-bold text-emerald-600 flex items-center gap-1">
-                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                    เหลือ {timeLeft.days} วัน {timeLeft.hours} ชม. {timeLeft.minutes} นาที
-                                  </div>
-                                )
-                              ) : (
-                                <div className="text-[11px] font-bold text-slate-400">ยังไม่ระบุวันหมดอายุ</div>
-                              )}
-                              
-                              {user.premiumUntil && (
-                                <div className="text-[10px] text-slate-400 font-medium mt-0.5">
-                                  (ถึง {formatDate(user.premiumUntil)})
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      </td>
-
-                      <td className="px-6 py-4 text-center align-top" onClick={(e) => e.stopPropagation()}>
-                        <select 
-                          value={role}
-                          onChange={(e) => handleRoleChange(user.id, e.target.value)}
-                          disabled={isUpdating}
-                          className={`border text-sm rounded-lg block w-full p-2.5 outline-none cursor-pointer disabled:opacity-50 transition-colors font-bold ${
-                            role === 'admin' ? 'bg-violet-50 border-violet-200 text-violet-700 focus:ring-violet-500 focus:border-violet-500' :
-                            role === 'premium' ? 'bg-amber-50 border-amber-200 text-amber-700 focus:ring-amber-500 focus:border-amber-500' :
-                            'bg-white border-slate-300 text-slate-700 focus:ring-sky-500 focus:border-sky-500'
-                          }`}
-                        >
-                          <option value="user">Free User (10 ไฟล์)</option>
-                          <option value="premium">Premium (5 MB)</option>
-                          <option value="admin">Admin (ไม่จำกัด)</option>
-                        </select>
-
-                        {role === 'premium' && (
-                          <button
-                            onClick={() => handleExtendPremium(user.id)}
-                            disabled={isUpdating}
-                            className="mt-2 text-[11px] font-bold text-white bg-amber-500 hover:bg-amber-600 px-3 py-1.5 rounded-lg w-full transition-colors shadow-sm disabled:opacity-50 flex items-center justify-center gap-1"
-                          >
-                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
-                            ต่ออายุ 1 เดือน
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {selectedUser && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-fadeIn">
-          <div className="bg-white rounded-3xl p-6 md:p-8 w-full max-w-2xl shadow-2xl scale-100 animate-slideUp flex flex-col max-h-[85vh]">
-            
-            <div className="flex items-center justify-between pb-4 border-b border-slate-100 mb-4">
-              <div>
-                <h3 className="text-lg font-bold text-slate-800">โปรเจกต์ของ: {selectedUser.displayName || selectedUser.email}</h3>
-                <p className="text-xs text-slate-400">พบทั้งหมด {userProjects.length} ไฟล์</p>
+          <section className="mb-6 grid gap-5 xl:grid-cols-[1.4fr_1fr]">
+            <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm md:p-6">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2 text-sm font-black text-slate-900"><Database size={18} className="text-blue-600" /> พื้นที่ข้อมูล Firebase</div>
+                  <p className="mt-1 text-xs text-slate-500">คำนวณจากข้อมูลทุกเอกสารที่ Dashboard อ่านได้</p>
+                </div>
+                <div className="text-right">
+                  <strong className="block text-2xl font-black text-blue-600">{formatBytes(totals.totalBytes)}</strong>
+                  <span className="text-[10px] text-slate-400">จากโควตา Firestore 1 GiB</span>
+                </div>
               </div>
-              <button 
-                onClick={() => setSelectedUser(null)}
-                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 transition-colors"
-              >
-                ✕
-              </button>
+
+              <div className="mt-6 flex h-3 overflow-hidden rounded-full bg-slate-100">
+                {storageSegments.map((segment) => (
+                  <div key={segment.label} className={segment.className} style={{ width: totals.totalBytes ? `${Math.max((segment.bytes / totals.totalBytes) * 100, segment.bytes ? 1 : 0)}%` : '0%' }} title={`${segment.label}: ${formatBytes(segment.bytes)}`} />
+                ))}
+              </div>
+
+              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                {storageSegments.map((segment) => (
+                  <div key={segment.label} className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2.5">
+                    <span className="flex items-center gap-2 text-xs font-semibold text-slate-600"><i className={`h-2.5 w-2.5 rounded-full ${segment.className}`} />{segment.label}</span>
+                    <strong className="text-xs text-slate-800">{formatBytes(segment.bytes)}</strong>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-5 rounded-xl border border-blue-100 bg-blue-50/70 px-4 py-3 text-[11px] leading-5 text-blue-800">
+                ตัวเลขนี้รวมขนาดชื่อเอกสาร ชื่อฟิลด์ และค่าข้อมูลตามสูตร Firestore แต่ไม่รวมพื้นที่ดัชนี หากต้องการตัวเลขสำหรับการเรียกเก็บเงินจริง ให้ตรวจหน้า Usage/Billing ใน Firebase Console
+              </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto pr-1 space-y-3">
-              {isLoadingProjects ? (
-                <div className="py-12 text-center text-slate-400 font-medium">กำลังโหลดรายการโปรเจกต์...</div>
-              ) : userProjects.length === 0 ? (
-                <div className="py-12 text-center text-slate-400 font-medium border border-dashed border-slate-200 rounded-2xl">ผู้ใช้คนนี้ยังไม่มีโปรเจกต์ในระบบ</div>
-              ) : (
-                userProjects.map(project => {
-                  const bytes = new Blob([JSON.stringify(project)]).size;
+            <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm md:p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-sm font-black text-slate-900">สัดส่วนสมาชิก</h2>
+                  <p className="mt-1 text-xs text-slate-500">สถานะบัญชีปัจจุบัน</p>
+                </div>
+                <Users size={20} className="text-slate-400" />
+              </div>
+              <div className="mt-6 space-y-4">
+                {[
+                  ['สมาชิกทั่วไป', roleCounts.user, 'bg-sky-500', UserRound],
+                  ['สมาชิก Premium', roleCounts.premium, 'bg-amber-500', Crown],
+                  ['ผู้ดูแลระบบ', roleCounts.admin, 'bg-violet-500', ShieldCheck],
+                ].map(([label, count, color, Icon]) => {
+                  const percent = usersData.length ? (count / usersData.length) * 100 : 0;
                   return (
-                    <div key={project.id} className="flex items-center justify-between p-4 bg-slate-50 hover:bg-sky-50/50 border border-slate-100 rounded-2xl transition-all">
-                      <div className="flex-1 min-w-0 mr-4">
-                        <h4 className="font-bold text-slate-800 text-sm truncate">{project.name || "โปรเจกต์ไม่มีชื่อ"}</h4>
-                        <div className="flex items-center gap-3 mt-1">
-                          <span className="text-[11px] text-slate-400">📅 แก้ไขล่าสุด: {formatDate(project.updatedAt)}</span>
-                          <span className="text-[10px] bg-slate-200/70 text-slate-600 px-2 py-0.5 rounded font-bold">{formatBytes(bytes)}</span>
-                        </div>
-                      </div>
-                      
-                      <button 
-                        onClick={() => handleDownloadProject(project)}
-                        className="flex items-center gap-1.5 px-3.5 py-2 bg-sky-500 hover:bg-sky-600 text-white rounded-xl text-xs font-bold transition-all shadow-sm shadow-sky-500/20 active:scale-95 shrink-0"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                        ดาวน์โหลด
-                      </button>
+                    <div key={label}>
+                      <div className="mb-1.5 flex items-center justify-between text-xs"><span className="flex items-center gap-2 font-semibold text-slate-600">{React.createElement(Icon, { size: 14 })}{label}</span><strong>{count} คน</strong></div>
+                      <div className="h-2 overflow-hidden rounded-full bg-slate-100"><div className={`h-full rounded-full ${color}`} style={{ width: `${percent}%` }} /></div>
                     </div>
                   );
-                })
-              )}
+                })}
+              </div>
+              <div className="mt-6 flex items-center gap-2 border-t border-slate-100 pt-4 text-[10px] text-slate-400"><Clock3 size={13} />อัปเดตล่าสุด {lastUpdated ? lastUpdated.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : '—'}</div>
             </div>
+          </section>
 
-            <div className="pt-4 border-t border-slate-100 mt-4 text-right">
-              <button 
-                onClick={() => setSelectedUser(null)}
-                className="px-5 py-2.5 font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors text-sm"
-              >
-                ปิดหน้าต่าง
-              </button>
+          <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm md:p-6">
+            <div className="mb-4 flex items-center justify-between">
+              <div><h2 className="text-sm font-black text-slate-900">ข้อมูลระบบ</h2><p className="mt-1 text-xs text-slate-500">Collection ส่วนกลางที่แอปใช้งาน</p></div>
+              <button type="button" onClick={() => setActiveSection('database')} className="text-xs font-bold text-blue-600 hover:text-blue-700">ดูทั้งหมด</button>
             </div>
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {systemCollections.map((item) => <CollectionCard key={item.id} item={item} />)}
+            </div>
+          </section>
+        </>
+      )}
 
+      {activeSection === 'users' && (
+        <section>
+          <div className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+            <div className="flex gap-1 overflow-x-auto rounded-xl border border-slate-200 bg-white p-1">
+              {[
+                ['all', 'ทั้งหมด'],
+                ['user', 'ทั่วไป'],
+                ['premium', 'Premium'],
+                ['admin', 'Admin'],
+              ].map(([id, label]) => (
+                <button key={id} type="button" onClick={() => setRoleFilter(id)} className={`whitespace-nowrap rounded-lg px-3 py-2 text-xs font-bold ${roleFilter === id ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-50'}`}>{label} ({roleCounts[id]})</button>
+              ))}
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <label className="flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-slate-400 shadow-sm sm:w-72">
+                <Search size={15} /><input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} className="min-w-0 flex-1 bg-transparent text-xs text-slate-700 outline-none" placeholder="ค้นหาชื่อ อีเมล หรือ UID..." />
+              </label>
+              <select value={sortOrder} onChange={(event) => setSortOrder(event.target.value)} className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 outline-none">
+                <option value="latest">สมัครล่าสุด</option>
+                <option value="storage">ใช้พื้นที่มากสุด</option>
+                <option value="projects">โปรเจกต์มากสุด</option>
+                <option value="name">เรียงตามชื่อ</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[820px] text-left">
+                <thead className="border-b border-slate-200 bg-slate-50 text-[11px] font-bold text-slate-500">
+                  <tr><th className="px-5 py-3.5">ผู้ใช้งาน</th><th className="px-5 py-3.5">โปรเจกต์</th><th className="px-5 py-3.5">พื้นที่ข้อมูล</th><th className="px-5 py-3.5">สมาชิก</th><th className="px-5 py-3.5 text-right">จัดการสิทธิ์</th></tr>
+                </thead>
+                <tbody>
+                  {isLoading ? (
+                    <tr><td colSpan="5" className="px-5 py-14 text-center text-sm text-slate-500">กำลังรวบรวมข้อมูลจาก Firebase...</td></tr>
+                  ) : displayedUsers.length === 0 ? (
+                    <tr><td colSpan="5" className="px-5 py-14 text-center text-sm text-slate-500">ไม่พบผู้ใช้งานที่ตรงกับเงื่อนไข</td></tr>
+                  ) : displayedUsers.map((user) => {
+                    const role = user.role || 'user';
+                    const timeLeft = calculateTimeLeft(user.premiumUntil, now);
+                    return (
+                      <tr key={user.id} onClick={() => setSelectedUser(user)} className="cursor-pointer border-b border-slate-100 transition-colors last:border-0 hover:bg-blue-50/40">
+                        <td className="px-5 py-4"><div className="flex items-center gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-sm font-black text-white">{String(user.displayName || user.email || 'U')[0].toUpperCase()}</span><div className="min-w-0"><p className="max-w-64 truncate text-sm font-bold text-slate-800">{user.displayName || 'ไม่ระบุชื่อ'}</p><p className="max-w-64 truncate text-[11px] text-slate-400">{user.email || user.id}</p></div></div></td>
+                        <td className="px-5 py-4"><p className="text-sm font-bold text-slate-800">{user.projectCount}</p><p className="text-[10px] text-slate-400">Editor {user.editorProjectCount} · จัดวง {user.arrangerProjectCount}</p></td>
+                        <td className="px-5 py-4"><p className="text-sm font-bold text-slate-800">{formatBytes(user.storageUsed)}</p><p className="text-[10px] text-slate-400">รวมข้อมูลบัญชี</p></td>
+                        <td className="px-5 py-4"><span className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase ${roleStyle[role]}`}>{role}</span>{role === 'premium' && <p className={`mt-1 text-[9px] font-semibold ${timeLeft?.expired ? 'text-rose-500' : 'text-amber-600'}`}>{timeLeft?.expired ? 'หมดอายุแล้ว' : timeLeft ? `เหลือ ${timeLeft.days} วัน ${timeLeft.hours} ชม.` : 'ไม่ระบุวันหมดอายุ'}</p>}</td>
+                        <td className="px-5 py-4 text-right" onClick={(event) => event.stopPropagation()}><div className="inline-flex items-center gap-2"><select value={role} onChange={(event) => handleRoleChange(user.id, event.target.value)} disabled={isUpdating} className={`rounded-lg border px-2.5 py-2 text-xs font-bold outline-none ${roleStyle[role]}`}><option value="user">Free</option><option value="premium">Premium</option><option value="admin">Admin</option></select>{role === 'premium' && <button type="button" onClick={() => handleExtendPremium(user.id)} disabled={isUpdating} className="rounded-lg bg-amber-500 px-3 py-2 text-[10px] font-bold text-white hover:bg-amber-600">ต่ออายุ</button>}</div></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {activeSection === 'database' && (
+        <section className="space-y-5">
+          <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm md:p-6">
+            <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+              <div><h2 className="text-base font-black text-slate-900">รายการข้อมูล Firebase</h2><p className="mt-1 text-xs text-slate-500">แยกตามประเภทข้อมูลที่ระบบใช้งานจริง</p></div>
+              <span className="rounded-full bg-slate-100 px-3 py-1.5 text-[10px] font-bold text-slate-600">{totals.totalDocuments} เอกสาร · {formatBytes(totals.totalBytes)}</span>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              <CollectionCard item={{ id: 'users', label: 'บัญชีผู้ใช้งาน', Icon: Users, color: 'text-slate-700 bg-slate-100', count: usersData.length, bytes: totals.userProfileBytes, available: true }} />
+              <CollectionCard item={{ id: 'projects', label: 'โปรเจกต์ Editor', Icon: FileMusic, color: 'text-blue-600 bg-blue-50', count: totals.editorProjects, bytes: totals.editorBytes, available: true }} />
+              <CollectionCard item={{ id: 'arrangerProjects', label: 'โปรเจกต์จัดวง', Icon: SlidersHorizontal, color: 'text-violet-600 bg-violet-50', count: totals.arrangerProjects, bytes: totals.arrangerBytes, available: true }} />
+              {systemCollections.map((item) => <CollectionCard key={item.id} item={item} />)}
+              <CollectionCard item={{ id: 'built-in-templates', label: 'เทมเพลตที่มากับเว็บ', Icon: LayoutTemplate, color: 'text-indigo-600 bg-indigo-50', count: BUILT_IN_TEMPLATE_COUNT, bytes: 0, available: true, local: true }} />
+            </div>
+          </div>
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-xs leading-6 text-amber-900">
+            เทมเพลตมาตรฐาน {BUILT_IN_TEMPLATE_COUNT} แบบในหน้าผู้ใช้เป็นไฟล์ภายในตัวเว็บ จึงไม่กินพื้นที่ Firestore ส่วน “เทมเพลตบน Cloud” จะแสดงเฉพาะเอกสารใน collection <code className="rounded bg-white/70 px-1.5 py-0.5 font-mono">templates</code>
+          </div>
+        </section>
+      )}
+
+      {selectedUser && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
+          <div className="flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
+            <div className="flex items-start justify-between border-b border-slate-100 px-6 py-5">
+              <div><h3 className="text-lg font-black text-slate-900">{selectedUser.displayName || selectedUser.email || 'ผู้ใช้งาน'}</h3><p className="mt-1 text-xs text-slate-500">Editor {selectedUser.editorProjectCount} · จัดวง {selectedUser.arrangerProjectCount} · {formatBytes(selectedUser.storageUsed)}</p></div>
+              <button type="button" onClick={() => setSelectedUser(null)} className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 text-slate-500 hover:bg-slate-200"><X size={17} /></button>
+            </div>
+            <div className="flex-1 space-y-3 overflow-y-auto p-5">
+              {selectedUser.projects.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-slate-200 py-12 text-center text-sm text-slate-400">ผู้ใช้นี้ยังไม่มีโปรเจกต์</div>
+              ) : selectedUser.projects.map((project) => (
+                <div key={`${project.kind}-${project.id}`} className="flex items-center gap-4 rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+                  <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${project.kind === 'arranger' ? 'bg-violet-100 text-violet-600' : 'bg-blue-100 text-blue-600'}`}>{project.kind === 'arranger' ? <SlidersHorizontal size={18} /> : <FileMusic size={18} />}</span>
+                  <div className="min-w-0 flex-1"><div className="flex items-center gap-2"><h4 className="truncate text-sm font-bold text-slate-800">{project.name || 'โปรเจกต์ไม่มีชื่อ'}</h4><span className="rounded-full bg-white px-2 py-0.5 text-[8px] font-black uppercase text-slate-500">{project.kind}</span></div><p className="mt-1 text-[10px] text-slate-400">แก้ไข {formatDate(project.updatedAt)} · {formatBytes(project.bytes)}</p></div>
+                  <button type="button" onClick={() => handleDownloadProject(project)} className="flex h-9 items-center gap-2 rounded-xl bg-slate-900 px-3 text-[10px] font-bold text-white hover:bg-slate-700"><Download size={14} />ดาวน์โหลด</button>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}
+    </div>
+  );
+};
 
+const CollectionCard = ({ item }) => {
+  const Icon = item.Icon || Database;
+  return (
+    <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4">
+      <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${item.color}`}><Icon size={18} /></span>
+      <div className="min-w-0 flex-1"><p className="truncate text-xs font-bold text-slate-800">{item.label}</p><p className="mt-1 text-[10px] text-slate-400">{item.local ? 'ทรัพยากรภายในเว็บ' : item.available ? `${item.count} เอกสาร · ${formatBytes(item.bytes)}` : 'ไม่มีสิทธิ์อ่านข้อมูล'}</p></div>
+      <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${item.available ? 'bg-emerald-400' : 'bg-rose-400'}`} title={item.available ? 'พร้อมใช้งาน' : 'อ่านข้อมูลไม่ได้'} />
     </div>
   );
 };

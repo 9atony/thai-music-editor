@@ -197,9 +197,9 @@ const VelocityTab = () => {
   };
 
   return (
-    <div className="flex flex-col h-full bg-slate-50/50 animate-fadeIn">
+    <div className="tool-tab-root flex flex-col h-full animate-fadeIn">
       {/* Header */}
-      <div className="p-3 bg-white border-b border-slate-200 flex justify-between items-center shrink-0 shadow-sm z-10">
+      <div className="tool-tab-header flex justify-between items-center shrink-0 border-b z-10">
         <div>
           <h3 className="text-xs font-black text-slate-700 flex items-center gap-1.5">
             <svg className="w-4 h-4 text-sky-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M10.5 6a7.5 7.5 0 107.5 7.5h-7.5V6z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13.5 10.5H21A7.5 7.5 0 0013.5 3v7.5z" /></svg>
@@ -209,10 +209,10 @@ const VelocityTab = () => {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-3 custom-scrollbar space-y-3 pb-24">
+      <div className="tool-tab-body flex-1 overflow-y-auto custom-scrollbar space-y-3 pb-24">
         
         {/* 1. สถานะการคลุมดำ */}
-        <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm text-center relative overflow-hidden flex flex-col items-center justify-center">
+        <div className="tool-tab-card bg-white p-3 border border-slate-200 shadow-sm text-center relative overflow-hidden flex flex-col items-center justify-center">
           {activeCells.length === 0 && <div className="absolute top-0 left-0 w-full h-1 bg-slate-300"></div>}
           {activeCells.length === 1 && <div className="absolute top-0 left-0 w-full h-1 bg-sky-400"></div>}
           {activeCells.length > 1 && <div className="absolute top-0 left-0 w-full h-1 bg-indigo-400"></div>}
@@ -225,7 +225,7 @@ const VelocityTab = () => {
         </div>
 
         {/* 2. หมวดปรับด่วนแบบกลุ่ม (Quick Presets) */}
-        <div className={`bg-white p-3 rounded-lg border border-slate-200 shadow-sm transition-opacity ${activeCells.length === 0 ? 'opacity-50 pointer-events-none' : ''}`}>
+        <div className={`tool-tab-card bg-white p-3 border border-slate-200 shadow-sm transition-opacity ${activeCells.length === 0 ? 'opacity-50 pointer-events-none' : ''}`}>
           <h4 className="text-[11px] font-bold text-slate-700 border-b border-slate-100 pb-2 mb-3 flex items-center gap-1.5">
             <svg className="w-3.5 h-3.5 text-sky-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
             ปรับด่วนแบบกลุ่ม
@@ -285,7 +285,7 @@ const VelocityTab = () => {
         </div>
 
         {/* 3. หมวดเน้นจังหวะตกอัจฉริยะ (Smart Thai Downbeat) */}
-        <div className={`bg-white p-3 rounded-lg border border-slate-200 shadow-sm relative overflow-hidden transition-opacity ${activeCells.length === 0 ? 'opacity-50 pointer-events-none' : ''}`}>
+        <div className={`tool-tab-card bg-white p-3 border border-slate-200 shadow-sm relative overflow-hidden transition-opacity ${activeCells.length === 0 ? 'opacity-50 pointer-events-none' : ''}`}>
           <div className="absolute top-0 left-0 w-1 h-full bg-indigo-400"></div>
           <h4 className="text-[11px] font-bold text-slate-700 border-b border-slate-100 pb-2 mb-3 flex items-center gap-1.5">
             <svg className="w-4 h-4 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" /></svg>
@@ -334,7 +334,7 @@ const VelocityTab = () => {
 
         {/* 4. หมวดปรับละเอียดรายตัว */}
         {activeCells.length > 0 && (
-          <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm">
+          <div className="tool-tab-card bg-white p-3 border border-slate-200 shadow-sm">
             <h4 className="text-[11px] font-bold text-slate-700 border-b border-slate-100 pb-2 flex justify-between items-center">
               <span className="flex items-center gap-1.5">
                  <svg className="w-3.5 h-3.5 text-sky-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" /></svg>

@@ -174,9 +174,14 @@ export const MusicProvider = ({ children }) => {
     setSongName(newName);
   };
 
-  const addDetail = () => { if (isReadOnlyRef.current) return; setHeaderDetails([...headerDetails, { id: headerDetails.length > 0 ? Math.max(...headerDetails.map(d => d.id)) + 1 : 1, label: "หัวข้อใหม่", value: "ระบุข้อมูล" }]); };
-  const removeDetail = (id) => { if (isReadOnlyRef.current) return; setHeaderDetails(headerDetails.filter(detail => detail.id !== id)); };
-  const updateDetail = (id, key, newValue) => { if (isReadOnlyRef.current) return; setHeaderDetails(headerDetails.map(detail => detail.id === id ? { ...detail, [key]: newValue } : detail)); };
+  const addDetail = () => {
+    if (isReadOnlyRef.current) return null;
+    const id = headerDetails.length > 0 ? Math.max(...headerDetails.map(d => d.id)) + 1 : 1;
+    setHeaderDetails(currentDetails => [...currentDetails, { id, label: "", value: "" }]);
+    return id;
+  };
+  const removeDetail = (id) => { if (isReadOnlyRef.current) return; setHeaderDetails(currentDetails => currentDetails.filter(detail => detail.id !== id)); };
+  const updateDetail = (id, key, newValue) => { if (isReadOnlyRef.current) return; setHeaderDetails(currentDetails => currentDetails.map(detail => detail.id === id ? { ...detail, [key]: newValue } : detail)); };
 
   const changeInstrument = (instrumentId) => {
     if (isReadOnlyRef.current) return;

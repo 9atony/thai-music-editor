@@ -25,7 +25,7 @@ const SequenceTab = () => {
     setDraggedSeqIdx(index);
     e.dataTransfer.effectAllowed = 'move';
   };
-  const handleDragOver = (e, index) => {
+  const handleDragOver = (e) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
   };
@@ -114,8 +114,8 @@ const SequenceTab = () => {
   };
 
   return (
-    <div className="flex flex-col h-full bg-slate-50/50 animate-fadeIn">
-      <div className="p-3 bg-sky-50 border-b border-sky-100 flex justify-between items-center shrink-0">
+    <div className="tool-tab-root flex flex-col h-full animate-fadeIn">
+      <div className="tool-tab-header flex justify-between items-center shrink-0 border-b">
         <h3 className="text-xs font-black text-sky-800 flex items-center gap-1.5">
           <svg className="w-4 h-4 text-sky-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 19h16M7 16V8m5 8V5m5 11v-6" /></svg>
           ลำดับการเล่น
@@ -125,7 +125,7 @@ const SequenceTab = () => {
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-2 custom-scrollbar space-y-1.5">
+      <div className="tool-tab-body flex-1 overflow-y-auto custom-scrollbar space-y-1.5">
         {playbackSequence.map((item, idx) => {
           const isCurrentlyPlaying = isPlaying && activeSequenceIdx === idx;
           return (
@@ -135,7 +135,7 @@ const SequenceTab = () => {
               onDragStart={(e) => handleDragStart(e, idx)}
               onDragOver={(e) => handleDragOver(e, idx)}
               onDrop={(e) => handleDrop(e, idx)}
-              className={`flex justify-between items-center px-2 py-2 rounded-lg border transition-all ${
+              className={`tool-tab-card flex justify-between items-center px-2 py-2 border transition-all ${
                 isCurrentlyPlaying 
                   ? 'bg-sky-100 border-sky-300 text-sky-800 shadow-sm' 
                   : 'bg-white border-slate-200 text-slate-600 shadow-sm'

@@ -4,9 +4,11 @@ import { useWorkspace } from '../../../contexts/WorkspaceContext';
 export default function TopBar({ onBack }) {
   const {
     projectName,
+    setProjectName,
     isPlaying,
     startPlayback,
     stopPlayback,
+    returnToPlaybackStart,
     bpm,
     setBpm,
     currentTime,
@@ -15,6 +17,9 @@ export default function TopBar({ onBack }) {
     exportWorkspace,
     importWorkspace,
     setCurrentTime,
+    currentProjectId,
+    saveProject,
+    saveStatus,
   } = useWorkspace();
 
   const handleImportProject = (event) => {
@@ -32,7 +37,12 @@ export default function TopBar({ onBack }) {
       
       {/* กลับไปหน้ารวมเครื่องมือโดยไม่ย้อนประวัติเบราว์เซอร์ข้ามไปหน้าหลัก */}
       <button 
-        onClick={() => { stopPlayback(); onBack?.(); }}
+        onClick={async () => {
+          stopPlayback();
+          const saved = await saveProject();
+          if (saved) onBack?.();
+          else alert('ยังบันทึกโปรเจกต์ไม่ได้ กรุณาลองใหม่อีกครั้งก่อนออกจากหน้านี้');
+        }}
         className="w-9 h-9 shrink-0 flex items-center justify-center rounded-lg hover:bg-white/10 text-white/50 hover:text-white transition-colors"
         title="กลับหน้ารวมเครื่องมือ"
       >
@@ -47,7 +57,13 @@ export default function TopBar({ onBack }) {
         <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-red-500 via-orange-400 to-blue-500 flex items-center justify-center font-bold text-white shadow-[0_0_15px_rgba(239,68,68,0.3)]">M</div>
         <div className="min-w-0">
           <div className="text-sm font-semibold truncate text-white/90">Thai Music Arranger</div>
-          <div className="text-[11px] text-white/40 truncate">{projectName}</div>
+          <input
+            value={projectName}
+            onChange={(event) => setProjectName(event.target.value)}
+            className="w-full bg-transparent text-[11px] text-white/55 outline-none placeholder:text-white/25"
+            placeholder="ตั้งชื่อโปรเจกต์จัดวง"
+            title="ตั้งชื่อโปรเจกต์จัดวง"
+          />
         </div>
       </div>
 
@@ -81,7 +97,10 @@ export default function TopBar({ onBack }) {
         </button>
 
         <button
-          onClick={stopPlayback}
+          onClick={() => {
+            if (isPlaying) stopPlayback();
+            else returnToPlaybackStart();
+          }}
           className={`w-10 h-10 flex items-center justify-center rounded-xl transition-all ${
             !isPlaying
               ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
@@ -102,7 +121,7 @@ export default function TopBar({ onBack }) {
       </div>
 
       {/* 3. จัดการโปรเจกต์ */}
-      <div className="flex items-center gap-3 w-[260px] justify-end">
+      <div className="flex items-center gap-2 w-[350px] justify-end">
         
         {/* BPM Input */}
         <div className="bg-[#0c1014] border border-white/5 shadow-inner rounded-lg px-2.5 py-1.5 flex items-center mr-2">
@@ -132,6 +151,22 @@ export default function TopBar({ onBack }) {
             onChange={handleImportProject}
           />
         </label>
+
+        <button
+          type="button"
+          onClick={saveProject}
+          disabled={!currentProjectId || saveStatus === 'saving'}
+          title={saveStatus === 'error' ? 'บันทึกไม่สำเร็จ กรุณาลองอีกครั้ง' : 'บันทึกโปรเจกต์จัดวง'}
+          className="h-9 px-3.5 rounded-lg border border-emerald-400/35 bg-emerald-400/15 hover:bg-emerald-400/25 text-emerald-100 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {saveStatus === 'saving'
+            ? 'กำลังบันทึก'
+            : saveStatus === 'error'
+              ? 'บันทึกใหม่'
+              : saveStatus === 'unsaved'
+                ? 'รอบันทึก'
+                : 'บันทึกแล้ว'}
+        </button>
 
         {/* ปุ่ม Export */}
         <button

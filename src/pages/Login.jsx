@@ -16,6 +16,7 @@ import {
 import { auth } from '../utils/firebase';
 import { db } from '../utils/firebase'; 
 import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
+import { recordLoginResult, recordSystemEvent } from '../utils/systemAnalytics';
 
 // ⭐ เพิ่ม onBackToLanding เข้ามาใน Props
 const Login = ({ onLoginSuccess, onBackToLanding }) => {
@@ -65,13 +66,16 @@ const Login = ({ onLoginSuccess, onBackToLanding }) => {
           role: "user", // กำหนดยศเริ่มต้นเป็น user
           createdAt: serverTimestamp()
         });
+        recordSystemEvent('newUsers');
 
       } else {
         await signInWithEmailAndPassword(auth, email, password);
       }
       
+      recordLoginResult(true);
       if (onLoginSuccess) onLoginSuccess();
     } catch (err) {
+      recordLoginResult(false);
       console.error(err);
       if (err.code === 'auth/email-already-in-use') {
         setError('อีเมลนี้ถูกใช้งานแล้ว กรุณาเข้าสู่ระบบ');
@@ -108,10 +112,13 @@ const Login = ({ onLoginSuccess, onBackToLanding }) => {
           role: "user", // ยศเริ่มต้น
           createdAt: serverTimestamp()
         });
+        recordSystemEvent('newUsers');
       }
 
+      recordLoginResult(true);
       if (onLoginSuccess) onLoginSuccess();
     } catch (err) {
+      recordLoginResult(false);
       console.error(err);
       setError('เกิดข้อผิดพลาดในการเข้าสู่ระบบด้วย Google');
       setIsLoading(false);

@@ -3,6 +3,7 @@ import TunerDashboard from '../components/tools/TunerDashboard';
 import RanatDictionary from '../components/tools/RanatDictionary';
 import RanatGenerator from '../components/tools/RanatGenerator';
 import ToolWorkspace from '../components/tools/ToolWorkspace';
+import ArrangerProjectManager from '../components/tools/ArrangerProjectManager';
 import MetronomeTool from '../components/tools/MetronomeTool';
 import RhythmManager from '../components/tools/RhythmManager';
 import {
@@ -23,7 +24,7 @@ import {
 
 const ACTIVE_TOOL_SESSION_KEY = 'thaiMusicEditorActiveTool';
 const adminToolIds = new Set(['generator', 'dictionary', 'tuner-ai', 'rhythm-manager']);
-const validToolIds = new Set(['workspace', 'metronome', ...adminToolIds]);
+const validToolIds = new Set(['workspace', 'arranger-projects', 'metronome', ...adminToolIds]);
 
 const Tools = ({ userProfile }) => {
   
@@ -118,7 +119,8 @@ const Tools = ({ userProfile }) => {
       case 'generator': return isAdmin ? <RanatGenerator /> : null;
       case 'dictionary': return isAdmin ? <RanatDictionary /> : null;
       case 'tuner-ai': return isAdmin ? <TunerDashboard /> : null;
-      case 'workspace': return isPremium ? <ToolWorkspace onBack={() => setActiveTool(null)} /> : null;
+      case 'arranger-projects': return isPremium ? <ArrangerProjectManager userRole={userRole} onOpen={() => setActiveTool('workspace')} /> : null;
+      case 'workspace': return isPremium ? <ToolWorkspace onBack={() => setActiveTool('arranger-projects')} /> : null;
       case 'metronome': return <MetronomeTool />;
       case 'rhythm-manager': return isAdmin ? <RhythmManager /> : null;
       default: return null;
@@ -126,31 +128,34 @@ const Tools = ({ userProfile }) => {
   };
 
   if (activeTool) {
-    const currentToolInfo = [...premiumTools, ...adminTools].find(t => t.id === activeTool);
+    const isArrangerProjects = activeTool === 'arranger-projects';
+    const usesLightToolTheme = isArrangerProjects || activeTool === 'metronome';
+    const currentToolInfo = [...premiumTools, ...adminTools].find(t => t.id === activeTool)
+      || (activeTool === 'arranger-projects' ? { name: 'โปรเจกต์จัดวงดนตรี', Icon: SlidersHorizontal } : null);
     
     return (
-      <div className="min-h-screen bg-[#0c1014] flex flex-col animate-fadeIn" style={{ fontFamily: 'Prompt, sans-serif' }}>
-        <div className="bg-[#11151a]/95 backdrop-blur-xl border-b border-white/10 px-4 md:px-6 py-3.5 flex items-center shadow-sm sticky top-0 z-50">
+      <div className={`min-h-screen flex flex-col animate-fadeIn ${usesLightToolTheme ? 'bg-slate-50 text-slate-800' : 'bg-[#0c1014]'}`} style={{ fontFamily: 'Prompt, sans-serif' }}>
+        <div className={`backdrop-blur-xl px-4 md:px-6 py-3.5 flex items-center shadow-sm sticky top-0 z-50 ${usesLightToolTheme ? 'border-b border-slate-200 bg-white/95' : 'border-b border-white/10 bg-[#11151a]/95'}`}>
           <button 
             onClick={() => setActiveTool(null)}
-            className="flex items-center gap-2 text-xs font-bold text-white/60 hover:text-white transition-colors bg-white/5 hover:bg-white/10 px-3.5 py-2 rounded-xl border border-white/10"
+            className={`flex items-center gap-2 text-xs font-bold transition-colors px-3.5 py-2 rounded-xl border ${usesLightToolTheme ? 'border-slate-200 bg-slate-50 text-slate-500 hover:bg-slate-100 hover:text-slate-800' : 'border-white/10 bg-white/5 text-white/60 hover:bg-white/10 hover:text-white'}`}
           >
             <ArrowLeft size={15} />
             กลับหน้ารวมเครื่องมือ
           </button>
           
-          <div className="ml-4 pl-4 border-l border-white/10 flex items-center gap-2.5">
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10 text-white/75">
+          <div className={`ml-4 pl-4 border-l flex items-center gap-2.5 ${usesLightToolTheme ? 'border-slate-200' : 'border-white/10'}`}>
+            <span className={`flex h-8 w-8 items-center justify-center rounded-lg ${usesLightToolTheme ? 'bg-sky-50 text-sky-600' : 'bg-white/10 text-white/75'}`}>
               {currentToolInfo?.Icon && React.createElement(currentToolInfo.Icon, { size: 16 })}
             </span>
-            <span className="text-sm font-semibold tracking-wide text-white/90">
+            <span className={`text-sm font-semibold tracking-wide ${usesLightToolTheme ? 'text-slate-800' : 'text-white/90'}`}>
               {currentToolInfo?.name}
             </span>
           </div>
         </div>
 
         <div className="flex-1 overflow-hidden relative">
-          {renderActiveTool()}
+              {renderActiveTool()}
         </div>
       </div>
     );
@@ -212,7 +217,7 @@ const Tools = ({ userProfile }) => {
           {premiumTools.map((tool) => (
             <button 
               key={tool.id}
-              onClick={() => handleToolClick(tool.id, tool.requiresPremium)}
+              onClick={() => tool.id === 'workspace' ? handleToolClick('arranger-projects', tool.requiresPremium) : handleToolClick(tool.id, tool.requiresPremium)}
               className={`group relative flex min-h-[178px] w-full overflow-hidden rounded-3xl border border-slate-200 bg-white p-5 text-left shadow-sm transition-all duration-300 sm:p-6 ${tool.hoverClass} hover:-translate-y-0.5 hover:shadow-xl active:translate-y-0 active:scale-[0.99]`}
             >
               <div className={`absolute inset-x-0 top-0 h-1 bg-gradient-to-r ${tool.accentClass}`} />

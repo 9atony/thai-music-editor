@@ -32,6 +32,10 @@ service cloud.firestore {
       match /projects/{projectId} {
         allow read, write: if owns(userId) || isAdmin();
       }
+
+      match /arrangerProjects/{projectId} {
+        allow read, write: if owns(userId) || isAdmin();
+      }
     }
 
     match /samples/{sampleId} {
@@ -42,6 +46,30 @@ service cloud.firestore {
     match /updates/{updateId} {
       allow read: if signedIn();
       allow write: if isAdmin();
+    }
+
+    match /templates/{templateId} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    match /analytics_daily/{dateId} {
+      allow read, write: if isAdmin();
+
+      match /activity/{userId} {
+        allow read: if isAdmin();
+        allow create, update: if owns(userId)
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.date == dateId;
+        allow delete: if false;
+      }
+    }
+
+    match /analytics_presence/{userId} {
+      allow read: if isAdmin();
+      allow create, update: if owns(userId)
+        && request.resource.data.uid == request.auth.uid;
+      allow delete: if owns(userId) || isAdmin();
     }
 
     match /system_rhythms/{rhythmId} {

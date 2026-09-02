@@ -3,10 +3,11 @@ import { getAnalytics } from "firebase/analytics";
 import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from "firebase/auth";
 import { 
   getFirestore, collection, query, orderBy, limit, getDocs, 
-  addDoc, doc, updateDoc, serverTimestamp, 
+  addDoc, doc, updateDoc, deleteDoc, serverTimestamp,
   setDoc, getDoc, Timestamp 
 } from 'firebase/firestore'; 
 import { getStorage } from "firebase/storage";
+import { configureSystemAnalytics, recordSystemEvent } from './systemAnalytics';
 
 // 1. Firebase Config
 const firebaseConfig = {
@@ -27,6 +28,7 @@ getAnalytics(app);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const storage = getStorage(app);
+configureSystemAnalytics({ db, auth });
 
 // ==========================================
 // 🌟 ระบบสมัครสมาชิกและจัดการยศ
@@ -127,7 +129,7 @@ export const fetchRecentProjects = async (uid) => {
     const projectsRef = collection(db, `users/${uid}/projects`);
     const q = query(projectsRef, orderBy('updatedAt', 'desc'), limit(5));
     const querySnapshot = await getDocs(q);
-    
+    recordSystemEvent('projectListLoads', { feature: 'projectList', reads: querySnapshot.size });
     return querySnapshot.docs.map(doc => {
       const data = doc.data();
       return {
@@ -147,6 +149,7 @@ export const fetchAllProjects = async (uid) => {
     const projectsRef = collection(db, `users/${uid}/projects`);
     const querySnapshot = await getDocs(projectsRef);
     
+    recordSystemEvent('projectListLoads', { feature: 'projectList', reads: querySnapshot.size });
     return querySnapshot.docs.map(doc => {
       const data = doc.data();
       return {
@@ -253,10 +256,13 @@ export const saveProjectToDB = async (uid, projectId, projectData) => {
     if (projectId) {
       const projectRef = doc(db, `users/${uid}/projects`, projectId);
       await updateDoc(projectRef, dataToSave);
+      recordSystemEvent('projectSaves', { feature: 'autosave', writes: 1, projectId });
       return projectId;
     } else {
       const projectsRef = collection(db, `users/${uid}/projects`);
       const newDocRef = await addDoc(projectsRef, { ...dataToSave, createdAt: serverTimestamp() });
+      recordSystemEvent('projectsCreated', { feature: 'createProject', writes: 1, projectId: newDocRef.id });
+      recordSystemEvent('projectSaves');
       return newDocRef.id;
     }
   } catch (error) {
@@ -265,4 +271,63 @@ export const saveProjectToDB = async (uid, projectId, projectData) => {
     }
     throw error;
   }
+};
+
+// Arranger projects live in their own collection so timeline/mixer data never
+// mixes with the sheet projects used by the notation editor.
+export const fetchArrangerProjects = async (uid) => {
+  if (!uid) return [];
+  const projectsRef = collection(db, `users/${uid}/arrangerProjects`);
+  const snapshot = await getDocs(query(projectsRef, orderBy('updatedAt', 'desc')));
+  recordSystemEvent('projectListLoads', { feature: 'projectList', reads: snapshot.size });
+  return snapshot.docs.map((projectDoc) => ({ id: projectDoc.id, ...projectDoc.data() }));
+};
+
+export const getArrangerProject = async (uid, projectId) => {
+  if (!uid || !projectId) return null;
+  const snapshot = await getDoc(doc(db, `users/${uid}/arrangerProjects`, projectId));
+  recordSystemEvent('projectOpens', { feature: 'openProject', reads: 1, projectId });
+  return snapshot.exists() ? { id: snapshot.id, ...snapshot.data() } : null;
+};
+
+export const createArrangerProject = async (uid, name = 'โปรเจกต์จัดวงใหม่') => {
+  if (!uid) throw new Error('USER_ID_REQUIRED');
+  const data = {
+    name,
+    bpm: 120,
+    snapGrid: 1,
+    zoomLevel: 100,
+    trackLaneHeight: 100,
+    masterVolume: 100,
+    tracks: [],
+    projectType: 'arranger',
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  };
+  const projectRef = await addDoc(collection(db, `users/${uid}/arrangerProjects`), data);
+  recordSystemEvent('projectsCreated', { feature: 'createProject', writes: 1, projectId: projectRef.id });
+  return { id: projectRef.id, ...data };
+};
+
+export const saveArrangerProject = async (uid, projectId, workspace) => {
+  if (!uid || !projectId) throw new Error('ARRANGER_PROJECT_REQUIRED');
+  const data = {
+    ...workspace,
+    projectType: 'arranger',
+    trackCount: Array.isArray(workspace.tracks) ? workspace.tracks.length : 0,
+    updatedAt: serverTimestamp(),
+  };
+  await updateDoc(doc(db, `users/${uid}/arrangerProjects`, projectId), data);
+  recordSystemEvent('projectSaves', { feature: 'autosave', writes: 1, projectId });
+};
+
+export const renameArrangerProject = async (uid, projectId, name) => {
+  if (!uid || !projectId) throw new Error('ARRANGER_PROJECT_REQUIRED');
+  await updateDoc(doc(db, `users/${uid}/arrangerProjects`, projectId), { name, updatedAt: serverTimestamp() });
+};
+
+export const deleteArrangerProject = async (uid, projectId) => {
+  if (!uid || !projectId) throw new Error('ARRANGER_PROJECT_REQUIRED');
+  await deleteDoc(doc(db, `users/${uid}/arrangerProjects`, projectId));
+  recordSystemEvent('projectsDeleted', { feature: 'deleteProject', deletes: 1 });
 };

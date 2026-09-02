@@ -2,10 +2,10 @@ import React, { useContext } from 'react';
 import { MusicContext } from '../../contexts/MusicContext';
 import PlaybackControls from "../editor/PlaybackControls";
 import logo from '../../assets/logo wep.png';
-import newIcon from '../../assets/icons/new.png';
-import openIcon from '../../assets/icons/open.png';
 import pdfIcon from '../../assets/icons/pdf.png';
 import saveIcon from '../../assets/icons/save.png';
+import newIcon from '../../assets/icons/new.png';
+import openIcon from '../../assets/icons/open.png';
 
 const getPlainText = (html) => {
   if (!html) return '';
@@ -23,9 +23,9 @@ const Navbar = ({ onPrint, onOpenSettings, onBack }) => {
 
   return (
     <header className="sticky top-0 z-50 bg-white/90 backdrop-blur-md border-b border-slate-200 shadow-sm flex flex-col font-sans transition-all">
-      <div className="px-5 py-3 flex items-center justify-between">
+      <div className="px-5 py-3 flex items-center justify-between gap-4">
         
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4 min-w-0 flex-1">
           <button 
             onClick={onOpenSettings} 
             className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 hover:text-slate-800 transition-all active:scale-95"
@@ -52,7 +52,7 @@ const Navbar = ({ onPrint, onOpenSettings, onBack }) => {
               onChange={(e) => setSongName(e.target.value)}
               placeholder="โปรเจกต์ไม่มีชื่อ"
               disabled={isReadOnly} 
-              className={`text-lg font-bold text-slate-700 bg-transparent border-b-2 border-transparent focus:outline-none focus:ring-0 placeholder:text-slate-300 w-40 md:w-64 truncate transition-colors px-1 py-0.5 
+              className={`text-lg font-bold text-slate-700 bg-transparent border-b-2 border-transparent focus:outline-none focus:ring-0 placeholder:text-slate-300 w-[min(60vw,700px)] transition-colors px-1 py-0.5
                 ${isReadOnly ? 'opacity-60 cursor-not-allowed' : 'hover:border-slate-200 focus:border-sky-500'}`}
               title={isReadOnly ? "ไม่สามารถแก้ไขชื่อได้ (อ่านได้อย่างเดียว)" : "คลิกเพื่อเปลี่ยนชื่อเพลง"}
             />
@@ -65,7 +65,7 @@ const Navbar = ({ onPrint, onOpenSettings, onBack }) => {
           </div>
         </div>
 
-        <div className="flex items-center gap-1 sm:gap-2">
+        <div className="flex items-center gap-1 sm:gap-2 [&>*:nth-child(2)]:hidden [&>*:nth-child(3)]:hidden">
           {/* ปุ่มเครื่องมือขวาบน */}
           <div className="flex bg-slate-50/50 rounded-lg border border-slate-200 p-0.5 mr-2">
             <button onClick={undo} disabled={!canUndo || isReadOnly} className={`p-1.5 rounded-md flex items-center justify-center transition-all ${(canUndo && !isReadOnly) ? 'text-slate-600 hover:text-slate-900 hover:bg-white shadow-sm' : 'text-slate-300 cursor-not-allowed'}`} title="ย้อนกลับ (Undo)"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" /></svg></button>

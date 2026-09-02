@@ -41,6 +41,11 @@ const getMarginPx = (val, unit) => {
   return val;
 };
 
+const hasVisibleHtml = (value) => String(value || '')
+  .replace(/<[^>]*>/g, '')
+  .replace(/&nbsp;/gi, ' ')
+  .trim().length > 0;
+
 const THAI_NOTE_COMBINER_PATTERN = /[ั-๎​]/;
 const MAIN_STAFF_MEASURE_COUNT = 8;
 const STAFF_LABEL_COLUMN_WIDTH = '65px';
@@ -65,8 +70,8 @@ const splitThaiNoteToken = (token) => {
 const Sheet = forwardRef((props, ref) => {
   // --- Contexts ---
   const { 
-    sheetData, selectedCell, setSelectedCell, layoutConfig, 
-    headerDetails, songName, setSongName, updateDetail,      
+    sheetData, selectedCell, setSelectedCell, layoutConfig, setLayoutConfig,
+    headerDetails, songName, setSongName, addDetail, removeDetail, updateDetail,
     sectionLabels, updateSectionLabel, rowTypes,
     startSelection, updateSelection, endSelection, selectionRange, setSelectionRange,
     playbackCursor, isPlaying, symbols = [], addSymbol, removeSymbol,
@@ -90,12 +95,24 @@ const Sheet = forwardRef((props, ref) => {
   const [paginateTrigger, setPaginateTrigger] = useState(0);
 
   const sheetScrollRef = useRef(null);
+  const headerSpacingDragRef = useRef(null);
   const zoomTargetRef = useRef(props.defaultZoom || 100);
   const zoomAnimationRef = useRef(null);
   const editLabelRef = useRef("");
   const initialSongNameRef = useRef("");
   const initialDetailLabelRef = useRef("");
   const initialDetailValueRef = useRef("");
+
+  const handleAddHeaderDetail = () => {
+    if (isReadOnly || !addDetail) return;
+    const newDetailId = addDetail();
+    if (newDetailId === null || newDetailId === undefined) return;
+    initialDetailLabelRef.current = '';
+    initialDetailValueRef.current = '';
+    setEditingDetailId(newDetailId);
+    setEditingDetailField('label');
+    if (setToolbarMode) setToolbarMode('text');
+  };
 
   const requestResponsiveZoom = useCallback((nextZoomOrUpdater) => {
     const currentTarget = zoomTargetRef.current;
@@ -119,6 +136,33 @@ const Sheet = forwardRef((props, ref) => {
     if (typeof ref === 'function') ref(node);
     else if (ref) ref.current = node;
   }, [ref]);
+
+  const startHeaderSpacingDrag = useCallback((event) => {
+    if (isReadOnly || event.button !== 0) return;
+    headerSpacingDragRef.current = {
+      startY: event.clientY,
+      startSpacing: layoutConfig.headerBottomSpacing ?? 8,
+    };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    event.preventDefault();
+    event.stopPropagation();
+  }, [isReadOnly, layoutConfig.headerBottomSpacing]);
+
+  const moveHeaderSpacingDrag = useCallback((event) => {
+    const drag = headerSpacingDragRef.current;
+    if (!drag) return;
+    const nextSpacing = Math.max(0, Math.min(48, drag.startSpacing + (event.clientY - drag.startY)));
+    setLayoutConfig((previous) => ({ ...previous, headerBottomSpacing: nextSpacing }));
+    event.preventDefault();
+    event.stopPropagation();
+  }, [setLayoutConfig]);
+
+  const stopHeaderSpacingDrag = useCallback((event) => {
+    if (!headerSpacingDragRef.current) return;
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    headerSpacingDragRef.current = null;
+    event.stopPropagation();
+  }, []);
 
   useEffect(() => {
     const container = sheetScrollRef.current;
@@ -154,6 +198,7 @@ const Sheet = forwardRef((props, ref) => {
   const noteFontFamily = layoutConfig.noteFontFamily || defaultFontFamily;
   const textFontFamily = layoutConfig.textFontFamily || defaultFontFamily;
   const pageFontFamily = layoutConfig.pageFontFamily || textFontFamily;
+  const hasHeaderDetails = headerDetails.some((detail) => hasVisibleHtml(detail.label) || hasVisibleHtml(detail.value));
 
   const commitTokenEdit = useCallback(() => {
     if (!editingTokenCell || !updateCellToken) return;
@@ -506,7 +551,8 @@ const Sheet = forwardRef((props, ref) => {
     const FOOTER_SPACE = 20;   
     
     const headerLines = layoutConfig.detailsAlign === 'between' ? Math.ceil(headerDetails.length / 2) : headerDetails.length;
-    const headerHeight = 40 + (layoutConfig.songNameSize * 1.5) + (headerLines * 25);
+    const headerBottomSpacing = layoutConfig.headerBottomSpacing ?? 8;
+    const headerHeight = 40 + (layoutConfig.songNameSize * 1.5) + (headerLines * 25) + (headerBottomSpacing - 8);
 
     const calculatedPages = [];
     let currentRows = [];
@@ -1030,6 +1076,7 @@ return (
               display: block !important; width: 100% !important; max-width: 100% !important;
               padding: 0 !important; margin: 0 !important; overflow: visible !important; transform: none !important;
             }
+            #sheet-pages { zoom: 1 !important; }
             .print-page { 
               display: block !important; width: 100% !important; min-width: 100% !important; max-width: 100% !important;
               height: 297mm !important; min-height: 297mm !important; max-height: 297mm !important;
@@ -1039,6 +1086,7 @@ return (
             }
             .print-page:last-child { page-break-after: auto !important; break-after: auto !important; }
             .print-hidden { display: none !important; }
+            .print-invisible { visibility: hidden !important; }
           }
           .custom-scrollbar::-webkit-scrollbar { height: 10px; width: 10px; }
           .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
@@ -1077,10 +1125,10 @@ return (
         ref={setSheetScrollContainerRef}
         id="sheet-scroll-container"
         // ⭐ เปลี่ยนกลับเป็น pt-12 pb-32 เพื่อเอาพื้นที่อากาศออก ป้องกัน IDM บั๊ก
-        className="flex overflow-x-auto pt-12 pb-32 w-full max-w-full custom-scrollbar select-none print:block print:overflow-visible print:p-0 relative"
+        className="flex overflow-auto pt-12 pb-32 w-full max-w-full custom-scrollbar select-none print:block print:overflow-visible print:p-0 relative"
         style={{ paddingLeft: `max(1rem, calc(50% - ${105 * (zoom / 100)}mm))`, paddingRight: `max(1rem, calc(50% - ${105 * (zoom / 100)}mm))` }}
       >
-        <div className="flex gap-12 snap-x h-max print:block" style={{ zoom: `${zoom}%` }}>
+        <div id="sheet-pages" className="flex gap-12 snap-x h-max print:block" style={{ zoom: `${zoom}%` }}>
           {pages.map((page, pIndex) => (
             <div 
               key={pIndex} 
@@ -1137,7 +1185,11 @@ return (
               
               {/* SVG Layer for Symbols */}
               {/* ให้พื้นที่คลิกของสัญลักษณ์อยู่เหนือป้ายกำกับที่ลอยทับบรรทัดถัดไปเสมอ */}
-              <svg className="absolute top-0 left-0 w-full h-full pointer-events-none z-40 print:z-30 print:w-full print:max-w-full">
+              <svg
+                className="absolute top-0 left-0 w-full h-full pointer-events-none z-40 print:z-30 print:w-full print:max-w-full"
+                viewBox="0 0 793.7008 1122.5197"
+                preserveAspectRatio="none"
+              >
                 {(pageSvgPaths[pIndex] || []).map(p => {
                   const isSelected = p.id === selectedSymbolId;
                   const isKro = p.type === 'kro';
@@ -1145,14 +1197,14 @@ return (
                     <g key={p.id}>
                       <path 
                         d={p.d} fill="none" stroke="transparent" strokeWidth="20" 
-                        className={`pointer-events-auto cursor-pointer ${isKro ? 'print:hidden' : 'print:pointer-events-none'}`}
+                        className="pointer-events-auto cursor-pointer print:pointer-events-none"
                         onMouseDown={(e) => { e.stopPropagation(); if (setSelectedSymbolId) setSelectedSymbolId(p.id); }}
                       />
                       {isSelected && <path d={p.d} fill="none" stroke="#f59e0b" strokeWidth={p.strokeW + 4} strokeLinecap="round" opacity="0.4" className="pointer-events-none print:hidden" />}
                       <path 
                         d={p.d} fill="none" stroke={isSelected ? '#d97706' : (isKro ? '#3b82f6' : p.color)} 
                         strokeWidth={p.strokeW} strokeLinecap="round" strokeDasharray={isKro ? "6, 4" : "none"} 
-                        className={`pointer-events-none drop-shadow-sm transition-all duration-200 ${isKro ? 'print:hidden' : ''}`} 
+                        className="pointer-events-none drop-shadow-sm transition-all duration-200"
                       />
                     </g>
                   );
@@ -1161,7 +1213,10 @@ return (
 
               {/* Page Header (Only on first page) */}
               {pIndex === 0 && (
-                <div className="text-center border-b-2 border-slate-900 pb-4 mb-6 shrink-0 relative z-10 print:border-b-2 print:border-slate-900">
+                <div
+                  className="text-center border-b-2 border-slate-900 mb-3 shrink-0 relative z-10 print:border-b-2 print:border-slate-900"
+                  style={{ paddingBottom: `${layoutConfig.headerBottomSpacing ?? 8}px` }}
+                >
                   
                   {/* Song Name Editor */}
                   {editingSongName ? (
@@ -1192,12 +1247,12 @@ return (
                         }}
                         dangerouslySetInnerHTML={{ __html: initialSongNameRef.current }}
                         // 👇 เอา px-2 และ w-full ออก เพื่อไม่ให้มันบีบคำจนตกบรรทัด
-                        className="font-bold mb-4 uppercase tracking-tight text-center bg-white/90 border-b-2 border-sky-400 outline-none min-h-[1.5em] shadow-sm rounded"
+                        className={`font-bold ${hasHeaderDetails ? 'mb-2' : 'mb-0'} uppercase tracking-tight text-center bg-white/90 border-b-2 border-sky-400 outline-none min-h-[1.5em] shadow-sm rounded`}
                         style={{ fontSize: `${layoutConfig.songNameSize}px`, fontFamily: pageFontFamily }}
                      />
                   ) : (
                     <h1 
-                      className="font-bold mb-4 uppercase tracking-tight cursor-text hover:bg-slate-100/50 rounded transition-colors print:hover:bg-transparent min-h-[1.5em]" 
+                      className={`font-bold ${hasHeaderDetails ? 'mb-2' : 'mb-0'} uppercase tracking-tight cursor-text hover:bg-slate-100/50 rounded transition-colors print:hover:bg-transparent min-h-[1.5em]`}
                       style={{ fontSize: `${layoutConfig.songNameSize}px`, fontFamily: pageFontFamily }}
                       onDoubleClick={(e) => {
                         e.stopPropagation();
@@ -1211,10 +1266,45 @@ return (
                     />
                   )}
 
+                  {!isReadOnly && !hasHeaderDetails && (
+                    <button
+                      type="button"
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onClick={(e) => { e.stopPropagation(); handleAddHeaderDetail(); }}
+                      className="print-hidden absolute right-0 top-1 flex h-6 w-6 items-center justify-center rounded-full border border-dashed border-slate-300 bg-white text-slate-400 transition-colors hover:border-sky-400 hover:bg-sky-50 hover:text-sky-600"
+                      title="เพิ่มข้อมูลใต้หัวกระดาษ"
+                      aria-label="เพิ่มข้อมูลใต้หัวกระดาษ"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+
                   {/* Header Details */}
                   <div className={`grid gap-x-12 gap-y-1 px-4 ${layoutConfig.detailsAlign === 'between' ? 'grid-cols-2' : 'grid-cols-1'}`} style={{ fontSize: `${layoutConfig.authorSize}px`, textAlign: layoutConfig.detailsAlign === 'between' ? 'left' : layoutConfig.detailsAlign, fontFamily: textFontFamily }}>
                     {headerDetails.map((detail, index) => (
-                      <div key={detail.id} className={layoutConfig.detailsAlign === 'between' && index % 2 !== 0 ? "text-right" : ""}>
+                      <div
+                        key={detail.id}
+                        className={`relative group/header-detail rounded px-1 ${layoutConfig.detailsAlign === 'between' && index % 2 !== 0 ? "text-right" : ""} ${!hasVisibleHtml(detail.label) && !hasVisibleHtml(detail.value) ? 'print-invisible' : ''}`}
+                      >
+                        {!isReadOnly && (
+                          <button
+                            type="button"
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              removeDetail(detail.id);
+                              if (editingDetailId === detail.id) {
+                                setEditingDetailId(null);
+                                setEditingDetailField(null);
+                              }
+                            }}
+                            className="print-hidden absolute -right-5 top-1/2 -translate-y-1/2 rounded-full bg-white p-1 text-slate-300 opacity-0 shadow-sm ring-1 ring-slate-200 transition-all hover:bg-rose-50 hover:text-rose-500 hover:ring-rose-200 group-hover/header-detail:opacity-100 group-focus-within/header-detail:opacity-100 focus:opacity-100"
+                            title="ลบข้อมูลนี้"
+                            aria-label="ลบข้อมูลนี้"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
                         
                         {/* Detail Label */}
                         {editingDetailId === detail.id && editingDetailField === 'label' ? (
@@ -1236,6 +1326,13 @@ return (
                             }}
                             onKeyDown={(e) => {
                               if (e.key === 'Enter') { e.preventDefault(); updateDetail(detail.id, 'label', e.target.innerHTML); setEditingDetailId(null); setEditingDetailField(null); }
+                              if (e.key === 'Tab') {
+                                e.preventDefault();
+                                updateDetail(detail.id, 'label', e.target.innerHTML);
+                                initialDetailValueRef.current = detail.value || '';
+                                setEditingDetailField('value');
+                              }
+                              if (e.key === 'Escape') { e.preventDefault(); setEditingDetailId(null); setEditingDetailField(null); }
                               if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') { e.preventDefault(); document.execCommand('bold', false, null); }
                               if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'i') { e.preventDefault(); document.execCommand('italic', false, null); }
                             }}
@@ -1247,18 +1344,19 @@ return (
                           <>
                             <span 
                               className="font-bold cursor-text hover:bg-slate-100/50 rounded px-1 transition-colors print:hover:bg-transparent"
-                              onDoubleClick={(e) => { 
+                              onClick={(e) => {
                                 e.stopPropagation(); 
+                                if (isReadOnly) return;
                                 if (setToolbarMode) setToolbarMode('text'); 
                                 initialDetailLabelRef.current = detail.label || ''; 
                                 setEditingDetailId(detail.id); 
                                 setEditingDetailField('label'); 
                               }}
                               onMouseDown={(e) => e.stopPropagation()}
-                              dangerouslySetInnerHTML={{ __html: detail.label }}
-                              title="ดับเบิลคลิกเพื่อแก้ไขหัวข้อ"
+                              dangerouslySetInnerHTML={{ __html: detail.label || '<span class="text-slate-300">หัวข้อ</span>' }}
+                              title="คลิกเพื่อแก้ไขหัวข้อ"
                             />
-                            <span className="font-bold">:</span>
+                            {hasVisibleHtml(detail.label) && <span className="font-bold">:</span>}
                           </>
                         )}
                         
@@ -1284,6 +1382,7 @@ return (
                             }}
                             onKeyDown={(e) => {
                               if (e.key === 'Enter') { e.preventDefault(); updateDetail(detail.id, 'value', e.target.innerHTML); setEditingDetailId(null); setEditingDetailField(null); }
+                              if (e.key === 'Escape') { e.preventDefault(); setEditingDetailId(null); setEditingDetailField(null); }
                               if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') { e.preventDefault(); document.execCommand('bold', false, null); }
                               if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'i') { e.preventDefault(); document.execCommand('italic', false, null); }
                             }}
@@ -1294,21 +1393,45 @@ return (
                         ) : (
                           <span 
                             className="cursor-text hover:bg-slate-100/50 rounded px-1 transition-colors print:hover:bg-transparent"
-                            onDoubleClick={(e) => { 
+                            onClick={(e) => {
                               e.stopPropagation(); 
+                              if (isReadOnly) return;
                               if (setToolbarMode) setToolbarMode('text'); 
                               initialDetailValueRef.current = detail.value || ''; 
                               setEditingDetailId(detail.id); 
                               setEditingDetailField('value'); 
                             }}
                             onMouseDown={(e) => e.stopPropagation()}
-                            dangerouslySetInnerHTML={{ __html: detail.value || '...' }}
-                            title="ดับเบิลคลิกเพื่อแก้ไขข้อมูล"
+                            dangerouslySetInnerHTML={{ __html: detail.value || '<span class="text-slate-300">รายละเอียด</span>' }}
+                            title="คลิกเพื่อแก้ไขข้อมูล"
                           />
                         )}
                       </div>
                     ))}
+                    {!isReadOnly && hasHeaderDetails && (
+                      <button
+                        type="button"
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onClick={(e) => { e.stopPropagation(); handleAddHeaderDetail(); }}
+                        className="print-invisible col-span-full mx-auto mt-0.5 flex items-center gap-1 rounded-full border border-dashed border-slate-300 bg-white/80 px-2.5 py-0.5 text-[10px] font-semibold text-slate-400 transition-colors hover:border-sky-400 hover:bg-sky-50 hover:text-sky-600"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                        เพิ่มข้อมูลใต้หัวกระดาษ
+                      </button>
+                    )}
                   </div>
+                  {!isReadOnly && (
+                    <div
+                      role="separator"
+                      aria-label="ลากเพื่อปรับระยะห่างใต้ชื่อเพลง"
+                      title="ลากเส้นนี้ขึ้นหรือลงเพื่อปรับระยะห่าง"
+                      onPointerDown={startHeaderSpacingDrag}
+                      onPointerMove={moveHeaderSpacingDrag}
+                      onPointerUp={stopHeaderSpacingDrag}
+                      onPointerCancel={stopHeaderSpacingDrag}
+                      className="print-hidden absolute inset-x-0 -bottom-1 z-30 h-3 cursor-ns-resize touch-none"
+                    />
+                  )}
                 </div>
               )}
 

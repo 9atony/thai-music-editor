@@ -202,19 +202,42 @@ export const useAudioPlayback = ({
   }, [metronomeConfig.linked, layoutConfigRef]);
 
   useEffect(() => {
+    const prepareBackgroundAudio = () => {
+      if (!isPlayingRef.current) return;
+      isPageHiddenRef.current = true;
+      // Window minimization can fire blur before visibilitychange. Reserve the
+      // long background queue at the earliest event, before timers are frozen.
+      runAudioSchedulerRef.current?.();
+      runIndependentMetronomeSchedulerRef.current?.();
+      initAudioContext?.().catch(() => {});
+    };
+
+    const restoreForegroundAudio = () => {
+      if (document.hidden) return;
+      isPageHiddenRef.current = false;
+      if (!isPlayingRef.current || !initAudioContext) return;
+      initAudioContext()
+        .then(() => {
+          runAudioSchedulerRef.current?.();
+          runIndependentMetronomeSchedulerRef.current?.();
+        })
+        .catch(() => {});
+    };
+
     const handleVisibilityChange = () => {
-      isPageHiddenRef.current = document.hidden;
-      if (document.hidden) {
-        // Browsers throttle/freeze JavaScript timers in the background. Reserve
-        // audio immediately while this visibility event is still allowed to run.
-        runAudioSchedulerRef.current?.();
-        runIndependentMetronomeSchedulerRef.current?.();
-      } else if (isPlayingRef.current && initAudioContext) {
-        initAudioContext().catch(() => {});
-      }
+      if (document.hidden) prepareBackgroundAudio();
+      else restoreForegroundAudio();
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('blur', prepareBackgroundAudio);
+    window.addEventListener('focus', restoreForegroundAudio);
+    window.addEventListener('pageshow', restoreForegroundAudio);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('blur', prepareBackgroundAudio);
+      window.removeEventListener('focus', restoreForegroundAudio);
+      window.removeEventListener('pageshow', restoreForegroundAudio);
+    };
   }, []);
 
   const getCellId = (r, m, c) => r * 100000 + m * 1000 + c;

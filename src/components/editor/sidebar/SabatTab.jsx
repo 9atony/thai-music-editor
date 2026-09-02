@@ -32,9 +32,9 @@ const SabatTab = () => {
   };
 
   return (
-    <div className="flex flex-col h-full bg-slate-50/50 animate-fadeIn">
+    <div className="tool-tab-root flex flex-col h-full animate-fadeIn">
       {/* Header */}
-      <div className={`p-4 border-b flex justify-between items-center shrink-0 shadow-sm ${isGlobal ? 'bg-amber-50 border-amber-100' : 'bg-orange-100 border-orange-200'}`}>
+      <div className="tool-tab-header flex justify-between items-center shrink-0 border-b">
         <div>
           <h3 className="text-xs font-black text-amber-800 flex items-center gap-1.5">
             <svg className="w-4 h-4 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 8c4-4 8 8 16 0" /></svg>
@@ -49,10 +49,10 @@ const SabatTab = () => {
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 custom-scrollbar space-y-4">
+      <div className="tool-tab-body flex-1 overflow-y-auto custom-scrollbar space-y-4">
         
         {/* --- หมวดรูปลักษณ์เส้น --- */}
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+        <div className="tool-tab-card bg-white p-4 border border-slate-200 shadow-sm">
           <h4 className="text-[11px] font-bold text-slate-700 mb-4 flex items-center gap-1.5 border-b border-slate-100 pb-2.5">
             👁️ รูปลักษณ์เส้นกราฟิก
           </h4>

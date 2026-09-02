@@ -41,19 +41,24 @@ const BLACK_SCROLLBAR_STYLE = `
 
 export default function Timeline() {
   const {
-    tracks, activeTool, deleteClip, removeClipById, addClip,
+    tracks, activeTool, deleteClip, removeClipById, addClip, addNotationClipAt,
     moveClip, resizeClip, splitClip, setCurrentTime, getPlaybackPosition,
     setClipVolume, setClipLoops, isPlaying, startPlayback,
     bpm, snapGrid, measureWidth, totalMeasures, zoomIn, zoomOut, trackLaneHeight,
+    selectedNotationCell, selectNotationCell,
+    notationSymbolTool, addNotationSymbol, addTrack, addEnsemblePreset, importTmeToTrack,
+    importProjectFromWeb,
   } = useWorkspace();
 
   const [dragInfo, setDragInfo] = useState(null);
   const [resizeInfo, setResizeInfo] = useState(null);
   const [clipMenu, setClipMenu] = useState(null);
+  const [symbolDrag, setSymbolDrag] = useState(null);
 
   const playheadRef = useRef(null);
   const headerRef = useRef(null);
   const scrollContainerRef = useRef(null);
+  const importFileRef = useRef(null);
 
   const secondsPerMeasure = 60 / Math.max(20, Number(bpm) || 120);
   const pixelsPerSecond = measureWidth / secondsPerMeasure;
@@ -129,10 +134,21 @@ export default function Timeline() {
     }
   };
 
-  const handleClipMouseDown = (trackId, clipIndex, currentStart, e) => {
+  const handleClipMouseDown = (trackId, clipIndex, currentStart, e, forceDrag = false) => {
     e.stopPropagation();
     const track = tracks.find((t) => t.id === trackId);
     if (track?.isLocked) return;
+    const clip = track?.clips?.[clipIndex];
+
+    // The clip header is a permanent drag handle. It also selects the note
+    // file so measure controls work without requiring a separate tool first.
+    if (forceDrag) {
+      if (clip && selectedNotationCell?.clipId !== clip.id) {
+        selectNotationCell({ trackId, clipId: clip.id, measureIndex: 0, cellIndex: 0, rowIndex: 0 });
+      }
+      setDragInfo({ trackId, clipIndex, startX: e.clientX, initialStart: currentStart });
+      return;
+    }
 
     const clipWidthMeasures = Number(e.currentTarget.dataset.width || 0);
     const clipRect = e.currentTarget.getBoundingClientRect();
@@ -183,6 +199,21 @@ export default function Timeline() {
 
   const handleMouseUp = () => { setDragInfo(null); setResizeInfo(null); };
 
+  const beginSymbolDrag = (selection, event) => {
+    if (!notationSymbolTool) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setSymbolDrag(selection);
+  };
+
+  const finishSymbolDrag = (selection, event) => {
+    if (!symbolDrag || !notationSymbolTool) return;
+    event.preventDefault();
+    event.stopPropagation();
+    addNotationSymbol(symbolDrag, selection, notationSymbolTool);
+    setSymbolDrag(null);
+  };
+
   const handleTrackClick = (trackId, e) => {
     const track = tracks.find((t) => t.id === trackId);
     const rect = e.currentTarget.getBoundingClientRect();
@@ -193,6 +224,11 @@ export default function Timeline() {
     if (activeTool === 'draw') {
       if (track?.isLocked) return;
       addClip(trackId, Number(startPosition.toFixed(2)));
+    }
+    if (activeTool === 'note') {
+      if (track?.isLocked) return;
+      addNotationClipAt(trackId, Number(startPosition.toFixed(2)));
+      return;
     }
     if (activeTool === 'zoom') { e.shiftKey || e.altKey ? zoomOut() : zoomIn(); }
     
@@ -205,6 +241,30 @@ export default function Timeline() {
   const openClipMenu = (clipId, e) => { e.stopPropagation(); setClipMenu({ clipId, x: e.clientX, y: e.clientY }); };
   const closeClipMenu = () => setClipMenu(null);
   const menuClip = clipMenu ? findClip(clipMenu.clipId) : null;
+  const isNewWorkspace = tracks.length <= 1 && tracks.every((track) => track.clips.length === 0 && !track.sourceProjectName);
+
+  const handleImportFile = (event) => {
+    const file = event.target.files?.[0];
+    const targetTrack = tracks[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (loadEvent) => {
+      const content = loadEvent.target?.result;
+      if (targetTrack) importTmeToTrack(targetTrack.id, content, file.name);
+      else importProjectFromWeb(content, file.name);
+    };
+    reader.readAsText(file);
+    event.target.value = null;
+  };
+
+  const handleCreateNotation = () => {
+    const targetTrack = tracks[0];
+    if (!targetTrack) {
+      addTrack();
+      return;
+    }
+    addNotationClipAt(targetTrack.id, 0);
+  };
 
   return (
     <main
@@ -212,6 +272,7 @@ export default function Timeline() {
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseUp}
+      onPointerUp={() => setSymbolDrag(null)}
     >
       <style>{BLACK_SCROLLBAR_STYLE}</style>
 
@@ -244,6 +305,32 @@ export default function Timeline() {
             <div className="absolute top-0 left-1/2 -translate-x-1/2 border-[6px] border-transparent border-t-red-500" />
           </div>
 
+          {isNewWorkspace && (
+            <section className="absolute inset-0 z-30 flex items-center justify-center bg-[#0c1014]/85 p-6 backdrop-blur-[2px]">
+              <div className="w-full max-w-2xl rounded-3xl border border-white/10 bg-[#121922] p-7 text-center shadow-2xl">
+                <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl border border-sky-400/25 bg-sky-400/10 text-2xl text-sky-300">♫</div>
+                <h2 className="text-lg font-bold text-white">เริ่มจัดวงของคุณ</h2>
+                <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-white/50">เลือกวิธีเริ่มต้นได้เลย: นำโน้ตเพลงเดิมมาจัดเป็นวง สร้างชุดวงพื้นฐาน หรือเขียนโน้ตด้วยตัวเอง</p>
+                <div className="mt-6 grid gap-3 text-left sm:grid-cols-3">
+                  <button type="button" onClick={() => importFileRef.current?.click()} className="rounded-2xl border border-sky-400/25 bg-sky-400/10 p-4 transition-colors hover:bg-sky-400/20">
+                    <span className="block text-sm font-bold text-sky-100">นำเข้าไฟล์เพลง</span>
+                    <span className="mt-1 block text-xs leading-5 text-sky-100/55">รองรับ .tme, .thai และ .json</span>
+                  </button>
+                  <button type="button" onClick={addEnsemblePreset} className="rounded-2xl border border-violet-400/25 bg-violet-400/10 p-4 transition-colors hover:bg-violet-400/20">
+                    <span className="block text-sm font-bold text-violet-100">สร้างชุดวงพื้นฐาน</span>
+                    <span className="mt-1 block text-xs leading-5 text-violet-100/55">ระนาดเอก · ฆ้องวงใหญ่ · กลองแขก · ฉิ่ง</span>
+                  </button>
+                  <button type="button" onClick={handleCreateNotation} className="rounded-2xl border border-emerald-400/25 bg-emerald-400/10 p-4 transition-colors hover:bg-emerald-400/20">
+                    <span className="block text-sm font-bold text-emerald-100">เริ่มเขียนโน้ต</span>
+                    <span className="mt-1 block text-xs leading-5 text-emerald-100/55">สร้างคลิปโน้ตในแทร็กแรกทันที</span>
+                  </button>
+                </div>
+                <button type="button" onClick={addTrack} className="mt-4 text-xs font-semibold text-white/45 transition-colors hover:text-white">หรือเพิ่มแทร็กว่างด้วยตัวเอง</button>
+                <input ref={importFileRef} type="file" accept=".tme,.thai,.json" className="hidden" onChange={handleImportFile} />
+              </div>
+            </section>
+          )}
+
           {sortedTracks.map((track) => {
             const laneHeight = getTrackHeight(track);
             const clipMetrics = getClipMetrics(track);
@@ -251,7 +338,7 @@ export default function Timeline() {
             return (
               <div key={track.id}
                    onClick={(e) => handleTrackClick(track.id, e)}
-                   className={`relative border-b border-white/[0.06] transition-all duration-300 box-border overflow-hidden ${track.isMuted ? 'opacity-30 bg-black/20' : ''} ${activeTool === 'draw' ? 'cursor-crosshair hover:bg-white/[0.02]' : ''} ${activeTool === 'zoom' ? 'cursor-zoom-in hover:bg-white/[0.02]' : ''}`}
+                   className={`relative border-b border-white/[0.06] transition-all duration-300 box-border overflow-hidden ${track.isMuted ? 'opacity-30 bg-black/20' : ''} ${activeTool === 'draw' || activeTool === 'note' ? 'cursor-crosshair hover:bg-white/[0.02]' : ''} ${activeTool === 'zoom' ? 'cursor-zoom-in hover:bg-white/[0.02]' : ''}`}
                    style={{ height: `${laneHeight}px`, minHeight: `${laneHeight}px`, boxSizing: 'border-box', padding: 0 }}>
                 
                 <div className="absolute inset-0 flex pointer-events-none">
@@ -281,6 +368,11 @@ export default function Timeline() {
                       handleResizeStart={handleResizeStart}
                       openClipMenu={openClipMenu}
                       removeClipById={removeClipById}
+                      selectedNotationCell={selectedNotationCell}
+                      selectNotationCell={selectNotationCell}
+                      notationSymbolTool={notationSymbolTool}
+                      onSymbolPointerDown={beginSymbolDrag}
+                      onSymbolPointerUp={finishSymbolDrag}
                     />
                   );
                 })}

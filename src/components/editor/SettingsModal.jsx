@@ -147,6 +147,21 @@ const SettingsModal = ({ isOpen, onClose }) => {
                     </div>
                   ))}
                 </div>
+                <div className="border-t border-slate-100 pt-4">
+                  <label className="text-xs text-slate-500 font-bold mb-1.5 flex items-center justify-between">
+                    <span>ระยะห่างก่อนเส้นคั่น</span>
+                    <span className="font-bold text-sky-600">{layoutConfig.headerBottomSpacing ?? 8}px</span>
+                  </label>
+                  <input
+                    type="range"
+                    min="0"
+                    max="48"
+                    value={layoutConfig.headerBottomSpacing ?? 8}
+                    onChange={(e) => updateLayout('headerBottomSpacing', parseInt(e.target.value, 10))}
+                    className="w-full h-1.5 bg-slate-200 rounded-lg accent-sky-500 cursor-pointer"
+                  />
+                  <p className="mt-1 text-[10px] text-slate-400">ลดค่าเพื่อเลื่อนเส้นขึ้นและให้บรรทัดเพลงด้านล่างถดขึ้น</p>
+                </div>
               </section>
             </div>
           )}

@@ -5,6 +5,7 @@ import Toolbar from "./tool-workspace/Toolbar";
 import TrackPanel from "./tool-workspace/TrackPanel";
 import Timeline from "./tool-workspace/Timeline";
 import MixerPanel from "./tool-workspace/MixerPanel";
+import NotationInputPanel from "./tool-workspace/NotationInputPanel";
 
 import { WorkspaceProvider } from "../../contexts/WorkspaceContext";
 import { MusicContext } from "../../contexts/MusicContext";
@@ -53,6 +54,7 @@ export default function ToolWorkspace({ onBack }) {
                 <TrackPanel />
                 <Timeline />
               </div>
+              <NotationInputPanel />
               <MixerPanel />
             </div>
           </div>

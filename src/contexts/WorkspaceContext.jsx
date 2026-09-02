@@ -1,7 +1,9 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { INSTRUMENT_CONFIG } from '../utils/instrumentConfig';
+import { auth, getArrangerProject, saveArrangerProject } from '../utils/firebase';
 import {
   initAudioContext,
+  playNote,
   preloadNote,
   scheduleNote,
   getAudioCurrentTime,
@@ -31,6 +33,28 @@ const EDITOR_BEATS_PER_MEASURE = 4;
 const getEditorMeasureDurationSec = (tempo) => (
   (15000 / Math.max(20, Number(tempo) || 80)) * EDITOR_BEATS_PER_MEASURE
 ) / 1000;
+const WORKSPACE_SESSION_KEY = 'thaiMusicEditorArrangerWorkspace';
+export const ARRANGER_PROJECT_SESSION_KEY = 'thaiMusicEditorActiveArrangerProject';
+
+const readSavedWorkspace = () => {
+  try {
+    const raw = sessionStorage.getItem(WORKSPACE_SESSION_KEY);
+    if (!raw) return null;
+    const workspace = JSON.parse(raw);
+    return Array.isArray(workspace?.tracks) ? workspace : null;
+  } catch (error) {
+    console.warn('ไม่สามารถกู้คืนข้อมูล Arranger ล่าสุดได้:', error);
+    return null;
+  }
+};
+
+const saveWorkspaceSnapshot = (workspace) => {
+  try {
+    sessionStorage.setItem(WORKSPACE_SESSION_KEY, JSON.stringify(workspace));
+  } catch (error) {
+    console.warn('ไม่สามารถบันทึกข้อมูล Arranger ล่าสุดในเบราว์เซอร์ได้:', error);
+  }
+};
 
 // ⭐ Single source of truth สำหรับความสูงของแทร็ก (ใช้ร่วมกันทั้ง Toolbar slider + Timeline lane + TrackPanel drag)
 export const MIN_TRACK_LANE_HEIGHT = 54;        // ⭐ ครึ่งหนึ่งของค่าเดิม (108/132 -> 54/66) ตามที่ผู้ใช้ต้องการเล็กที่สุด
@@ -107,6 +131,71 @@ const splitThaiNoteToken = (token) => {
     }
     return parts;
   }, []);
+};
+
+const createNotationMeasures = (measureCount = 2, cellsPerMeasure = 4) => (
+  Array.from({ length: Math.max(1, Math.ceil(measureCount)) }, (_, index) => ({
+    index,
+    top: Array(cellsPerMeasure).fill('-'),
+    bottom: null,
+  }))
+);
+
+// A manually written clip keeps its notation as the source of truth.  The
+// events are regenerated from that notation so what the user sees and hears
+// always use the exact same beat grid.
+const buildEventsFromNotation = (notationMeasures, instrumentId) => {
+  const events = [];
+  (notationMeasures || []).forEach((measure, arrayIndex) => {
+    const measureIndex = Number.isFinite(Number(measure?.index)) ? Number(measure.index) : arrayIndex;
+    [measure?.top, measure?.bottom].forEach((cells, rowIndex) => {
+      if (!Array.isArray(cells)) return;
+      const cellCount = Math.max(1, cells.length);
+      cells.forEach((token, cellIndex) => {
+        splitThaiNoteToken(token).forEach((note, noteIndex, notes) => {
+          events.push({
+            id: makeId('evt'),
+            note,
+            instrumentId,
+            rowIndex,
+            measureOffset: measureIndex + (cellIndex / cellCount) + (noteIndex / notes.length / cellCount),
+          });
+        });
+      });
+    });
+  });
+  return events;
+};
+
+const buildNotationFromEvents = (clip) => {
+  const measureCount = Math.max(1, Math.ceil(Number(clip?.playback?.measureCount) || Number(clip?.width) || 1));
+  const events = clip?.playback?.events || [];
+  const hasBottom = events.some((event) => event.rowIndex === 1);
+  const allowedCounts = [4, 8, 12, 16];
+  const measures = Array.from({ length: measureCount }, (_, index) => {
+    const offsets = events.filter((event) => Math.floor(Number(event.measureOffset)) === index)
+      .map((event) => (Number(event.measureOffset) || 0) - index);
+    const cellCount = allowedCounts.find((count) => offsets.every((offset) => Math.abs((offset * count) - Math.round(offset * count)) < 0.0001)) || 4;
+    return { index, top: Array(cellCount).fill('-'), bottom: hasBottom ? Array(cellCount).fill('-') : null };
+  });
+  events.forEach((event) => {
+    const offset = Math.max(0, Number(event.measureOffset) || 0);
+    const measure = measures[Math.floor(offset)];
+    if (!measure || !event.note || event.note === '-') return;
+    const row = event.rowIndex === 1 && measure.bottom ? measure.bottom : measure.top;
+    const cellIndex = Math.min(row.length - 1, Math.floor((offset - Math.floor(offset)) * row.length + 0.0001));
+    row[cellIndex] = row[cellIndex] === '-' ? event.note : `${row[cellIndex]}${event.note}`;
+  });
+  return measures;
+};
+
+const getNotationCellOffset = (measures, selection) => {
+  const measurePosition = (measures || []).findIndex((measure, index) => Number(measure.index ?? index) === selection.measureIndex);
+  const measure = measures?.[measurePosition];
+  const cells = measure?.[selection.rowIndex === 1 ? 'bottom' : 'top'];
+  if (!measure || !Array.isArray(cells) || selection.cellIndex < 0 || selection.cellIndex >= cells.length) return null;
+  const measureIndex = Number(measure.index ?? measurePosition);
+  return measureIndex + (selection.cellIndex / cells.length);
 };
 
 const getVisualIndex = (rowIndex, rowTypesArray = []) => {
@@ -426,23 +515,85 @@ const serializeWorkspace = (state) => ({
 });
 
 export const WorkspaceProvider = ({ children }) => {
-  const [projectName, setProjectName] = useState('Arranger Workspace');
+  const [savedWorkspace] = useState(() => readSavedWorkspace());
+  const [projectName, setProjectName] = useState(savedWorkspace?.name || 'Arranger Workspace');
   const [isPlaying, setIsPlaying] = useState(false);
-  const [bpm, setBpm] = useState(120);
+  const [bpm, setBpm] = useState(savedWorkspace?.bpm || 120);
   const [activeTool, setActiveTool] = useState('select');
   const [currentTime, setCurrentTime] = useState(0);
   const [totalTime, setTotalTime] = useState(0);
-  const [snapGrid, setSnapGrid] = useState(1);
-  const [zoomLevel, setZoomLevel] = useState(100);
-  const [trackLaneHeight, setTrackLaneHeight] = useState(DEFAULT_TRACK_LANE_HEIGHT);
-  const [masterVolume, setMasterVolumeState] = useState(100);
-  const [tracks, setTracks] = useState([]);
+  const [snapGrid, setSnapGrid] = useState(savedWorkspace?.snapGrid ?? 1);
+  const [zoomLevel, setZoomLevel] = useState(savedWorkspace?.zoomLevel || 100);
+  const [trackLaneHeight, setTrackLaneHeight] = useState(savedWorkspace?.trackLaneHeight || DEFAULT_TRACK_LANE_HEIGHT);
+  const [masterVolume, setMasterVolumeState] = useState(savedWorkspace?.masterVolume ?? 100);
+  const [tracks, setTracks] = useState(savedWorkspace?.tracks || []);
+  const [selectedNotationCell, setSelectedNotationCell] = useState(null);
+  const [notationSymbolTool, setNotationSymbolTool] = useState(null);
+  const [currentProjectId, setCurrentProjectId] = useState(null);
+  const [saveStatus, setSaveStatus] = useState('saved');
+  const [isProjectReady, setIsProjectReady] = useState(false);
 
   const playbackRef = useRef({ rafId: null, startedAt: 0, durationSec: 0 });
   const schedulerIntervalRef = useRef(null);
   const playbackRequestRef = useRef(0);
   const clipboardRef = useRef(null);
   const [hasClipboard, setHasClipboard] = useState(false);
+  const workspaceSnapshotRef = useRef(null);
+
+  workspaceSnapshotRef.current = serializeWorkspace({
+    projectName,
+    bpm,
+    snapGrid,
+    zoomLevel,
+    trackLaneHeight,
+    masterVolume,
+    tracks,
+  });
+
+  useEffect(() => {
+    const saveTimer = window.setTimeout(() => {
+      saveWorkspaceSnapshot(workspaceSnapshotRef.current);
+    }, 300);
+    return () => window.clearTimeout(saveTimer);
+  }, [projectName, bpm, snapGrid, zoomLevel, trackLaneHeight, masterVolume, tracks]);
+
+  useEffect(() => {
+    const saveBeforePageReset = () => saveWorkspaceSnapshot(workspaceSnapshotRef.current);
+    window.addEventListener('pagehide', saveBeforePageReset);
+    return () => {
+      window.removeEventListener('pagehide', saveBeforePageReset);
+      saveBeforePageReset();
+    };
+  }, []);
+
+  useEffect(() => {
+    const projectId = sessionStorage.getItem(ARRANGER_PROJECT_SESSION_KEY);
+    const uid = auth.currentUser?.uid;
+    if (!projectId || !uid) return;
+
+    let active = true;
+    setSaveStatus('loading');
+    getArrangerProject(uid, projectId)
+      .then((project) => {
+        if (!active || !project) return;
+        setCurrentProjectId(project.id);
+        setProjectName(project.name || 'โปรเจกต์จัดวงใหม่');
+        setBpm(project.bpm || 120);
+        setSnapGrid(project.snapGrid ?? 1);
+        setZoomLevel(project.zoomLevel || 100);
+        setTrackLaneHeight(project.trackLaneHeight || DEFAULT_TRACK_LANE_HEIGHT);
+        setMasterVolume(project.masterVolume ?? 100);
+        setTracks(Array.isArray(project.tracks) ? project.tracks : []);
+        setSaveStatus('saved');
+        setIsProjectReady(true);
+      })
+      .catch((error) => {
+        console.error('โหลดโปรเจกต์จัดวงไม่สำเร็จ:', error);
+        if (active) setSaveStatus('error');
+      });
+
+    return () => { active = false; };
+  }, []);
   
 
   const tracksRef = useRef(tracks);
@@ -454,6 +605,9 @@ export const WorkspaceProvider = ({ children }) => {
   const isPlayingRef = useRef(false);
   const startPlaybackRef = useRef(null);
   const stopPlaybackRef = useRef(null);
+  const spacePlayRequestTimeRef = useRef(0);
+  const hiddenPlaybackPositionRef = useRef(null);
+  const visibilityResumeInFlightRef = useRef(false);
 
   const setCurrentTimeWrapper = (t) => {
     currentTimeRef.current = t;
@@ -496,6 +650,10 @@ export const WorkspaceProvider = ({ children }) => {
     stopAllScheduledNotes?.(); 
     releasePlaybackOwnership(stopPlaybackRef.current);
   }, []);
+
+  const returnToPlaybackStart = () => {
+    setCurrentTimeWrapper(Math.max(0, Number(playbackRef.current.startTime) || 0));
+  };
 
   useEffect(() => () => {
     stopPlayback();
@@ -603,15 +761,23 @@ export const WorkspaceProvider = ({ children }) => {
     const playEvents = events.filter((ev) => ev.whenSec >= startTime);
     const durationSec = Math.max(0, totalDuration - startTime);
 
-    // Do not block Play while every sample from every instrument is decoded.
-    // Preparing only the first chord prevents a dropped first note; later notes
-    // continue to be loaded by the normal look-ahead scheduler.
-    const firstEventTime = playEvents[0]?.whenSec;
-    if (firstEventTime !== undefined) {
-      const initialNotes = playEvents
-        .filter((event) => event.whenSec === firstEventTime)
-        .slice(0, 16);
-      await Promise.allSettled(initialNotes.map((event) => preloadNote(event.instrumentId, event.note)));
+    // Decode the complete opening phrase before its clock starts. Loading only
+    // the first chord let notes from the next scheduler window arrive late and
+    // get normalized to "now", which made the first playback sound bunched up.
+    const STARTUP_PRELOAD_WINDOW_SEC = 2;
+    const startupNotes = new Map();
+    playEvents.forEach((event) => {
+      if (
+        event.whenSec - startTime > STARTUP_PRELOAD_WINDOW_SEC
+        || !event.note
+        || event.note === '-'
+      ) return;
+      startupNotes.set(`${event.instrumentId}:${event.note}`, event);
+    });
+    if (startupNotes.size > 0) {
+      await Promise.allSettled(
+        [...startupNotes.values()].map((event) => preloadNote(event.instrumentId, event.note)),
+      );
       if (playbackRequestRef.current !== requestId) return;
     }
 
@@ -668,6 +834,40 @@ export const WorkspaceProvider = ({ children }) => {
   });
 
   useEffect(() => {
+    const resumeArrangerAfterTabSwitch = async () => {
+      if (document.hidden) {
+        if (isPlayingRef.current) hiddenPlaybackPositionRef.current = getPlaybackPosition();
+        return;
+      }
+      if (!isPlayingRef.current || visibilityResumeInFlightRef.current) return;
+
+      visibilityResumeInFlightRef.current = true;
+      // Background tabs can suspend AudioContext and throttle the 100ms
+      // scheduler. Resume and rebuild the schedule from the last audible
+      // position instead of leaving the transport running silently.
+      const resumeAt = Math.max(0, Number(hiddenPlaybackPositionRef.current ?? getPlaybackPosition()) || 0);
+      hiddenPlaybackPositionRef.current = null;
+      try {
+        await initAudioContext();
+        if (!isPlayingRef.current) return;
+        setCurrentTimeWrapper(resumeAt);
+        startPlaybackRef.current?.();
+      } catch (error) {
+        console.warn('ไม่สามารถกู้เสียง Arranger หลังสลับแท็บได้:', error);
+      } finally {
+        visibilityResumeInFlightRef.current = false;
+      }
+    };
+
+    document.addEventListener('visibilitychange', resumeArrangerAfterTabSwitch);
+    window.addEventListener('focus', resumeArrangerAfterTabSwitch);
+    return () => {
+      document.removeEventListener('visibilitychange', resumeArrangerAfterTabSwitch);
+      window.removeEventListener('focus', resumeArrangerAfterTabSwitch);
+    };
+  }, [getPlaybackPosition]);
+
+  useEffect(() => {
     const onKeyDown = (event) => {
       if (event.code !== 'Space' || event.repeat) return;
       const target = event.target;
@@ -679,8 +879,18 @@ export const WorkspaceProvider = ({ children }) => {
 
       event.preventDefault();
       event.stopPropagation();
-      if (isPlayingRef.current) stopPlaybackRef.current?.();
-      else startPlaybackRef.current?.();
+      const now = getMonotonicTime();
+      const isDoubleSpace = now - spacePlayRequestTimeRef.current < 260;
+      if (isPlayingRef.current || isDoubleSpace) {
+        // Space is play/pause. A fast second press immediately after resuming
+        // is the DAW-style "return to the marker" gesture.
+        stopPlaybackRef.current?.();
+        if (isDoubleSpace) returnToPlaybackStart();
+        spacePlayRequestTimeRef.current = 0;
+      } else {
+        spacePlayRequestTimeRef.current = now;
+        startPlaybackRef.current?.();
+      }
     };
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
@@ -824,6 +1034,29 @@ export const WorkspaceProvider = ({ children }) => {
     });
   };
 
+  const addEnsemblePreset = () => {
+    const presetInstrumentIds = ['ranat-ek', 'khong-wong-yai', 'klong-khaek', 'ching'];
+    setTracks((prev) => {
+      const hasOnlyEmptyTracks = prev.every((track) => track.clips.length === 0 && !track.sourceProjectName);
+      const baseTracks = hasOnlyEmptyTracks ? [] : prev;
+      let nextId = baseTracks.length > 0 ? Math.max(...baseTracks.map((track) => track.id)) + 1 : 1;
+
+      const presetTracks = presetInstrumentIds.map((instrumentId, index) => {
+        const track = createEmptyTrack(nextId, TRACK_COLORS[(nextId - 1) % TRACK_COLORS.length]);
+        nextId += 1;
+        return {
+          ...track,
+          name: getInstrumentNameById(instrumentId),
+          type: getInstrumentNameById(instrumentId),
+          instrumentId,
+          isCollapsed: index > 1,
+        };
+      });
+
+      return [...baseTracks, ...presetTracks];
+    });
+  };
+
   const importProjectFromWeb = (projectData, fileName = 'โปรเจกต์จากเว็บ.json') => {
     try {
       const serialized = typeof projectData === 'string' ? projectData : JSON.stringify(projectData);
@@ -884,12 +1117,14 @@ export const WorkspaceProvider = ({ children }) => {
   };
 
   const deleteClip = (trackId, clipIndex) => {
+    const targetClipId = tracks.find((track) => track.id === trackId)?.clips?.[clipIndex]?.id;
     setTracks((prev) => prev.map((track) => {
       if (track.id !== trackId) return track;
       const nextClips = [...track.clips];
       nextClips.splice(clipIndex, 1);
       return { ...track, clips: nextClips };
     }));
+    if (targetClipId && selectedNotationCell?.clipId === targetClipId) setSelectedNotationCell(null);
   };
 
   const removeClipById = (trackId, clipId) => {
@@ -900,6 +1135,7 @@ export const WorkspaceProvider = ({ children }) => {
         clips: track.clips.filter((clip) => clip.id !== clipId),
       };
     }));
+    if (selectedNotationCell?.trackId === trackId && selectedNotationCell?.clipId === clipId) setSelectedNotationCell(null);
   };
 
   const addClip = (trackId, startPosition) => {
@@ -921,11 +1157,263 @@ export const WorkspaceProvider = ({ children }) => {
             loops: 1,
             notesPreview: [],
             sourceInstrumentId: track.instrumentId,
-            playback: { measureCount: 2, durationSec: 0, events: [] },
+            playback: { measureCount: 2, durationSec: getEditorMeasureDurationSec(bpm) * 2, events: [], notationMeasures: createNotationMeasures() },
           },
         ],
       };
     }));
+  };
+
+  const addNotationClipAt = (trackId, startPosition) => {
+    const clipId = makeId('clip');
+    const validStart = Math.max(0, Number(startPosition) || 0);
+    const targetTrack = tracks.find((track) => track.id === trackId);
+    if (!targetTrack || targetTrack.clips.some((clip) => validStart < clip.start + clip.width && validStart + 8 > clip.start)) return;
+    setTracks((prev) => prev.map((track) => {
+      if (track.id !== trackId) return track;
+      return {
+        ...track,
+        clips: [...track.clips, {
+          id: clipId, start: validStart, width: 2, name: 'โน้ตใหม่', sectionLabel: 'manual', loops: 1,
+          notesPreview: [], sourceInstrumentId: track.instrumentId,
+          width: 8,
+          playback: { measureCount: 8, durationSec: getEditorMeasureDurationSec(bpm) * 8, events: [], notationMeasures: createNotationMeasures(8) },
+        }],
+      };
+    }));
+    setSelectedNotationCell({ trackId, clipId, measureIndex: 0, cellIndex: 0, rowIndex: 0 });
+  };
+
+  const selectNotationCell = (selection) => setSelectedNotationCell(selection);
+
+  const addNotationMeasures = (amount = 1) => {
+    if (!selectedNotationCell) return;
+    const count = Math.max(1, Math.floor(Number(amount) || 1));
+    const { trackId, clipId } = selectedNotationCell;
+    setTracks((prev) => prev.map((track) => {
+      if (track.id !== trackId) return track;
+      return {
+        ...track,
+        clips: track.clips.map((clip) => {
+          if (clip.id !== clipId) return clip;
+          const measures = (Array.isArray(clip.playback?.notationMeasures) ? clip.playback.notationMeasures : buildNotationFromEvents(clip))
+            .map((measure) => ({ ...measure, top: [...(measure.top || [])], bottom: measure.bottom ? [...measure.bottom] : null }));
+          const isDoubleHand = measures.some((measure) => Array.isArray(measure.bottom));
+          const startIndex = measures.length;
+          for (let index = 0; index < count; index += 1) {
+            measures.push({ index: startIndex + index, top: Array(4).fill('-'), bottom: isDoubleHand ? Array(4).fill('-') : null });
+          }
+          const instrumentId = normalizeInstrumentId(track.instrumentId || clip.sourceInstrumentId, 'ranat-ek');
+          const events = buildEventsFromNotation(measures, instrumentId);
+          return {
+            ...clip,
+            width: Math.max(Number(clip.width) || 1, measures.length),
+            sourceInstrumentId: instrumentId,
+            playback: { ...clip.playback, measureCount: measures.length, durationSec: getEditorMeasureDurationSec(bpm) * measures.length, events, notationMeasures: measures },
+          };
+        }),
+      };
+    }));
+  };
+
+  const setNotationHandMode = (mode) => {
+    if (!selectedNotationCell || !['single', 'double'].includes(mode)) return;
+    const { trackId, clipId } = selectedNotationCell;
+    setTracks((prev) => prev.map((track) => {
+      if (track.id !== trackId) return track;
+      return {
+        ...track,
+        clips: track.clips.map((clip) => {
+          if (clip.id !== clipId) return clip;
+          const measures = (Array.isArray(clip.playback?.notationMeasures) ? clip.playback.notationMeasures : buildNotationFromEvents(clip))
+            .map((measure, index) => ({
+              ...measure,
+              index: Number(measure.index ?? index),
+              top: [...(measure.top || Array(4).fill('-'))],
+              bottom: mode === 'double' ? [...(measure.bottom || Array(measure.top?.length || 4).fill('-'))] : null,
+            }));
+          const instrumentId = normalizeInstrumentId(track.instrumentId || clip.sourceInstrumentId, 'ranat-ek');
+          const events = buildEventsFromNotation(measures, instrumentId);
+          return { ...clip, sourceInstrumentId: instrumentId, playback: { ...clip.playback, events, notationMeasures: measures } };
+        }),
+      };
+    }));
+    setSelectedNotationCell((current) => current ? { ...current, rowIndex: mode === 'double' ? current.rowIndex : 0 } : current);
+  };
+
+  const removeNotationMeasures = (amount = 1) => {
+    if (!selectedNotationCell) return;
+    const count = Math.max(1, Math.floor(Number(amount) || 1));
+    const { trackId, clipId, measureIndex } = selectedNotationCell;
+    // A "line" is a fixed group of eight measures. Removing one measure uses
+    // the selected measure; removing a line uses the line containing it.
+    const startIndex = count === 8 ? Math.floor(measureIndex / 8) * 8 : measureIndex;
+    const selectedClip = tracks.find((track) => track.id === trackId)?.clips.find((clip) => clip.id === clipId);
+    const sourceMeasures = Array.isArray(selectedClip?.playback?.notationMeasures)
+      ? selectedClip.playback.notationMeasures
+      : buildNotationFromEvents(selectedClip);
+    const projectedCount = Math.max(1, sourceMeasures.length - Math.min(count, Math.max(0, sourceMeasures.length - 1), Math.max(0, sourceMeasures.length - startIndex)));
+    const nextMeasureIndex = Math.min(startIndex, projectedCount - 1);
+    setTracks((prev) => prev.map((track) => {
+      if (track.id !== trackId) return track;
+      return {
+        ...track,
+        clips: track.clips.map((clip) => {
+          if (clip.id !== clipId) return clip;
+          const measures = (Array.isArray(clip.playback?.notationMeasures) ? clip.playback.notationMeasures : buildNotationFromEvents(clip))
+            .map((measure) => ({ ...measure, top: [...(measure.top || [])], bottom: measure.bottom ? [...measure.bottom] : null }));
+          if (measures.length <= 1 || startIndex >= measures.length) return clip;
+          const deleteCount = Math.min(count, measures.length - 1, measures.length - startIndex);
+          if (deleteCount <= 0) return clip;
+          measures.splice(startIndex, deleteCount);
+          measures.forEach((measure, index) => { measure.index = index; });
+          const instrumentId = normalizeInstrumentId(track.instrumentId || clip.sourceInstrumentId, 'ranat-ek');
+          const events = buildEventsFromNotation(measures, instrumentId);
+          return {
+            ...clip,
+            width: Math.max(1, measures.length),
+            sourceInstrumentId: instrumentId,
+            notesPreview: events.slice(0, 14).map((event) => event.note),
+            playback: { ...clip.playback, measureCount: measures.length, durationSec: getEditorMeasureDurationSec(bpm) * measures.length, events, notationMeasures: measures },
+          };
+        }),
+      };
+    }));
+    setSelectedNotationCell((current) => current && current.trackId === trackId && current.clipId === clipId
+      ? { ...current, measureIndex: nextMeasureIndex, cellIndex: 0 }
+      : current);
+  };
+
+  const moveNotationSelection = (direction) => {
+    if (!selectedNotationCell) return;
+    const { trackId, clipId, measureIndex, cellIndex, rowIndex } = selectedNotationCell;
+    const clip = tracks.find((track) => track.id === trackId)?.clips.find((entry) => entry.id === clipId);
+    const measures = Array.isArray(clip?.playback?.notationMeasures) ? clip.playback.notationMeasures : buildNotationFromEvents(clip);
+    const measurePosition = measures.findIndex((measure, index) => Number(measure.index ?? index) === measureIndex);
+    if (measurePosition < 0) return;
+    const rowKey = rowIndex === 1 ? 'bottom' : 'top';
+    const cells = measures[measurePosition]?.[rowKey] || measures[measurePosition]?.top || [];
+    let next = { trackId, clipId, measureIndex, cellIndex, rowIndex };
+
+    if (direction === 'up' || direction === 'down') {
+      const targetRow = direction === 'up' ? 0 : 1;
+      if (Array.isArray(measures[measurePosition]?.[targetRow === 1 ? 'bottom' : 'top'])) next = { ...next, rowIndex: targetRow };
+    } else if (direction === 'left' && cellIndex > 0) {
+      next = { ...next, cellIndex: cellIndex - 1 };
+    } else if (direction === 'right' && cellIndex < cells.length - 1) {
+      next = { ...next, cellIndex: cellIndex + 1 };
+    } else if (direction === 'left' && measurePosition > 0) {
+      const previous = measures[measurePosition - 1];
+      const previousCells = previous?.[rowKey] || previous?.top || [];
+      next = { ...next, measureIndex: Number(previous.index ?? measurePosition - 1), cellIndex: Math.max(0, previousCells.length - 1) };
+    } else if (direction === 'right' && measurePosition < measures.length - 1) {
+      const following = measures[measurePosition + 1];
+      next = { ...next, measureIndex: Number(following.index ?? measurePosition + 1), cellIndex: 0 };
+    }
+    setSelectedNotationCell(next);
+  };
+
+  const addNotationSymbol = (start, end, type = notationSymbolTool) => {
+    if (!start || !end || !['sabat', 'kro'].includes(type) || start.trackId !== end.trackId || start.clipId !== end.clipId) return;
+    if (start.measureIndex === end.measureIndex && start.cellIndex === end.cellIndex && start.rowIndex === end.rowIndex) return;
+    setTracks((prev) => prev.map((track) => {
+      if (track.id !== start.trackId) return track;
+      return {
+        ...track,
+        clips: track.clips.map((clip) => {
+          if (clip.id !== start.clipId) return clip;
+          const measures = Array.isArray(clip.playback?.notationMeasures) ? clip.playback.notationMeasures : buildNotationFromEvents(clip);
+          const startOffset = getNotationCellOffset(measures, start);
+          const endOffset = getNotationCellOffset(measures, end);
+          if (startOffset == null || endOffset == null) return clip;
+          const notationSymbols = [...(clip.playback?.notationSymbols || []), {
+            id: makeId('symbol'), type, startOffset, endOffset,
+            startRowIndex: start.rowIndex || 0, endRowIndex: end.rowIndex || 0,
+            color: type === 'kro' ? '#38bdf8' : 'rgba(255, 255, 255, 0.88)', strokeWidth: 2,
+          }];
+          return { ...clip, playback: { ...clip.playback, notationMeasures: measures, notationSymbols } };
+        }),
+      };
+    }));
+  };
+
+  const appendNotationNote = (token) => {
+    if (!selectedNotationCell) return;
+    const { trackId, clipId, measureIndex, cellIndex, rowIndex = 0 } = selectedNotationCell;
+    const clip = tracks.find((track) => track.id === trackId)?.clips.find((entry) => entry.id === clipId);
+    const measures = Array.isArray(clip?.playback?.notationMeasures) ? clip.playback.notationMeasures : buildNotationFromEvents(clip);
+    const measure = measures.find((entry, index) => Number(entry.index ?? index) === measureIndex);
+    const cells = measure?.[rowIndex === 1 ? 'bottom' : 'top'];
+    const previous = normalizeCellToken(cells?.[cellIndex]);
+    inputNotationNote(previous === '-' ? token : `${previous}${token}`, false);
+  };
+
+  const inputNotationNote = (token, advance = token !== '-') => {
+    if (!selectedNotationCell) return;
+    const nextToken = normalizeCellToken(token);
+    const { trackId, clipId, measureIndex, cellIndex, rowIndex = 0 } = selectedNotationCell;
+    if (nextToken !== '-') {
+      const track = tracks.find((entry) => entry.id === trackId);
+      const noteToPreview = splitThaiNoteToken(nextToken).at(-1);
+      if (track?.instrumentId && noteToPreview) {
+        // The arranger writer uses the same AudioEngine preview path as the
+        // Editor keyboard, including resuming the context from a user gesture.
+        void initAudioContext()
+          .then(() => playNote(track.instrumentId, noteToPreview, track.volume ?? 100))
+          .catch(() => {});
+      }
+    }
+    setTracks((prev) => prev.map((track) => {
+      if (track.id !== trackId) return track;
+      return {
+        ...track,
+        clips: track.clips.map((clip) => {
+          if (clip.id !== clipId) return clip;
+          const fallbackMeasures = buildNotationFromEvents(clip);
+          const measures = Array.isArray(clip.playback?.notationMeasures)
+            ? clip.playback.notationMeasures.map((measure) => ({ ...measure, top: [...(measure.top || [])], bottom: measure.bottom ? [...measure.bottom] : null }))
+            : fallbackMeasures;
+          const measurePosition = measures.findIndex((measure, index) => Number(measure.index ?? index) === measureIndex);
+          const targetMeasure = measures[measurePosition >= 0 ? measurePosition : measureIndex];
+          if (!targetMeasure) return clip;
+          const rowKey = rowIndex === 1 ? 'bottom' : 'top';
+          if (!Array.isArray(targetMeasure[rowKey])) targetMeasure[rowKey] = Array(targetMeasure.top?.length || 4).fill('-');
+          if (cellIndex < 0 || cellIndex >= targetMeasure[rowKey].length) return clip;
+          targetMeasure[rowKey][cellIndex] = nextToken;
+          const instrumentId = normalizeInstrumentId(track.instrumentId || clip.sourceInstrumentId, 'ranat-ek');
+          const events = buildEventsFromNotation(measures, instrumentId);
+          return {
+            ...clip,
+            sourceInstrumentId: instrumentId,
+            notesPreview: events.slice(0, 14).map((event) => event.note),
+            playback: {
+              ...clip.playback,
+              measureCount: Math.max(1, measures.length),
+              durationSec: getEditorMeasureDurationSec(bpm) * Math.max(1, measures.length),
+              events,
+              notationMeasures: measures,
+            },
+          };
+        }),
+      };
+    }));
+
+    if (advance) {
+      const clip = tracks.find((track) => track.id === trackId)?.clips.find((entry) => entry.id === clipId);
+      const measures = clip?.playback?.notationMeasures;
+      const measurePosition = Array.isArray(measures)
+        ? measures.findIndex((measure, index) => Number(measure.index ?? index) === measureIndex)
+        : -1;
+      const cells = measures?.[measurePosition]?.[rowIndex === 1 ? 'bottom' : 'top'];
+      const nextMeasure = measures?.[measurePosition + 1];
+      const nextCells = nextMeasure?.[rowIndex === 1 ? 'bottom' : 'top'];
+      setSelectedNotationCell((current) => {
+        if (!current || current.trackId !== trackId || current.clipId !== clipId) return current;
+        if (Array.isArray(cells) && cellIndex + 1 < cells.length) return { ...current, cellIndex: cellIndex + 1 };
+        if (Array.isArray(nextCells)) return { ...current, measureIndex: Number(nextMeasure.index ?? measurePosition + 1), cellIndex: 0 };
+        return current;
+      });
+    }
   };
 
   const moveClip = (trackId, clipIndex, newStart) => {
@@ -1095,6 +1583,43 @@ export const WorkspaceProvider = ({ children }) => {
     URL.revokeObjectURL(url);
   };
 
+  const saveProject = useCallback(async () => {
+    const uid = auth.currentUser?.uid;
+    if (!uid || !currentProjectId) return false;
+    setSaveStatus('saving');
+    try {
+      await saveArrangerProject(uid, currentProjectId, workspaceSnapshotRef.current);
+      setSaveStatus('saved');
+      return true;
+    } catch (error) {
+      console.error('บันทึกโปรเจกต์จัดวงไม่สำเร็จ:', error);
+      setSaveStatus('error');
+      return false;
+    }
+  }, [currentProjectId]);
+
+  useEffect(() => {
+    if (!isProjectReady || !currentProjectId) return undefined;
+
+    setSaveStatus('unsaved');
+    const autoSaveTimer = window.setTimeout(() => {
+      saveProject();
+    }, 1000);
+
+    return () => window.clearTimeout(autoSaveTimer);
+  }, [
+    projectName,
+    bpm,
+    snapGrid,
+    zoomLevel,
+    trackLaneHeight,
+    masterVolume,
+    tracks,
+    isProjectReady,
+    currentProjectId,
+    saveProject,
+  ]);
+
   const importWorkspace = (fileContent) => {
     try {
       const data = JSON.parse(fileContent);
@@ -1131,14 +1656,29 @@ export const WorkspaceProvider = ({ children }) => {
   const value = {
     projectName,
     setProjectName,
+    currentProjectId,
+    saveProject,
+    saveStatus,
     isPlaying,
     setIsPlaying,
     startPlayback,
     stopPlayback,
+    returnToPlaybackStart,
     bpm,
     setBpm,
     activeTool,
     setActiveTool,
+    selectedNotationCell,
+    selectNotationCell,
+    inputNotationNote,
+    moveNotationSelection,
+    notationSymbolTool,
+    setNotationSymbolTool,
+    addNotationSymbol,
+    appendNotationNote,
+    addNotationMeasures,
+    setNotationHandMode,
+    removeNotationMeasures,
     currentTime,
     setCurrentTime: setCurrentTimeWrapper,
     getPlaybackPosition,
@@ -1170,6 +1710,7 @@ export const WorkspaceProvider = ({ children }) => {
     toggleTrackCollapse,
     toggleTrackLock, // ⭐ ส่งฟังก์ชันออกไปให้ปุ่มใน TrackPanel ใช้งาน
     addTrack,
+    addEnsemblePreset,
     renameTrack,
     duplicateTrack,
     removeTrack,
@@ -1179,6 +1720,7 @@ export const WorkspaceProvider = ({ children }) => {
     deleteClip,
     removeClipById,
     addClip,
+    addNotationClipAt,
     moveClip,
     resizeClip,
     copyClip,

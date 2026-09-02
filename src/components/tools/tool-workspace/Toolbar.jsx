@@ -35,6 +35,7 @@ const BLACK_SCROLLBAR_STYLE = `
 `;
 
 const WORKSPACE_TOOLS = [
+  { id: 'note', name: 'เขียนโน้ต', icon: '♫' },
   { id: 'select', name: 'เลือก', icon: '↖' },
   { id: 'erase', name: 'ลบ', icon: '⌫' },
   { id: 'split', name: 'ตัด', icon: '✂' },

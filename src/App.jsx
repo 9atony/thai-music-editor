@@ -20,6 +20,7 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { auth, getUserProfile } from './utils/firebase'; 
 import { MusicContext } from './contexts/MusicContext'; 
 import { primeAudioEngine } from './utils/audioEngine';
+import { recordSystemEvent, setAnalyticsPage, startSystemAnalytics } from './utils/systemAnalytics';
 
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from './utils/firebase';
@@ -61,6 +62,15 @@ function App() {
     sessionStorage.setItem(PREVIOUS_VIEW_SESSION_KEY, previousView);
     sessionStorage.setItem(EDITOR_MODE_SESSION_KEY, editorMode);
   }, [currentView, previousView, editorMode]);
+
+  useEffect(() => {
+    setAnalyticsPage(currentView);
+  }, [currentView]);
+
+  useEffect(() => {
+    if (!isAuthenticated || !auth.currentUser?.uid) return undefined;
+    return startSystemAnalytics(auth.currentUser.uid);
+  }, [isAuthenticated]);
 
   // 2. ปรับแก้ส่วน useEffect เดิม เป็นแบบนี้ครับ
   useEffect(() => {
@@ -165,6 +175,7 @@ function App() {
   };
 
   const handleOpenEditor = (projectId = null, projectData = null, options = {}) => {
+    if (projectId || projectData) recordSystemEvent('projectOpens', { feature: 'openProject', projectId: projectId || projectData?.id });
     const isSampleView = options?.readOnly === true;
     setEditorMode(isSampleView ? 'sample-readonly' : 'normal');
 
@@ -183,6 +194,13 @@ function App() {
 
     setPreviousView(currentView); 
     setCurrentView('editor');     
+  };
+
+  const handleOpenArrangerProjects = () => {
+    sessionStorage.setItem(ACTIVE_TOOL_SESSION_KEY, 'arranger-projects');
+    setPreviousView(currentView);
+    setToolsVisit((current) => current + 1);
+    setCurrentView('tools');
   };
 
   if (currentView === 'editor') {
@@ -210,6 +228,7 @@ function App() {
       {currentView === 'my-projects' && (
         <MyProjects 
           userProfile={userProfile}
+          onOpenArrangerProjects={handleOpenArrangerProjects}
           onNewProject={(...args) => {
             setEditorMode('normal');
             handleOpenEditor(...args);

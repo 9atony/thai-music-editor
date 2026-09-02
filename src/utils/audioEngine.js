@@ -14,12 +14,28 @@ const clipGainNodes = {};
 const DEFAULT_START_LEAD_TIME = 0.015;
 const MAX_TIMELINE_LATENESS = 0.01;
 let primeAudioPromise = null;
+let audioResumeTimer = null;
+
+const requestAudioResume = () => {
+  if (!audioCtx || audioCtx.state === 'running' || audioCtx.state === 'closed') return;
+  if (audioResumeTimer) clearTimeout(audioResumeTimer);
+  audioResumeTimer = setTimeout(() => {
+    audioResumeTimer = null;
+    if (audioCtx && audioCtx.state !== 'running' && audioCtx.state !== 'closed') {
+      audioCtx.resume().catch(() => {});
+    }
+  }, 25);
+};
 
 const getAudioContext = () => {
   if (audioCtx) return audioCtx;
   const Ctx = window.AudioContext || window.webkitAudioContext;
   // ⭐ เน้นตอบสนองตอนกดเล่น/กดโน้ตให้เร็วที่สุด ลดอาการรอ output path ตื่นตัว
   audioCtx = new Ctx({ latencyHint: 'interactive' });
+  // Chrome/Edge may suspend or interrupt Web Audio when a window is minimized.
+  // Once the context has been unlocked by playback, immediately request a
+  // resume whenever the browser changes it away from the running state.
+  audioCtx.addEventListener?.('statechange', requestAudioResume);
 
   masterGainNode = audioCtx.createGain();
   masterGainNode.gain.value = 1;
@@ -564,9 +580,11 @@ export const releasePlaybackOwnership = (stopFn) => {
 };
 
 if (typeof document !== 'undefined') {
+  const wakeAudioOutput = () => initAudioContext().catch(() => {});
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') {
-      initAudioContext().catch(() => {});
-    }
+    if (document.visibilityState === 'visible') wakeAudioOutput();
+    else requestAudioResume();
   });
+  window.addEventListener('focus', wakeAudioOutput);
+  window.addEventListener('pageshow', wakeAudioOutput);
 }

@@ -6,8 +6,10 @@ import { MusicContext } from '../contexts/MusicContext';
 import TmeIcon from '../assets/icon.png';
 import { FolderKanban } from 'lucide-react';
 import PageHeader from '../components/layout/PageHeader';
+import ProjectStatusBar from '../components/projects/ProjectStatusBar';
+import { recordSystemEvent } from '../utils/systemAnalytics';
 
-const MyProjects = ({ onNewProject }) => {
+const MyProjects = ({ onNewProject, onOpenArrangerProjects }) => {
   const { newProject, loadProjectFromFirebase, loadProject } = useContext(MusicContext);
   const fileInputRef = useRef(null);
   
@@ -15,6 +17,7 @@ const MyProjects = ({ onNewProject }) => {
   const [searchQuery, setSearchQuery] = useState(""); 
   const [openMenuId, setOpenMenuId] = useState(null); 
   const [duplicatingProjectId, setDuplicatingProjectId] = useState(null);
+  const [deletingProjectId, setDeletingProjectId] = useState(null);
   
   // ⭐ State สำหรับเก็บยศของผู้ใช้ (user, premium, admin)
   const [userRole, setUserRole] = useState("user"); 
@@ -45,8 +48,10 @@ const MyProjects = ({ onNewProject }) => {
             id: docSnap.id,
             ...docSnap.data()
           }));
+          recordSystemEvent('projectListLoads', { feature: 'projectList', reads: querySnapshot.size });
           setProjects(allProjects);
         } catch (error) {
+          console.warn('โหลดรายการแบบเรียงเวลาไม่สำเร็จ กำลังใช้รายการสำรอง:', error);
           const data = await fetchRecentProjects(uid);
           setProjects(data);
         }
@@ -56,9 +61,13 @@ const MyProjects = ({ onNewProject }) => {
   }, []);
 
   useEffect(() => {
-    const handleClickOutside = () => { setOpenMenuId(null); setIsSortMenuOpen(false); };
-    window.addEventListener('click', handleClickOutside);
-    return () => window.removeEventListener('click', handleClickOutside);
+    const handlePointerDownOutside = (event) => {
+      if (event.target.closest('[data-project-menu], [data-project-sort-menu]')) return;
+      setOpenMenuId(null);
+      setIsSortMenuOpen(false);
+    };
+    document.addEventListener('pointerdown', handlePointerDownOutside);
+    return () => document.removeEventListener('pointerdown', handlePointerDownOutside);
   }, []);
 
   const formatTime = (timestamp) => {
@@ -137,6 +146,7 @@ const MyProjects = ({ onNewProject }) => {
 
   const handleOpenProject = (project) => {
     const parsedData = { ...project, sheetData: typeof project.sheetData === 'string' ? JSON.parse(project.sheetData) : project.sheetData };
+    recordSystemEvent('projectOpens', { projectId: project.id });
     loadProjectFromFirebase(parsedData, true);
     onNewProject(); 
   };
@@ -148,16 +158,20 @@ const MyProjects = ({ onNewProject }) => {
     try {
       const uid = auth.currentUser?.uid;
       await updateDoc(doc(db, 'users', uid, 'projects', projectToRename.id), { name: newProjectName.trim(), updatedAt: serverTimestamp() });
+      recordSystemEvent('projectRenames', { feature: 'renameProject', writes: 1, projectId: projectToRename.id });
       setProjects(prev => prev.map(p => p.id === projectToRename.id ? { ...p, name: newProjectName.trim(), updatedAt: { seconds: Date.now() / 1000 } } : p));
       setRenameModalOpen(false);
-    } catch (error) { alert("เกิดข้อผิดพลาดในการเปลี่ยนชื่อครับ"); }
+    } catch (error) {
+      console.error('เปลี่ยนชื่อโปรเจกต์ไม่สำเร็จ:', error);
+      alert("เกิดข้อผิดพลาดในการเปลี่ยนชื่อครับ");
+    }
   };
 
   const handleDuplicateProject = async (e, project) => {
     e.stopPropagation();
     if (duplicatingProjectId) return;
 
-    const { id, createdAt, updatedAt, ...projectData } = project;
+    const { id: _id, createdAt: _createdAt, updatedAt: _updatedAt, ...projectData } = project;
     const duplicateName = `${project.name || 'โปรเจกต์ไม่มีชื่อ'} (สำเนา)`;
     const duplicateSize = new Blob([JSON.stringify({ ...projectData, name: duplicateName })]).size;
     if (!isCreationAllowed(duplicateSize)) {
@@ -178,6 +192,7 @@ const MyProjects = ({ onNewProject }) => {
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
+      recordSystemEvent('projectsCreated', { feature: 'createProject', writes: 1, projectId: duplicateRef.id });
       setProjects((prev) => [{
         ...projectData,
         id: duplicateRef.id,
@@ -195,13 +210,29 @@ const MyProjects = ({ onNewProject }) => {
   };
   
   const handleDeleteProject = async (e, projectId) => {
-    e.stopPropagation(); setOpenMenuId(null); 
-    if (window.confirm("คุณต้องการลบโปรเจกต์นี้อย่างถาวรใช่หรือไม่?")) {
-      try {
-        const uid = auth.currentUser?.uid;
-        await deleteDoc(doc(db, 'users', uid, 'projects', projectId));
-        setProjects(prev => prev.filter(p => p.id !== projectId));
-      } catch (error) { alert("เกิดข้อผิดพลาดในการลบไฟล์ครับ"); }
+    e.stopPropagation();
+    if (deletingProjectId || !window.confirm("คุณต้องการลบโปรเจกต์นี้อย่างถาวรใช่หรือไม่?")) return;
+
+    const uid = auth.currentUser?.uid;
+    if (!uid) {
+      alert("เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่ก่อนลบโปรเจกต์ครับ");
+      return;
+    }
+
+    setDeletingProjectId(projectId);
+    try {
+      await deleteDoc(doc(db, 'users', uid, 'projects', projectId));
+      recordSystemEvent('projectsDeleted', { feature: 'deleteProject', deletes: 1 });
+      setProjects(prev => prev.filter(project => project.id !== projectId));
+      setOpenMenuId(null);
+    } catch (error) {
+      console.error('ไม่สามารถลบโปรเจกต์ได้:', error);
+      const message = error?.code === 'permission-denied'
+        ? 'ไม่มีสิทธิ์ลบโปรเจกต์นี้ กรุณาเข้าสู่ระบบใหม่ หรือตรวจสอบ Firestore Rules'
+        : `ไม่สามารถลบโปรเจกต์ได้${error?.message ? `: ${error.message}` : ''}`;
+      alert(message);
+    } finally {
+      setDeletingProjectId(null);
     }
   };
 
@@ -239,6 +270,14 @@ const MyProjects = ({ onNewProject }) => {
 
       <input type="file" accept=".json,.tme,.thai" ref={fileInputRef} style={{ display: 'none' }} onChange={handleFileUpload} />
 
+      <button type="button" onClick={onOpenArrangerProjects} className="mb-6 flex w-full items-center justify-between rounded-2xl border border-violet-200 bg-violet-50 px-5 py-4 text-left transition-colors hover:bg-violet-100">
+        <span>
+          <span className="block text-sm font-bold text-violet-900">โปรเจกต์จัดวงดนตรี</span>
+          <span className="mt-0.5 block text-xs text-violet-700/70">จัดการแทร็ก, Timeline และ Mixer แยกจากโน้ตเพลงใน Editor</span>
+        </span>
+        <span className="rounded-xl bg-violet-600 px-3 py-2 text-xs font-bold text-white">เปิดรายการ</span>
+      </button>
+
       <div className="grid grid-cols-3 gap-3 mb-8 md:hidden">
         <button onClick={handleCreateNewProject} className="bg-white rounded-2xl p-3 flex flex-col items-center justify-center gap-2 border border-slate-100 shadow-[0_2px_10px_rgba(0,0,0,0.02)] active:scale-95 transition-all">
           <div className="w-10 h-10 rounded-full bg-red-50 text-red-500 flex items-center justify-center"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" /></svg></div>
@@ -271,13 +310,13 @@ const MyProjects = ({ onNewProject }) => {
         <div className="hidden md:grid md:grid-cols-3 lg:grid-cols-5 gap-4">
           {recentProjects.map((project) => (
             <button key={`grid-${project.id}`} onClick={() => handleOpenProject(project)} className="bg-white p-3.5 rounded-2xl border-2 border-slate-100 hover:border-sky-400 hover:shadow-xl hover:-translate-y-1 transition-all duration-300 flex flex-col group cursor-pointer relative text-left">
-              <div className="absolute top-3 right-3 z-20">
+              <div data-project-menu className="absolute top-3 right-3 z-20">
                 <div onClick={(e) => { e.stopPropagation(); setOpenMenuId(openMenuId === project.id ? null : project.id); }} className="text-slate-400 hover:text-slate-700 transition-all p-1 bg-white hover:bg-slate-100 rounded-md shadow-sm border border-slate-100"><svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg></div>
                 {openMenuId === project.id && (
                   <div className="absolute right-0 mt-1 w-32 bg-white border border-slate-100 rounded-xl shadow-[0_4px_20px_rgba(0,0,0,0.1)] py-1.5 z-50 animate-fadeIn">
                     <div onClick={(e) => openRenameModal(e, project)} className="w-full text-left px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer">เปลี่ยนชื่อ</div>
                     <div onClick={(e) => handleDuplicateProject(e, project)} className="w-full text-left px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer">{duplicatingProjectId === project.id ? 'กำลังทำซ้ำ...' : 'ทำซ้ำ'}</div>
-                    <div onClick={(e) => handleDeleteProject(e, project.id)} className="w-full text-left px-4 py-2 text-sm font-semibold text-red-500 hover:bg-red-50 transition-colors cursor-pointer">ลบ</div>
+                    <div onClick={(e) => handleDeleteProject(e, project.id)} className="w-full text-left px-4 py-2 text-sm font-semibold text-red-500 hover:bg-red-50 transition-colors cursor-pointer">{deletingProjectId === project.id ? 'กำลังลบ...' : 'ลบ'}</div>
                   </div>
                 )}
               </div>
@@ -292,13 +331,13 @@ const MyProjects = ({ onNewProject }) => {
         <div className="flex md:hidden overflow-x-auto gap-4 pb-4 snap-x hide-scrollbar -mx-5 px-5">
           {recentProjects.map((project) => (
             <div key={`hscroll-${project.id}`} className="snap-start shrink-0 w-[140px] bg-white p-3 rounded-2xl border border-slate-100 shadow-sm flex flex-col relative text-left" onClick={() => handleOpenProject(project)}>
-              <div className="absolute top-2 right-2 z-20">
+              <div data-project-menu className="absolute top-2 right-2 z-20">
                 <button onClick={(e) => { e.stopPropagation(); setOpenMenuId(openMenuId === `h-${project.id}` ? null : `h-${project.id}`); }} className="text-slate-300 p-1"><svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg></button>
                 {openMenuId === `h-${project.id}` && (
                   <div className="absolute right-0 mt-1 w-28 bg-white border border-slate-100 rounded-xl shadow-lg py-1.5 z-50">
                     <div onClick={(e) => openRenameModal(e, project)} className="px-3 py-2 text-[11px] font-semibold text-slate-600">เปลี่ยนชื่อ</div>
                     <div onClick={(e) => handleDuplicateProject(e, project)} className="px-3 py-2 text-[11px] font-semibold text-slate-600">{duplicatingProjectId === project.id ? 'กำลังทำซ้ำ...' : 'ทำซ้ำ'}</div>
-                    <div onClick={(e) => handleDeleteProject(e, project.id)} className="px-3 py-2 text-[11px] font-semibold text-red-500">ลบ</div>
+                    <div onClick={(e) => handleDeleteProject(e, project.id)} className="px-3 py-2 text-[11px] font-semibold text-red-500">{deletingProjectId === project.id ? 'กำลังลบ...' : 'ลบ'}</div>
                   </div>
                 )}
               </div>
@@ -313,7 +352,7 @@ const MyProjects = ({ onNewProject }) => {
       <div className="flex flex-col min-h-[250px]">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-base font-bold text-slate-800">ไฟล์ทั้งหมด</h3>
-          <div className="relative z-30">
+          <div data-project-sort-menu className="relative z-30">
             <button onClick={(e) => { e.stopPropagation(); setIsSortMenuOpen(!isSortMenuOpen); setOpenMenuId(null); }} className="flex items-center justify-between w-auto min-w-[90px] gap-2 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-600 shadow-sm hover:border-slate-300 transition-colors">
               {getSortLabel()} <svg className={`w-3 h-3 text-slate-400 transition-transform ${isSortMenuOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" /></svg>
             </button>
@@ -347,13 +386,13 @@ const MyProjects = ({ onNewProject }) => {
                     <td className="py-3 px-5 text-xs font-medium text-slate-500 hidden sm:table-cell">Thai Music Editor</td>
                     <td className="py-3 px-5 text-xs font-medium text-slate-500 whitespace-nowrap">{formatTime(file.updatedAt)}</td>
                     <td className="py-3 px-5 text-right relative">
-                      <div className="relative inline-block z-10">
+                      <div data-project-menu className="relative inline-block z-10">
                         <button onClick={(e) => { e.stopPropagation(); setOpenMenuId(openMenuId === `list-${file.id}` ? null : `list-${file.id}`); }} className="text-slate-400 hover:text-slate-700 transition-all p-1 bg-white hover:bg-slate-100 rounded-md shadow-sm border border-slate-100"><svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg></button>
                         {openMenuId === `list-${file.id}` && (
                           <div className="absolute right-0 top-full mt-1 w-32 bg-white border border-slate-100 rounded-xl shadow-[0_4px_20px_rgba(0,0,0,0.1)] py-1.5 z-50 animate-fadeIn">
                             <div onClick={(e) => openRenameModal(e, file)} className="w-full text-left px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer">เปลี่ยนชื่อ</div>
                             <div onClick={(e) => handleDuplicateProject(e, file)} className="w-full text-left px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer">{duplicatingProjectId === file.id ? 'กำลังทำซ้ำ...' : 'ทำซ้ำ'}</div>
-                            <div onClick={(e) => handleDeleteProject(e, file.id)} className="w-full text-left px-4 py-2 text-sm font-semibold text-red-500 hover:bg-red-50 transition-colors cursor-pointer">ลบ</div>
+                            <div onClick={(e) => handleDeleteProject(e, file.id)} className="w-full text-left px-4 py-2 text-sm font-semibold text-red-500 hover:bg-red-50 transition-colors cursor-pointer">{deletingProjectId === file.id ? 'กำลังลบ...' : 'ลบ'}</div>
                           </div>
                         )}
                       </div>
@@ -376,13 +415,13 @@ const MyProjects = ({ onNewProject }) => {
                   <span className="text-[8px] bg-slate-100 text-slate-400 px-1.5 py-0.5 rounded font-bold">{formatSize(file.sheetData)}</span>
                 </div>
               </div>
-              <div className="relative pl-2 h-full flex items-center">
+              <div data-project-menu className="relative pl-2 h-full flex items-center">
                  <button onClick={(e) => { e.stopPropagation(); setOpenMenuId(openMenuId === `mlist-${file.id}` ? null : `mlist-${file.id}`); }} className="text-slate-300 p-2 -mr-2"><svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg></button>
                  {openMenuId === `mlist-${file.id}` && (
                     <div className="absolute right-0 top-10 mt-1 w-28 bg-white border border-slate-100 rounded-xl shadow-lg py-1.5 z-50">
                       <div onClick={(e) => openRenameModal(e, file)} className="px-3 py-2 text-[11px] font-semibold text-slate-600">เปลี่ยนชื่อ</div>
                       <div onClick={(e) => handleDuplicateProject(e, file)} className="px-3 py-2 text-[11px] font-semibold text-slate-600">{duplicatingProjectId === file.id ? 'กำลังทำซ้ำ...' : 'ทำซ้ำ'}</div>
-                      <div onClick={(e) => handleDeleteProject(e, file.id)} className="px-3 py-2 text-[11px] font-semibold text-red-500">ลบ</div>
+                      <div onClick={(e) => handleDeleteProject(e, file.id)} className="px-3 py-2 text-[11px] font-semibold text-red-500">{deletingProjectId === file.id ? 'กำลังลบ...' : 'ลบ'}</div>
                     </div>
                  )}
               </div>
@@ -392,7 +431,7 @@ const MyProjects = ({ onNewProject }) => {
       </div>
 
       {/* แถบพื้นที่จัดเก็บลอยติดขอบล่าง และยกเหนือ Bottom Navigation บนมือถือ */}
-      <div className="pointer-events-none fixed bottom-20 left-4 right-4 z-40 md:bottom-4 md:left-[calc(16rem+2rem)] md:right-8">
+      <div className="hidden">
         <div className="pointer-events-auto mx-auto w-full max-w-[1480px] rounded-2xl bg-slate-50/80 p-1.5 shadow-[0_18px_50px_rgba(15,23,42,0.18)] backdrop-blur-xl">
         {(() => {
         const usedBytes = calculateTotalStorageUsed();
@@ -455,6 +494,13 @@ const MyProjects = ({ onNewProject }) => {
         })()}
         </div>
       </div>
+
+      <ProjectStatusBar
+        role={userRole}
+        itemCount={projects.length}
+        usedBytes={calculateTotalStorageUsed()}
+        itemLabel="ไฟล์"
+      />
 
       {renameModalOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fadeIn">
