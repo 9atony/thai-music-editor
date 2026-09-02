@@ -1,12 +1,7 @@
 import React, { useState } from 'react';
-
-// นำเข้ารูปภาพจากโฟลเดอร์ assets/templates
-import previewBlank from '../assets/templates/preview-blank.png';
-import previewStandard from '../assets/templates/preview-standard.png';
-import previewWorksheet from '../assets/templates/preview-worksheet.png';
-import previewFormal from '../assets/templates/preview-formal.png';
 import { LayoutTemplate } from 'lucide-react';
 import PageHeader from '../components/layout/PageHeader';
+import { TEMPLATE_CATALOG } from '../data/templateCatalog';
 
 const Templates = ({ onNewProject, userProfile }) => {
   const isAdmin = userProfile?.role === 'admin';
@@ -14,71 +9,7 @@ const Templates = ({ onNewProject, userProfile }) => {
   // ⭐ State สำหรับระบบจัดการเมนูจุด 3 จุด
   const [adminMenuOpen, setAdminMenuOpen] = useState(null);
 
-  const defaultTemplates = [
-    { 
-      id: 'blank', 
-      name: 'กระดาษเปล่า', 
-      desc: 'หน้ากระดาษเปล่าสำหรับเริ่มต้นเขียนโน้ตทันที', 
-      badge: 'พื้นฐาน',
-      borderColor: 'hover:border-slate-400 hover:shadow-slate-200/50',
-      previewImg: previewBlank,
-      defaultSongName: 'เพลงใหม่',
-      detailsAlign: 'between',
-      headerDetails: [] 
-    },
-    { 
-      id: 'standard', 
-      name: 'มาตรฐาน (Standard)', 
-      desc: 'หัวกระดาษสำหรับโน้ตเพลงทั่วไป ระบุจังหวะ เครื่องประกอบ และทางเสียง', 
-      badge: 'แนะนำ',
-      borderColor: 'hover:border-emerald-400 hover:shadow-emerald-200/50',
-      previewImg: previewStandard,
-      defaultSongName: 'ชื่อเพลง',
-      detailsAlign: 'between',
-      headerDetails: [
-        { id: '1', label: "อัตราจังหวะ", value: ".........." },
-        { id: '2', label: "เครื่องประกอบ", value: ".........." },
-        { id: '3', label: "บันไดเสียง", value: ".........." },
-        { id: '4', label: "ผู้บันทึก", value: "................" }
-      ]
-    },
-    { 
-      id: 'worksheet', 
-      name: 'ใบงาน / แบบฝึกหัด', 
-      desc: 'แบบฟอร์มที่มีพื้นที่จุดไข่ปลาสำหรับกรอก ชื่อ-สกุล ชั้น เลขที่ และคะแนน', 
-      badge: 'การศึกษา',
-      borderColor: 'hover:border-amber-400 hover:shadow-amber-200/50',
-      previewImg: previewWorksheet,
-      defaultSongName: 'ใบงานทฤษฎีดนตรีไทย',
-      detailsAlign: 'between',
-      headerDetails: [
-        { id: '1', label: 'ชื่อ-สกุล', value: '................................................' },
-        { id: '2', label: 'ชั้น', value: '................' },
-        { id: '3', label: 'เลขที่', value: '............' },
-        { id: '4', label: 'คะแนน', value: '............' }
-      ]
-    },
-    { 
-      id: 'formal', 
-      name: 'เอกสารวิชาการ', 
-      desc: 'หัวกระดาษแบบทางการ ระบุรายละเอียดที่มาและผู้ถ่ายทอดชัดเจน จัดวางสมดุลซ้าย-ขวา', 
-      badge: 'มืออาชีพ',
-      borderColor: 'hover:border-purple-400 hover:shadow-purple-200/50',
-      previewImg: previewFormal,
-      defaultSongName: 'ชื่อเพลง',
-      detailsAlign: 'between',
-      headerDetails: [
-        { id: '1', label: "อัตราจังหวะ", value: "...................................." },
-        { id: '2', label: "ผู้ประพันธ์ทำนอง", value: "...................................." },
-        { id: '3', label: "เครื่องประกอบ", value: "...................................." },
-        { id: '4', label: "ผู้ถ่ายทอด", value: "...................................." },
-        { id: '5', label: "ทางเสียง", value: "...................................." },
-        { id: '6', label: "ผู้บันทึกโน้ต", value: "...................................." }
-      ]
-    }
-  ];
-
-  const [templates, setTemplates] = useState(defaultTemplates);
+  const [templates, setTemplates] = useState(TEMPLATE_CATALOG);
 
   const handleEdit = (e, id) => {
     e.stopPropagation();

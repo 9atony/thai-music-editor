@@ -9,18 +9,13 @@ import RhythmManager from '../components/tools/RhythmManager';
 import {
   ArrowLeft,
   ArrowUpRight,
-  AudioLines,
-  BookOpenText,
-  BrainCircuit,
   Crown,
-  Database,
   LockKeyhole,
   ShieldCheck,
-  SlidersHorizontal,
   Sparkles,
-  WandSparkles,
   Wrench
 } from 'lucide-react';
+import { ADMIN_TOOL_CATALOG, PUBLIC_TOOL_CATALOG } from '../data/toolCatalog';
 
 const ACTIVE_TOOL_SESSION_KEY = 'thaiMusicEditorActiveTool';
 const adminToolIds = new Set(['generator', 'dictionary', 'tuner-ai', 'rhythm-manager']);
@@ -48,63 +43,8 @@ const Tools = ({ userProfile }) => {
   
   const [showPremiumAlert, setShowPremiumAlert] = useState(false);
 
-  const premiumTools = [
-    { 
-      id: 'workspace', 
-      name: 'จัดวงดนตรี (Arranger)', 
-      desc: 'เครื่องมือจัดการวงดนตรี ควบคุมไทม์ไลน์ และผูกเนื้อร้องเข้ากับโครงสร้างดนตรี', 
-      Icon: SlidersHorizontal,
-      iconClass: 'bg-rose-50 text-rose-600 ring-rose-100',
-      accentClass: 'from-rose-500 to-orange-400',
-      hoverClass: 'hover:border-rose-200 hover:shadow-rose-100/70',
-      requiresPremium: true
-    },
-    {
-      id: 'metronome',
-      name: 'เครื่องประกอบจังหวะ',
-      desc: 'เปิดหน้าทับฉิ่ง กลองแขก และกรับสำหรับฝึกซ้อม ปรับความเร็วและระดับเสียงได้อย่างอิสระ',
-      Icon: AudioLines,
-      iconClass: 'bg-indigo-50 text-indigo-600 ring-indigo-100',
-      accentClass: 'from-indigo-500 to-sky-400',
-      hoverClass: 'hover:border-indigo-200 hover:shadow-indigo-100/70',
-      requiresPremium: false
-    }
-  ];
-
-  const adminTools = [
-    { 
-      id: 'generator', 
-      name: 'AI สร้างทางระนาด', 
-      desc: 'แปลงทำนองหลักจากฆ้องวงใหญ่เป็นทางระนาดเอกอัตโนมัติ ตามระดับความยากที่กำหนด', 
-      Icon: WandSparkles,
-      iconClass: 'bg-sky-50 text-sky-600',
-      hoverClass: 'hover:border-sky-200 hover:shadow-sky-100/70'
-    },
-    { 
-      id: 'dictionary', 
-      name: 'พจนานุกรมทางระนาด', 
-      desc: 'จัดการฐานข้อมูลวลีเพลง (Phrases) จัดกลุ่มระดับความยาก และกำหนดโครงสร้างเป้าหมาย', 
-      Icon: BookOpenText,
-      iconClass: 'bg-teal-50 text-teal-600',
-      hoverClass: 'hover:border-teal-200 hover:shadow-teal-100/70'
-    },
-    { 
-      id: 'tuner-ai', 
-      name: 'AI จูนโครงสร้าง', 
-      desc: 'วิเคราะห์โครงสร้างทำนอง ตรวจสอบความถูกต้องของสัดส่วน และจัดการ Dataset สอนระบบ', 
-      Icon: BrainCircuit,
-      iconClass: 'bg-violet-50 text-violet-600',
-      hoverClass: 'hover:border-violet-200 hover:shadow-violet-100/70'
-    },
-    { 
-      id: 'rhythm-manager', 
-      name: 'จัดการหน้าทับจังหวะ', 
-      desc: 'อัปโหลดไฟล์ .tme เพื่อนำเข้าข้อมูลจังหวะฉิ่ง กลอง กรับ เข้าสู่ระบบส่วนกลาง', 
-      Icon: Database,
-      iconClass: 'bg-emerald-50 text-emerald-600',
-      hoverClass: 'hover:border-emerald-200 hover:shadow-emerald-100/70'
-    }
-  ];
+  const premiumTools = PUBLIC_TOOL_CATALOG;
+  const adminTools = ADMIN_TOOL_CATALOG;
 
   const handleToolClick = (toolId, isPremiumTool) => {
     if (isPremiumTool && !isPremium) {
@@ -131,7 +71,7 @@ const Tools = ({ userProfile }) => {
     const isArrangerProjects = activeTool === 'arranger-projects';
     const usesLightToolTheme = isArrangerProjects || activeTool === 'metronome';
     const currentToolInfo = [...premiumTools, ...adminTools].find(t => t.id === activeTool)
-      || (activeTool === 'arranger-projects' ? { name: 'โปรเจกต์จัดวงดนตรี', Icon: SlidersHorizontal } : null);
+      || (activeTool === 'arranger-projects' ? { name: 'โปรเจกต์จัดวงดนตรี', Icon: PUBLIC_TOOL_CATALOG[0].Icon } : null);
     
     return (
       <div className={`min-h-screen flex flex-col animate-fadeIn ${usesLightToolTheme ? 'bg-slate-50 text-slate-800' : 'bg-[#0c1014]'}`} style={{ fontFamily: 'Prompt, sans-serif' }}>
