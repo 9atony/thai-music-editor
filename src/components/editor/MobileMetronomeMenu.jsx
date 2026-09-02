@@ -17,6 +17,7 @@ const accentClasses = {
 
 const MobileMetronomeMenu = ({ isOpen, onClose }) => {
   const { metronomeConfig, setMetronomeConfig } = useContext(MusicContext);
+  const enabled = metronomeConfig.enabled === true;
   const linked = metronomeConfig.linked !== false;
 
   const updateInstrument = (key, changes) => {
@@ -60,6 +61,18 @@ const MobileMetronomeMenu = ({ isOpen, onClose }) => {
         </header>
 
         <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4 custom-scrollbar">
+          <button
+            type="button"
+            aria-pressed={enabled}
+            onClick={() => setMetronomeConfig((current) => ({ ...current, enabled: current.enabled !== true }))}
+            className={`flex w-full items-center justify-between rounded-2xl border p-3.5 text-left transition active:scale-[0.99] ${enabled ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-slate-50'}`}
+          >
+            <span className="flex items-center gap-3">
+              <span className={`flex h-10 w-10 items-center justify-center rounded-xl ${enabled ? 'bg-emerald-500 text-white' : 'bg-slate-400 text-white'}`}><Volume2 size={19} /></span>
+              <span><span className="block text-sm font-black text-slate-800">เสียงเครื่องประกอบจังหวะ</span><span className="mt-0.5 block text-[11px] text-slate-500">{enabled ? 'เปิดเสียงอยู่' : 'ปิดเสียงอยู่'}</span></span>
+            </span>
+            <span className={`ml-3 flex h-7 w-12 items-center rounded-full p-1 transition-colors ${enabled ? 'bg-emerald-500' : 'bg-slate-300'}`}><span className={`h-5 w-5 rounded-full bg-white shadow transition-transform ${enabled ? 'translate-x-5' : 'translate-x-0'}`} /></span>
+          </button>
           <button
             type="button"
             aria-pressed={linked}

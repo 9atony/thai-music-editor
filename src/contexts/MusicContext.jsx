@@ -14,6 +14,7 @@ export const MusicContext = createContext();
 
 // เก็บเฉพาะค่าที่เป็นของโปรเจกต์ ไม่บันทึกรายการหน้าทับทั้งหมดซึ่งโหลดจากระบบกลาง
 const getMetronomeProjectSettings = (config) => ({
+  enabled: config.enabled === true,
   linked: config.linked !== false,
   masterVolume: config.masterVolume,
   ching: { active: config.ching.active, pattern: config.ching.pattern, volume: config.ching.volume },
@@ -23,12 +24,14 @@ const getMetronomeProjectSettings = (config) => ({
 
 const applyMetronomeProjectSettings = (current, saved) => {
   if (!saved || typeof saved !== 'object') return current;
+  const hasEnabledInstrument = ['ching', 'klong', 'krub'].some((key) => saved[key]?.active === true);
   const mergeInstrument = (key) => ({
     ...current[key],
     ...(saved[key] && typeof saved[key] === 'object' ? saved[key] : {})
   });
   return {
     ...current,
+    ...(typeof saved.enabled === 'boolean' ? { enabled: saved.enabled } : { enabled: hasEnabledInstrument }),
     ...(typeof saved.linked === 'boolean' ? { linked: saved.linked } : {}),
     ...(typeof saved.masterVolume === 'number' ? { masterVolume: saved.masterVolume } : {}),
     ching: mergeInstrument('ching'),
@@ -266,10 +269,11 @@ export const MusicProvider = ({ children }) => {
     audioPlayback.setPlaybackSequence([]);
     audioPlayback.setMetronomeConfig((current) => ({
       ...current,
+      enabled: false,
       linked: true,
       masterVolume: 80,
-      ching: { ...current.ching, active: true, pattern: '', volume: 80 },
-      klong: { ...current.klong, active: true, pattern: '', volume: 80 },
+      ching: { ...current.ching, active: false, pattern: '', volume: 80 },
+      klong: { ...current.klong, active: false, pattern: '', volume: 80 },
       krub: { ...current.krub, active: false, pattern: '', volume: 80 }
     }));
     setIsLoopAll(false);

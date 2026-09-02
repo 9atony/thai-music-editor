@@ -39,6 +39,15 @@ const MobileEditor = ({ onBack }) => {
   const sheetContainerRef = useRef(null);
   const [isQueueOpen, setIsQueueOpen] = useState(false);
   const [isMetronomeOpen, setIsMetronomeOpen] = useState(false);
+  const [isDesktopViewport, setIsDesktopViewport] = useState(() => window.matchMedia('(min-width: 768px)').matches);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(min-width: 768px)');
+    const updateViewport = () => setIsDesktopViewport(mediaQuery.matches);
+    updateViewport();
+    mediaQuery.addEventListener('change', updateViewport);
+    return () => mediaQuery.removeEventListener('change', updateViewport);
+  }, []);
 
   const isPlayingRef = useRef(isPlaying);
   useEffect(() => {
@@ -95,6 +104,16 @@ const MobileEditor = ({ onBack }) => {
   useEffect(() => {
     if (setToolbarMode) setToolbarMode('default');
   }, [setToolbarMode]);
+
+  useEffect(() => {
+    const dismissKeyboard = () => {
+      const activeElement = document.activeElement;
+      if (activeElement instanceof HTMLElement) activeElement.blur();
+    };
+    dismissKeyboard();
+    const frame = requestAnimationFrame(dismissKeyboard);
+    return () => cancelAnimationFrame(frame);
+  }, []);
 
   const handleLoopToggle = () => {
     if (!isLoopAll && !isLoopOne) {
@@ -159,7 +178,7 @@ const MobileEditor = ({ onBack }) => {
           className={`flex-1 w-full h-full transition-opacity duration-300 ${isPlaying ? 'opacity-90' : 'opacity-100'} 
                       [&_[contenteditable]]:pointer-events-none [&_input]:pointer-events-none`}
         >
-           <Sheet ref={sheetContainerRef} defaultZoom={48} hideZoomControls={true} />
+           <Sheet ref={sheetContainerRef} defaultZoom={isDesktopViewport ? 70 : 48} hideZoomControls={!isDesktopViewport} />
         </div>
       </main>
 

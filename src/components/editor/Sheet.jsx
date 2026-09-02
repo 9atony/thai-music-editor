@@ -98,6 +98,7 @@ const Sheet = forwardRef((props, ref) => {
   const headerSpacingDragRef = useRef(null);
   const zoomTargetRef = useRef(props.defaultZoom || 100);
   const zoomAnimationRef = useRef(null);
+  const pinchZoomRef = useRef(null);
   const editLabelRef = useRef("");
   const initialSongNameRef = useRef("");
   const initialDetailLabelRef = useRef("");
@@ -183,9 +184,46 @@ const Sheet = forwardRef((props, ref) => {
       requestResponsiveZoom((currentTarget) => currentTarget * scaleFactor);
     };
 
+    const getTouchDistance = (touches) => Math.hypot(
+      touches[0].clientX - touches[1].clientX,
+      touches[0].clientY - touches[1].clientY
+    );
+
+    const handleTouchStart = (event) => {
+      if (event.touches.length !== 2) return;
+      pinchZoomRef.current = {
+        distance: getTouchDistance(event.touches),
+        zoom: zoomTargetRef.current
+      };
+      event.preventDefault();
+    };
+
+    const handleTouchMove = (event) => {
+      const pinch = pinchZoomRef.current;
+      if (!pinch || event.touches.length !== 2) return;
+      const distance = getTouchDistance(event.touches);
+      if (!distance || !pinch.distance) return;
+      event.preventDefault();
+      event.stopPropagation();
+      requestResponsiveZoom(pinch.zoom * (distance / pinch.distance));
+    };
+
+    const handleTouchEnd = (event) => {
+      if (event.touches.length < 2) pinchZoomRef.current = null;
+    };
+
     container.addEventListener('wheel', handleTrackpadZoom, { passive: false });
+    container.addEventListener('touchstart', handleTouchStart, { passive: false });
+    container.addEventListener('touchmove', handleTouchMove, { passive: false });
+    container.addEventListener('touchend', handleTouchEnd, { passive: true });
+    container.addEventListener('touchcancel', handleTouchEnd, { passive: true });
     return () => {
       container.removeEventListener('wheel', handleTrackpadZoom);
+      container.removeEventListener('touchstart', handleTouchStart);
+      container.removeEventListener('touchmove', handleTouchMove);
+      container.removeEventListener('touchend', handleTouchEnd);
+      container.removeEventListener('touchcancel', handleTouchEnd);
+      pinchZoomRef.current = null;
       if (zoomAnimationRef.current !== null) {
         cancelAnimationFrame(zoomAnimationRef.current);
         zoomAnimationRef.current = null;
@@ -324,6 +362,10 @@ const Sheet = forwardRef((props, ref) => {
   }, [selectedCell, rowTypes, sheetData, addTextRow]);
 
   useEffect(() => {
+    if (typeof window !== 'undefined' && !window.matchMedia('(min-width: 768px)').matches) {
+      setToolbarMode('default');
+      return undefined;
+    }
     const [r, m] = selectedCell;
     if (rowTypes[r] === 'text') {
       setToolbarMode('text'); 
@@ -1126,7 +1168,7 @@ return (
         id="sheet-scroll-container"
         // ⭐ เปลี่ยนกลับเป็น pt-12 pb-32 เพื่อเอาพื้นที่อากาศออก ป้องกัน IDM บั๊ก
         className="flex overflow-auto pt-12 pb-32 w-full max-w-full custom-scrollbar select-none print:block print:overflow-visible print:p-0 relative"
-        style={{ paddingLeft: `max(1rem, calc(50% - ${105 * (zoom / 100)}mm))`, paddingRight: `max(1rem, calc(50% - ${105 * (zoom / 100)}mm))` }}
+        style={{ paddingLeft: `max(1rem, calc(50% - ${105 * (zoom / 100)}mm))`, paddingRight: `max(1rem, calc(50% - ${105 * (zoom / 100)}mm))`, touchAction: 'pan-x pan-y' }}
       >
         <div id="sheet-pages" className="flex gap-12 snap-x h-max print:block" style={{ zoom: `${zoom}%` }}>
           {pages.map((page, pIndex) => (

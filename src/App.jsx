@@ -176,7 +176,9 @@ function App() {
 
   const handleOpenEditor = (projectId = null, projectData = null, options = {}) => {
     if (projectId || projectData) recordSystemEvent('projectOpens', { feature: 'openProject', projectId: projectId || projectData?.id });
-    const isSampleView = options?.readOnly === true;
+    // Sample songs are a listening-only experience for regular users. Admins
+    // open the same song in the full editor so they can maintain its content.
+    const isSampleView = options?.readOnly === true && userProfile?.role !== 'admin';
     setEditorMode(isSampleView ? 'sample-readonly' : 'normal');
 
     if (projectData && loadProjectFromFirebase) {
@@ -204,7 +206,8 @@ function App() {
   };
 
   if (currentView === 'editor') {
-    if (isMobile) {
+    const isSampleListeningMode = editorMode === 'sample-readonly' && userProfile?.role !== 'admin';
+    if (isMobile || isSampleListeningMode) {
       return <Suspense fallback={<LoadingScreen />}><MobileEditor onBack={() => setCurrentView(previousView)} readOnly={editorMode === 'sample-readonly'} /></Suspense>;
     }
     return <Suspense fallback={<LoadingScreen />}><DesktopEditor onBack={() => setCurrentView(previousView)} readOnly={editorMode === 'sample-readonly'} /></Suspense>;

@@ -41,10 +41,11 @@ export const useAudioPlayback = ({
   const [activeLoop, setActiveLoop] = useState(1);
 
   const [metronomeConfig, setMetronomeConfig] = useState({
+    enabled: false,
     linked: true,
     masterVolume: 80,
-    ching: { active: true, pattern: '', volume: 80 },
-    klong: { active: true, pattern: '', volume: 80 },
+    ching: { active: false, pattern: '', volume: 80 },
+    klong: { active: false, pattern: '', volume: 80 },
     krub: { active: false, pattern: '', volume: 80 },
     rhythms: { ching: [], klong: [], krub: [] }
   });
@@ -116,6 +117,12 @@ export const useAudioPlayback = ({
       }
       stopScheduledNotesByGroup(INDEPENDENT_METRONOME_GROUP);
     };
+
+    if (!metronomeConfig.enabled) {
+      stopIndependentMetronome();
+      stopScheduledNotesByGroup(LINKED_METRONOME_GROUP);
+      return undefined;
+    }
 
     if (metronomeConfig.linked !== false) {
       stopIndependentMetronome();
@@ -199,7 +206,7 @@ export const useAudioPlayback = ({
       runIndependentMetronomeSchedulerRef.current = null;
       stopIndependentMetronome();
     };
-  }, [metronomeConfig.linked, layoutConfigRef]);
+  }, [metronomeConfig.enabled, metronomeConfig.linked, layoutConfigRef]);
 
   useEffect(() => {
     const prepareBackgroundAudio = () => {
@@ -422,7 +429,7 @@ export const useAudioPlayback = ({
     if (currentRowTypes[initialCell[0]] === 'double-right') collectCellNotes(initialCell[0] + 1, initialCell[1], initialCell[2]);
 
     [['ching', 'ching'], ['klong', 'klong-khaek'], ['krub', 'krub']].forEach(([key, instrumentId]) => {
-      if (conf.linked === false || !conf[key].active) return;
+      if (!conf.enabled || conf.linked === false || !conf[key].active) return;
       const selectedPattern = conf.rhythms[key].find(pattern => pattern.id === conf[key].pattern) || conf.rhythms[key][0];
       (selectedPattern?.pattern || []).forEach(token => splitThaiNoteToken(token).forEach(note => addStartupNote(instrumentId, note)));
     });
@@ -692,7 +699,7 @@ export const useAudioPlayback = ({
       };
 
       // ตีกลองเฉพาะตอนที่จังหวะลงล็อกเป๊ะๆ เท่านั้น
-      if (metronomeConf.linked !== false && isMetronomeBeat) {
+      if (metronomeConf.enabled && metronomeConf.linked !== false && isMetronomeBeat) {
         if (metronomeConf.ching.active) {
           const chingP = metronomeConf.rhythms.ching.find(p => p.id === metronomeConf.ching.pattern) || metronomeConf.rhythms.ching[0];
           if (chingP && chingP.pattern.length > 0) {
