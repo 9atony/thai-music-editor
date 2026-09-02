@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
 
 export default function TopBar({ onBack }) {
@@ -20,7 +20,31 @@ export default function TopBar({ onBack }) {
     currentProjectId,
     saveProject,
     saveStatus,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
   } = useWorkspace();
+
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (!event.ctrlKey && !event.metaKey) return;
+      const target = event.target;
+      if (target instanceof HTMLElement && target.closest('input, textarea, select, [contenteditable="true"]')) return;
+      // `code` describes the physical key position, unlike `key` which
+      // changes to Thai characters when the input language is Thai.
+      if (event.code === 'KeyZ') {
+        event.preventDefault();
+        if (event.shiftKey) redo();
+        else undo();
+      } else if (event.code === 'KeyY') {
+        event.preventDefault();
+        redo();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
+  }, [redo, undo]);
 
   const handleImportProject = (event) => {
     const file = event.target.files?.[0];
@@ -69,6 +93,26 @@ export default function TopBar({ onBack }) {
 
       {/* 2. เครื่องมือควบคุมการเล่นเพลง */}
       <div className="flex-1 flex justify-center items-center gap-2">
+        <div className="flex items-center gap-1 mr-2">
+          <button
+            type="button"
+            onClick={undo}
+            disabled={!canUndo}
+            title="ย้อนกลับ (Ctrl/Cmd + Z)"
+            className="w-9 h-9 flex items-center justify-center rounded-lg text-white/65 hover:bg-white/10 hover:text-white transition-colors disabled:cursor-not-allowed disabled:opacity-25"
+          >
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 7v6h6" /><path d="M3 13c1.8-4.8 6.3-7.5 11.1-6.7 3.2.5 5.9 2.7 6.9 5.8" /></svg>
+          </button>
+          <button
+            type="button"
+            onClick={redo}
+            disabled={!canRedo}
+            title="ทำซ้ำ (Ctrl/Cmd + Shift + Z หรือ Ctrl + Y)"
+            className="w-9 h-9 flex items-center justify-center rounded-lg text-white/65 hover:bg-white/10 hover:text-white transition-colors disabled:cursor-not-allowed disabled:opacity-25"
+          >
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 7v6h-6" /><path d="M21 13c-1.8-4.8-6.3-7.5-11.1-6.7C6.7 6.8 4 9 3 12.1" /></svg>
+          </button>
+        </div>
         <button
           onClick={() => setCurrentTime(0)}
           className="w-10 h-10 flex items-center justify-center rounded-xl hover:bg-white/10 text-white/60 hover:text-white transition-colors"

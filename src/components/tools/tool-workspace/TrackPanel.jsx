@@ -56,6 +56,7 @@ export default function TrackPanel() {
     removeClipById,
     trackLaneHeight,
     setTrackCustomHeight,
+    setTrackOctavePair,
   } = useWorkspace();
 
   const [trackMenu, setTrackMenu] = useState(null);
@@ -393,6 +394,22 @@ export default function TrackPanel() {
                               </option>
                             ))}
                           </select>
+
+                          {track.instrumentId === 'ranat-ek' && (
+                            <button
+                              type="button"
+                              disabled={isLocked}
+                              onClick={() => setTrackOctavePair(track.id, !track.octavePairEnabled)}
+                              className={`shrink-0 rounded border px-1.5 py-1 text-[10px] font-bold transition-colors disabled:opacity-35 ${
+                                track.octavePairEnabled
+                                  ? 'border-amber-300/50 bg-amber-300/20 text-amber-100'
+                                  : 'border-white/10 bg-white/[0.03] text-white/55 hover:bg-white/10'
+                              }`}
+                              title="เปิด/ปิดการบันทึกโน้ตคู่แปดในบรรทัดเดียวของระนาดเอก"
+                            >
+                              คู่ 8
+                            </button>
+                          )}
 
                           <div className="w-[90px] shrink-0 rounded border border-black/50 bg-[#090c0f] px-2 py-1 flex flex-col justify-center">
                             <div className="flex items-center justify-between text-[9px] text-white/40 mb-0.5 leading-none">

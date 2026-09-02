@@ -55,6 +55,7 @@ function App() {
   const { applyTemplate, loadProjectFromFirebase } = useContext(MusicContext);
   const [editorMode, setEditorMode] = useState(() => sessionStorage.getItem(EDITOR_MODE_SESSION_KEY) || 'normal');
   const [toolsVisit, setToolsVisit] = useState(0);
+  const isAdmin = userProfile?.role === 'admin';
 
   // Keep the current workspace open after a browser refresh in this tab.
   useEffect(() => {
@@ -66,6 +67,32 @@ function App() {
   useEffect(() => {
     setAnalyticsPage(currentView);
   }, [currentView]);
+
+  // This is a UI deterrent only; access to admin data is enforced by
+  // Firestore Rules and the API's verified Firebase token on the server.
+  useEffect(() => {
+    if (isAdmin) return undefined;
+    const blockContextMenu = (event) => event.preventDefault();
+    const blockInspectorShortcuts = (event) => {
+      const key = event.key.toLowerCase();
+      const isInspectorShortcut = event.key === 'F12'
+        || ((event.ctrlKey || event.metaKey) && event.shiftKey && ['i', 'j', 'c', 'k'].includes(key))
+        || ((event.ctrlKey || event.metaKey) && key === 'u');
+      if (isInspectorShortcut) event.preventDefault();
+    };
+    window.addEventListener('contextmenu', blockContextMenu);
+    window.addEventListener('keydown', blockInspectorShortcuts, true);
+    return () => {
+      window.removeEventListener('contextmenu', blockContextMenu);
+      window.removeEventListener('keydown', blockInspectorShortcuts, true);
+    };
+  }, [isAdmin]);
+
+  useEffect(() => {
+    if (userProfile && !isAdmin && currentView === 'admin-users') {
+      setCurrentView('home');
+    }
+  }, [currentView, isAdmin, userProfile]);
 
   useEffect(() => {
     if (!isAuthenticated || !auth.currentUser?.uid) return undefined;
@@ -167,6 +194,10 @@ function App() {
   // การกดเมนู “เครื่องมือ” เป็นการกลับไปหน้ารวมเสมอ แม้กำลังอยู่ในเครื่องมือย่อย
   // ส่วนการรีเฟรชหน้ายังคงเปิดเครื่องมือเดิมได้ เพราะไม่ได้เรียก handler นี้
   const handlePageChange = (page) => {
+    if (page === 'admin-users' && !isAdmin) {
+      setCurrentView('home');
+      return;
+    }
     if (page === 'tools') {
       sessionStorage.removeItem(ACTIVE_TOOL_SESSION_KEY);
       setToolsVisit((current) => current + 1);

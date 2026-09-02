@@ -1,6 +1,8 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { onAuthStateChanged } from 'firebase/auth';
 import { INSTRUMENT_CONFIG } from '../utils/instrumentConfig';
-import { auth, getArrangerProject, saveArrangerProject } from '../utils/firebase';
+import { getIntervalPair } from '../utils/sheetUtils';
+import { auth, createArrangerProject, getArrangerProject, saveArrangerProject } from '../utils/firebase';
 import {
   initAudioContext,
   playNote,
@@ -108,6 +110,7 @@ const createEmptyTrack = (id, color) => ({
   isSolo: false,
   isCollapsed: false,
   isLocked: false, // ⭐ เพิ่มสถานะล็อคตั้งต้น
+  octavePairEnabled: false,
   sourceProjectName: '',
   clips: [],
 });
@@ -512,6 +515,7 @@ const serializeWorkspace = (state) => ({
   trackLaneHeight: state.trackLaneHeight,
   masterVolume: state.masterVolume,
   tracks: state.tracks,
+  hasSeenWelcome: state.hasSeenWelcome,
 });
 
 export const WorkspaceProvider = ({ children }) => {
@@ -527,8 +531,12 @@ export const WorkspaceProvider = ({ children }) => {
   const [trackLaneHeight, setTrackLaneHeight] = useState(savedWorkspace?.trackLaneHeight || DEFAULT_TRACK_LANE_HEIGHT);
   const [masterVolume, setMasterVolumeState] = useState(savedWorkspace?.masterVolume ?? 100);
   const [tracks, setTracks] = useState(savedWorkspace?.tracks || []);
+  const [hasSeenWelcome, setHasSeenWelcome] = useState(() => (
+    savedWorkspace?.hasSeenWelcome ?? (Array.isArray(savedWorkspace?.tracks) && savedWorkspace.tracks.length > 0)
+  ));
   const [selectedNotationCell, setSelectedNotationCell] = useState(null);
   const [notationSymbolTool, setNotationSymbolTool] = useState(null);
+  const [isOctavePairEnabled, setIsOctavePairEnabled] = useState(false);
   const [currentProjectId, setCurrentProjectId] = useState(null);
   const [saveStatus, setSaveStatus] = useState('saved');
   const [isProjectReady, setIsProjectReady] = useState(false);
@@ -539,6 +547,9 @@ export const WorkspaceProvider = ({ children }) => {
   const clipboardRef = useRef(null);
   const [hasClipboard, setHasClipboard] = useState(false);
   const workspaceSnapshotRef = useRef(null);
+  const historyRef = useRef({ undo: [], redo: [], committed: null, pending: null, timer: null, restoring: false, skipNext: false });
+  const historySnapshotRef = useRef(null);
+  const [historyRevision, setHistoryRevision] = useState(0);
 
   workspaceSnapshotRef.current = serializeWorkspace({
     projectName,
@@ -548,14 +559,123 @@ export const WorkspaceProvider = ({ children }) => {
     trackLaneHeight,
     masterVolume,
     tracks,
+    hasSeenWelcome,
   });
+
+  const historySnapshot = useMemo(() => ({
+    projectName,
+    bpm,
+    snapGrid,
+    zoomLevel,
+    trackLaneHeight,
+    masterVolume,
+    tracks,
+  }), [projectName, bpm, snapGrid, zoomLevel, trackLaneHeight, masterVolume, tracks]);
+  historySnapshotRef.current = historySnapshot;
+
+  const applyHistorySnapshot = useCallback((snapshot) => {
+    setProjectName(snapshot.projectName);
+    setBpm(snapshot.bpm);
+    setSnapGrid(snapshot.snapGrid);
+    setZoomLevel(snapshot.zoomLevel);
+    setTrackLaneHeight(snapshot.trackLaneHeight);
+    setMasterVolume(snapshot.masterVolume);
+    setTracks(snapshot.tracks);
+  }, []);
+
+  const commitPendingHistory = useCallback(() => {
+    const history = historyRef.current;
+    if (history.timer) {
+      window.clearTimeout(history.timer);
+      history.timer = null;
+    }
+    if (!history.pending) return;
+    history.undo.push(history.pending);
+    if (history.undo.length > 80) history.undo.shift();
+    history.redo = [];
+    history.committed = historySnapshotRef.current;
+    history.pending = null;
+    setHistoryRevision((revision) => revision + 1);
+  }, []);
+
+  const undo = useCallback(() => {
+    commitPendingHistory();
+    const history = historyRef.current;
+    const previous = history.undo.pop();
+    if (!previous) return;
+    if (history.committed) history.redo.push(history.committed);
+    history.restoring = true;
+    history.committed = previous;
+    applyHistorySnapshot(previous);
+    setHistoryRevision((revision) => revision + 1);
+  }, [applyHistorySnapshot, commitPendingHistory]);
+
+  const redo = useCallback(() => {
+    commitPendingHistory();
+    const history = historyRef.current;
+    const next = history.redo.pop();
+    if (!next) return;
+    if (history.committed) history.undo.push(history.committed);
+    history.restoring = true;
+    history.committed = next;
+    applyHistorySnapshot(next);
+    setHistoryRevision((revision) => revision + 1);
+  }, [applyHistorySnapshot, commitPendingHistory]);
+
+  useEffect(() => {
+    const history = historyRef.current;
+    const sameSnapshot = (left, right) => JSON.stringify(left) === JSON.stringify(right);
+    if (history.skipNext || !history.committed) {
+      if (history.timer) window.clearTimeout(history.timer);
+      history.undo = [];
+      history.redo = [];
+      history.pending = null;
+      history.committed = historySnapshot;
+      history.restoring = false;
+      history.skipNext = false;
+      setHistoryRevision((revision) => revision + 1);
+      return undefined;
+    }
+    if (history.restoring) {
+      history.committed = historySnapshot;
+      history.pending = null;
+      history.restoring = false;
+      return undefined;
+    }
+    if (sameSnapshot(history.committed, historySnapshot)) {
+      if (history.pending) {
+        if (history.timer) window.clearTimeout(history.timer);
+        history.pending = null;
+        history.timer = null;
+        setHistoryRevision((revision) => revision + 1);
+      }
+      return undefined;
+    }
+    if (!history.pending) {
+      history.pending = history.committed;
+      setHistoryRevision((revision) => revision + 1);
+    }
+    if (history.timer) window.clearTimeout(history.timer);
+    history.timer = window.setTimeout(commitPendingHistory, 300);
+    return undefined;
+  }, [commitPendingHistory, historySnapshot]);
+
+  useEffect(() => () => {
+    if (historyRef.current.timer) window.clearTimeout(historyRef.current.timer);
+  }, []);
 
   useEffect(() => {
     const saveTimer = window.setTimeout(() => {
       saveWorkspaceSnapshot(workspaceSnapshotRef.current);
     }, 300);
     return () => window.clearTimeout(saveTimer);
-  }, [projectName, bpm, snapGrid, zoomLevel, trackLaneHeight, masterVolume, tracks]);
+  }, [projectName, bpm, snapGrid, zoomLevel, trackLaneHeight, masterVolume, tracks, hasSeenWelcome]);
+
+  // Older projects do not have the onboarding flag. Once a project has ever
+  // contained a track, treat its welcome screen as completed permanently.
+  useEffect(() => {
+    if (tracks.length > 0 && !hasSeenWelcome) setHasSeenWelcome(true);
+  }, [hasSeenWelcome, tracks.length]);
 
   useEffect(() => {
     const saveBeforePageReset = () => saveWorkspaceSnapshot(workspaceSnapshotRef.current);
@@ -568,31 +688,48 @@ export const WorkspaceProvider = ({ children }) => {
 
   useEffect(() => {
     const projectId = sessionStorage.getItem(ARRANGER_PROJECT_SESSION_KEY);
-    const uid = auth.currentUser?.uid;
-    if (!projectId || !uid) return;
+    // A workspace can also be opened directly (or restored after a browser
+    // session). It has no remote id yet, but is ready for the first auto-save
+    // to create one once authentication is available.
+    if (!projectId) {
+      const unsubscribe = onAuthStateChanged(auth, (user) => {
+        if (user?.uid) setIsProjectReady(true);
+      });
+      return () => unsubscribe();
+    }
 
     let active = true;
-    setSaveStatus('loading');
-    getArrangerProject(uid, projectId)
-      .then((project) => {
-        if (!active || !project) return;
-        setCurrentProjectId(project.id);
-        setProjectName(project.name || 'โปรเจกต์จัดวงใหม่');
-        setBpm(project.bpm || 120);
-        setSnapGrid(project.snapGrid ?? 1);
-        setZoomLevel(project.zoomLevel || 100);
-        setTrackLaneHeight(project.trackLaneHeight || DEFAULT_TRACK_LANE_HEIGHT);
-        setMasterVolume(project.masterVolume ?? 100);
-        setTracks(Array.isArray(project.tracks) ? project.tracks : []);
-        setSaveStatus('saved');
-        setIsProjectReady(true);
-      })
-      .catch((error) => {
-        console.error('โหลดโปรเจกต์จัดวงไม่สำเร็จ:', error);
-        if (active) setSaveStatus('error');
-      });
+    let didStartLoad = false;
+    const loadProject = (uid) => {
+      if (!uid || didStartLoad) return;
+      didStartLoad = true;
+      setSaveStatus('loading');
+      getArrangerProject(uid, projectId)
+        .then((project) => {
+          if (!active || !project) return;
+          historyRef.current.skipNext = true;
+          setCurrentProjectId(project.id);
+          setProjectName(project.name || 'โปรเจกต์จัดวงใหม่');
+          setBpm(project.bpm || 120);
+          setSnapGrid(project.snapGrid ?? 1);
+          setZoomLevel(project.zoomLevel || 100);
+          setTrackLaneHeight(project.trackLaneHeight || DEFAULT_TRACK_LANE_HEIGHT);
+          setMasterVolume(project.masterVolume ?? 100);
+          setTracks(Array.isArray(project.tracks) ? project.tracks : []);
+          setHasSeenWelcome(project.hasSeenWelcome ?? (Array.isArray(project.tracks) && project.tracks.length > 0));
+          setSaveStatus('saved');
+          setIsProjectReady(true);
+        })
+        .catch((error) => {
+          console.error('โหลดโปรเจกต์จัดวงไม่สำเร็จ:', error);
+          if (active) setSaveStatus('error');
+        });
+    };
 
-    return () => { active = false; };
+    loadProject(auth.currentUser?.uid);
+    const unsubscribe = onAuthStateChanged(auth, (user) => loadProject(user?.uid));
+
+    return () => { active = false; unsubscribe?.(); };
   }, []);
   
 
@@ -713,9 +850,17 @@ export const WorkspaceProvider = ({ children }) => {
     const events = [];
     let totalDuration = 0;
 
-    // สร้าง Gain ของทุก Track + ทุกแทรก 
+    // Create the graph and immediately apply the current mixer state. The
+    // React effect can run before these nodes exist (or a previous mute/solo
+    // state can leave an old node at zero), which otherwise makes a new Play
+    // session silent even though events are being scheduled.
+    const hasSoloTrack = tracks.some((track) => track.isSolo);
+    setMasterGain(clamp(Number(masterVolume) || 0, 0, 150) / 100);
     tracks.forEach((track) => {
       const trackGain = getTrackGainNode(track.id);
+      const trackMuted = track.isMuted || (hasSoloTrack && !track.isSolo);
+      setTrackGain(track.id, trackMuted ? 0 : clamp(track.volume != null ? Number(track.volume) : 100, 0, 200) / 100);
+      setAudioTrackPan(track.id, clamp(Number(track.pan) || 0, -100, 100) / 100);
       track.clips.forEach((clip) => {
         getClipGainNode(clip.id);
         connectClipGain(clip.id, trackGain);
@@ -749,6 +894,7 @@ export const WorkspaceProvider = ({ children }) => {
               volume: clamp(Number(event.volume) || 100, 0, 200), 
               destination: clipGain,
               trackId: track.id, 
+              octavePairEnabled: instrumentId === 'ranat-ek' && Boolean(track.octavePairEnabled),
             });
           });
         }
@@ -772,7 +918,12 @@ export const WorkspaceProvider = ({ children }) => {
         || !event.note
         || event.note === '-'
       ) return;
-      startupNotes.set(`${event.instrumentId}:${event.note}`, event);
+      if (event.octavePairEnabled) {
+        const { left, right } = getIntervalPair(INSTRUMENT_CONFIG[event.instrumentId], event.note, '8');
+        [left, right].filter(Boolean).forEach((note) => startupNotes.set(`${event.instrumentId}:${note}`, { ...event, note }));
+      } else {
+        startupNotes.set(`${event.instrumentId}:${event.note}`, event);
+      }
     });
     if (startupNotes.size > 0) {
       await Promise.allSettled(
@@ -811,7 +962,13 @@ export const WorkspaceProvider = ({ children }) => {
           // ⭐ 2. แก้ปัญหาดีเลย์ Mute/Solo: โหลดตัวโน้ตลงไปจ่อใน AudioEngine เสมอ ห้ามบล็อก!
           // แล้วให้ตัว Gain Node ที่รับหน้าที่คุมเสียง (ใน useEffect) หรี่/เปิดเสียงแทน จะทำงานได้เร็วระดับมิลลิวินาที
           if (ev.note && ev.note !== '-') {
-            scheduleNote(ev.instrumentId, ev.note, whenSec, ev.volume, ev.destination);
+            if (ev.octavePairEnabled) {
+              const { left, right } = getIntervalPair(INSTRUMENT_CONFIG[ev.instrumentId], ev.note, '8');
+              scheduleNote(ev.instrumentId, left, whenSec, ev.volume, ev.destination);
+              if (right !== left) scheduleNote(ev.instrumentId, right, whenSec, ev.volume, ev.destination);
+            } else {
+              scheduleNote(ev.instrumentId, ev.note, whenSec, ev.volume, ev.destination);
+            }
           }
           playbackRef.current.nextEventIdx += 1;
         }
@@ -1116,6 +1273,12 @@ export const WorkspaceProvider = ({ children }) => {
     setTracks((prev) => prev.map((track) => track.id === trackId ? { ...track, instrumentId, type: INSTRUMENT_CONFIG[instrumentId].name } : track));
   };
 
+  const setTrackOctavePair = (trackId, enabled) => {
+    setTracks((prev) => prev.map((track) => (
+      track.id === trackId ? { ...track, octavePairEnabled: Boolean(enabled) } : track
+    )));
+  };
+
   const deleteClip = (trackId, clipIndex) => {
     const targetClipId = tracks.find((track) => track.id === trackId)?.clips?.[clipIndex]?.id;
     setTracks((prev) => prev.map((track) => {
@@ -1358,8 +1521,11 @@ export const WorkspaceProvider = ({ children }) => {
       if (track?.instrumentId && noteToPreview) {
         // The arranger writer uses the same AudioEngine preview path as the
         // Editor keyboard, including resuming the context from a user gesture.
+        const notesToPreview = track.instrumentId === 'ranat-ek' && track.octavePairEnabled
+          ? Object.values(getIntervalPair(INSTRUMENT_CONFIG[track.instrumentId], noteToPreview, '8'))
+          : [noteToPreview];
         void initAudioContext()
-          .then(() => playNote(track.instrumentId, noteToPreview, track.volume ?? 100))
+          .then(() => Promise.all(notesToPreview.filter(Boolean).map((note) => playNote(track.instrumentId, note, track.volume ?? 100))))
           .catch(() => {});
       }
     }
@@ -1456,8 +1622,8 @@ export const WorkspaceProvider = ({ children }) => {
         width,
         name: `${safeDisplayName(source.name, 'คลิป')} (สำเนา)`,
         playback: source.playback ? { ...source.playback, events: (source.playback.events || []).map((ev) => ({ ...ev, id: makeId('evt') })) } : source.playback,
-        sourceMeta: source.sourceMeta ? { ...source.sourceMeta } : source.sourceMeta,
-        notesPreview: Array.isArray(source.notesPreview) ? [...source.notesPreview] : undefined,
+        ...(source.sourceMeta ? { sourceMeta: { ...source.sourceMeta } } : {}),
+        ...(Array.isArray(source.notesPreview) ? { notesPreview: [...source.notesPreview] } : {}),
       };
       return { ...track, clips: [...track.clips, clip] };
     }));
@@ -1585,10 +1751,18 @@ export const WorkspaceProvider = ({ children }) => {
 
   const saveProject = useCallback(async () => {
     const uid = auth.currentUser?.uid;
-    if (!uid || !currentProjectId) return false;
+    if (!uid) return false;
     setSaveStatus('saving');
     try {
-      await saveArrangerProject(uid, currentProjectId, workspaceSnapshotRef.current);
+      let projectId = currentProjectId;
+      if (!projectId) {
+        const project = await createArrangerProject(uid, workspaceSnapshotRef.current.name || 'โปรเจกต์จัดวงใหม่');
+        projectId = project.id;
+        sessionStorage.setItem(ARRANGER_PROJECT_SESSION_KEY, projectId);
+        setCurrentProjectId(projectId);
+        setIsProjectReady(true);
+      }
+      await saveArrangerProject(uid, projectId, workspaceSnapshotRef.current);
       setSaveStatus('saved');
       return true;
     } catch (error) {
@@ -1599,7 +1773,7 @@ export const WorkspaceProvider = ({ children }) => {
   }, [currentProjectId]);
 
   useEffect(() => {
-    if (!isProjectReady || !currentProjectId) return undefined;
+    if (!isProjectReady) return undefined;
 
     setSaveStatus('unsaved');
     const autoSaveTimer = window.setTimeout(() => {
@@ -1653,6 +1827,10 @@ export const WorkspaceProvider = ({ children }) => {
     return `${hr}:${min}:${sec}.${ms}`;
   };
 
+  // Reading historyRevision subscribes the toolbar to ref-backed history.
+  const canUndo = historyRevision >= 0 && Boolean(historyRef.current.pending || historyRef.current.undo.length);
+  const canRedo = historyRevision >= 0 && historyRef.current.redo.length > 0;
+
   const value = {
     projectName,
     setProjectName,
@@ -1668,12 +1846,20 @@ export const WorkspaceProvider = ({ children }) => {
     setBpm,
     activeTool,
     setActiveTool,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
     selectedNotationCell,
     selectNotationCell,
+    hasSeenWelcome,
+    dismissWorkspaceWelcome: () => setHasSeenWelcome(true),
     inputNotationNote,
     moveNotationSelection,
     notationSymbolTool,
     setNotationSymbolTool,
+    isOctavePairEnabled,
+    setIsOctavePairEnabled,
     addNotationSymbol,
     appendNotationNote,
     addNotationMeasures,
@@ -1717,6 +1903,7 @@ export const WorkspaceProvider = ({ children }) => {
     reorderTracks, 
     reorderTrackClips, // ⭐ มั่นใจ 100% ว่าฟังก์ชันสลับคลิปถูกส่งออกไปแล้วครับ!
     setTrackInstrument,
+    setTrackOctavePair,
     deleteClip,
     removeClipById,
     addClip,

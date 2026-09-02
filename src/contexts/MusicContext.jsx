@@ -272,8 +272,8 @@ export const MusicProvider = ({ children }) => {
       enabled: false,
       linked: true,
       masterVolume: 80,
-      ching: { ...current.ching, active: false, pattern: '', volume: 80 },
-      klong: { ...current.klong, active: false, pattern: '', volume: 80 },
+      ching: { ...current.ching, active: true, pattern: '', volume: 80 },
+      klong: { ...current.klong, active: true, pattern: '', volume: 80 },
       krub: { ...current.krub, active: false, pattern: '', volume: 80 }
     }));
     setIsLoopAll(false);

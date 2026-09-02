@@ -36,7 +36,7 @@ const BLACK_SCROLLBAR_STYLE = `
 
 const WORKSPACE_TOOLS = [
   { id: 'note', name: 'เขียนโน้ต', icon: '♫' },
-  { id: 'select', name: 'เลือก', icon: '↖' },
+  { id: 'select', name: 'เลือก', icon: '↖', title: 'ลากบนพื้นที่ว่างเพื่อคลุมเลือกหลายแทรก แล้วลากแทรกที่เลือกเพื่อย้ายทั้งกลุ่ม' },
   { id: 'erase', name: 'ลบ', icon: '⌫' },
   { id: 'split', name: 'ตัด', icon: '✂' },
   { id: 'zoom', name: 'ซูม', icon: '⌕' },
@@ -96,7 +96,7 @@ export default function Toolbar() {
                 key={tool.id}
                 onClick={() => handleToolClick(tool.id)}
                 onContextMenu={tool.id === 'zoom' ? handleZoomToolContextMenu : undefined}
-                title={tool.id === 'zoom' ? 'คลิกซ้าย = ซูมเข้า • คลิกขวา = ซูมออก' : tool.name}
+                title={tool.id === 'zoom' ? 'คลิกซ้าย = ซูมเข้า • คลิกขวา = ซูมออก' : (tool.title || tool.name)}
                 className={`w-full min-h-[58px] rounded-2xl flex flex-col items-center justify-center transition-all border ${
                   active
                     ? 'bg-blue-500/15 text-blue-300 border-blue-500/30 shadow-[0_0_18px_rgba(59,130,246,0.12)]'

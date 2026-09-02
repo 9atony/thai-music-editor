@@ -27,6 +27,21 @@ const MobileMetronomeMenu = ({ isOpen, onClose }) => {
     }));
   };
 
+  const toggleMetronomeSound = () => {
+    setMetronomeConfig((current) => {
+      if (current.enabled === true) return { ...current, enabled: false };
+      const hasActiveInstrument = ['ching', 'klong', 'krub'].some((key) => current[key]?.active);
+      return {
+        ...current,
+        enabled: true,
+        ...(hasActiveInstrument ? {} : {
+          ching: { ...current.ching, active: true },
+          klong: { ...current.klong, active: true }
+        })
+      };
+    });
+  };
+
   const unlockAudio = () => initAudioContext().catch(() => {});
 
   return (
@@ -64,7 +79,7 @@ const MobileMetronomeMenu = ({ isOpen, onClose }) => {
           <button
             type="button"
             aria-pressed={enabled}
-            onClick={() => setMetronomeConfig((current) => ({ ...current, enabled: current.enabled !== true }))}
+            onClick={toggleMetronomeSound}
             className={`flex w-full items-center justify-between rounded-2xl border p-3.5 text-left transition active:scale-[0.99] ${enabled ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-slate-50'}`}
           >
             <span className="flex items-center gap-3">

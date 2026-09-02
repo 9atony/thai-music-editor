@@ -30,6 +30,19 @@ export const db = getFirestore(app);
 export const storage = getStorage(app);
 configureSystemAnalytics({ db, auth });
 
+// Firestore rejects `undefined` anywhere in nested objects/arrays. Timeline
+// clips may omit optional preview/source metadata, so strip only those values
+// while preserving Dates, Timestamps and Firestore FieldValue sentinels.
+const stripUndefined = (value) => {
+  if (Array.isArray(value)) return value.filter((item) => item !== undefined).map(stripUndefined);
+  if (!value || typeof value !== 'object' || Object.getPrototypeOf(value) !== Object.prototype) return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([, item]) => item !== undefined)
+      .map(([key, item]) => [key, stripUndefined(item)]),
+  );
+};
+
 // ==========================================
 // 🌟 ระบบสมัครสมาชิกและจัดการยศ
 // ==========================================
@@ -255,7 +268,9 @@ export const saveProjectToDB = async (uid, projectId, projectData) => {
 
     if (projectId) {
       const projectRef = doc(db, `users/${uid}/projects`, projectId);
-      await updateDoc(projectRef, dataToSave);
+      // The project can have been deleted in another tab/device while an
+      // existing editor tab is still open. Merge-save recreates it safely.
+      await setDoc(projectRef, dataToSave, { merge: true });
       recordSystemEvent('projectSaves', { feature: 'autosave', writes: 1, projectId });
       return projectId;
     } else {
@@ -311,12 +326,12 @@ export const createArrangerProject = async (uid, name = 'โปรเจกต�
 
 export const saveArrangerProject = async (uid, projectId, workspace) => {
   if (!uid || !projectId) throw new Error('ARRANGER_PROJECT_REQUIRED');
-  const data = {
+  const data = stripUndefined({
     ...workspace,
     projectType: 'arranger',
     trackCount: Array.isArray(workspace.tracks) ? workspace.tracks.length : 0,
     updatedAt: serverTimestamp(),
-  };
+  });
   await updateDoc(doc(db, `users/${uid}/arrangerProjects`, projectId), data);
   recordSystemEvent('projectSaves', { feature: 'autosave', writes: 1, projectId });
 };

@@ -57,6 +57,7 @@ export default function TimelineClip({
   measureWidth,
   clipMetrics,
   activeTool,
+  isSelected,
   isDragging,
   isResizing,
   handleClipMouseDown,
@@ -68,6 +69,7 @@ export default function TimelineClip({
   notationSymbolTool,
   onSymbolPointerDown,
   onSymbolPointerUp,
+  onClipContextMenu,
 }) {
   const isLocked = track.isLocked;
   const instrumentName = getClipInstrumentName(clip, track);
@@ -75,10 +77,12 @@ export default function TimelineClip({
 
   return (
     <div
+      data-timeline-clip="true"
       onMouseDown={(e) => handleClipMouseDown(track.id, sourceClipIndex, clip.start, e)}
+      onContextMenu={(event) => onClipContextMenu(track, clip, sourceClipIndex, event)}
       onClick={(event) => event.stopPropagation()}
       data-width={clip.width}
-      className={`absolute rounded overflow-hidden group transition-all ${
+      className={`absolute rounded overflow-hidden group transition-all ${isSelected ? 'ring-2 ring-cyan-200 ring-offset-2 ring-offset-[#0c1014] shadow-[0_0_0_2px_rgba(14,165,233,0.65),0_0_20px_rgba(34,211,238,0.45)] z-[5] ' : ''}${
         isLocked ? 'opacity-30 grayscale cursor-not-allowed'
           : activeTool === 'erase' ? 'cursor-not-allowed hover:border-red-500 hover:opacity-50'
           : activeTool === 'split' ? 'cursor-col-resize hover:brightness-125'
@@ -90,11 +94,12 @@ export default function TimelineClip({
         height: `${clipMetrics.height}px`,
         left: `${clip.start * measureWidth}px`,
         width: `${clip.width * measureWidth}px`,
-        backgroundColor: `${track.color}18`,
-        boxShadow: `inset 0 0 0 1px ${track.color}66`,
+        backgroundColor: isSelected ? 'rgba(14, 165, 233, 0.32)' : `${track.color}18`,
+        boxShadow: isSelected ? 'inset 0 0 0 2px rgba(103,232,249,0.95)' : `inset 0 0 0 1px ${track.color}66`,
         transitionDuration: (isDragging || isResizing) ? '0ms' : '250ms',
       }}
     >
+      {isSelected && <div className="pointer-events-none absolute inset-0 z-[1] bg-cyan-300/10" />}
       {/* ⭐ ขอบยืดหดของ Clip */}
       <div onMouseDown={(e) => handleResizeStart(track.id, clip.id, 'left', clip.start, clip.width, e)}
            className="absolute left-0 top-0 bottom-0 w-1.5 cursor-ew-resize hover:bg-black/70 transition-colors z-20"
@@ -106,13 +111,14 @@ export default function TimelineClip({
       {/* ⭐ Header ของ clip */}
       <div
         onMouseDown={(event) => handleClipMouseDown(track.id, sourceClipIndex, clip.start, event, true)}
-        className="px-2 flex cursor-grab items-center justify-between gap-1.5 shrink-0 active:cursor-grabbing"
-        style={{ height: '22px', backgroundColor: `${track.color}24` }}
+        className="relative z-[2] px-2 flex cursor-grab items-center justify-between gap-1.5 shrink-0 active:cursor-grabbing"
+        style={{ height: '22px', backgroundColor: isSelected ? 'rgba(8, 145, 178, 0.78)' : `${track.color}24` }}
         title="ลากเพื่อย้ายไฟล์โน้ต"
       >
         <div className="flex items-center min-w-0 gap-1.5">
           <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: track.color }} />
           <span className="text-[10px] text-white/80 truncate">{clip.name}</span>
+          {isSelected && <span className="rounded bg-cyan-100 px-1 py-px text-[8px] font-bold text-cyan-950">เลือก</span>}
           {!clipMetrics.compact && <span className="text-[9px] text-white/40 shrink-0">{clip.width}ห้อง</span>}
         </div>
         <div className="flex items-center gap-1 shrink-0">

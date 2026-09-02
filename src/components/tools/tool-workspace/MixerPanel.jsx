@@ -49,6 +49,31 @@ function PanControl({ value, onChange }) {
   );
 }
 
+function FaderScale({ max = 100, tone = 'text-white/45' }) {
+  const majorMarks = [
+    { label: `+${Math.round(20 * Math.log10(max / 100))}`, position: 100 },
+    { label: '0', position: 68 },
+    { label: '−10', position: 49 },
+    { label: '−30', position: 22 },
+    { label: '−∞', position: 0 },
+  ];
+  const minorMarks = [8, 15, 30, 39, 58, 77, 88, 94];
+
+  return (
+    <div className={`relative h-full min-h-[42px] max-h-[108px] w-8 shrink-0 select-none ${tone}`} aria-hidden="true">
+      {minorMarks.map((position) => (
+        <span key={position} className="absolute left-0 h-px w-2.5 bg-current opacity-35" style={{ bottom: `${position}%` }} />
+      ))}
+      {majorMarks.map((mark) => (
+        <div key={mark.label} className="absolute left-0 flex w-full -translate-y-1/2 items-center gap-1" style={{ bottom: `${mark.position}%` }}>
+          <span className="h-px w-3.5 bg-current opacity-80" />
+          <span className="font-mono text-[8px] font-semibold leading-none tracking-tighter">{mark.label}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function ChannelStrip({ track, level, onMute, onSolo, onPan, onVolume }) {
   const volume = track.volume ?? 100;
   const pan = track.pan ?? 0;
@@ -76,7 +101,7 @@ function ChannelStrip({ track, level, onMute, onSolo, onPan, onVolume }) {
           >S</button>
         </div>
         <PanControl value={pan} onChange={onPan} />
-        <div className="flex min-h-0 flex-1 items-center justify-center gap-3">
+        <div className="flex min-h-0 flex-1 items-center justify-center gap-2">
           <Meter level={isSilent ? 0 : level} activeColor={track.color} />
           <input
             type="range"
@@ -89,6 +114,7 @@ function ChannelStrip({ track, level, onMute, onSolo, onPan, onVolume }) {
             style={{ writingMode: 'vertical-lr', direction: 'rtl' }}
             aria-label={`ระดับเสียง ${track.name}`}
           />
+          <FaderScale max={200} />
         </div>
         <div className="font-mono text-[9px] text-white/55">{levelToDb(volume)} dB</div>
       </div>
@@ -104,7 +130,7 @@ function MasterStrip({ volume, level, onVolume }) {
         <span className="h-2 w-2 rounded-full bg-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.8)]" />
       </div>
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 overflow-hidden py-2">
-        <div className="flex min-h-0 flex-1 items-center gap-4">
+        <div className="flex min-h-0 flex-1 items-center gap-3">
           <Meter level={level} activeColor="#38bdf8" />
           <input
             type="range"
@@ -117,6 +143,7 @@ function MasterStrip({ volume, level, onVolume }) {
             style={{ writingMode: 'vertical-lr', direction: 'rtl' }}
             aria-label="ระดับเสียงมาสเตอร์"
           />
+          <FaderScale max={150} tone="text-sky-200/65" />
         </div>
         <div className="font-mono text-[9px] text-sky-200/70">{levelToDb(volume)} dB</div>
       </div>

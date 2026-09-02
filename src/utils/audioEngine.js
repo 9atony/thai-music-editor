@@ -102,7 +102,7 @@ const normalizeScheduledTime = (whenSec) => {
   return Math.max(minWhen, whenSec);
 };
 
-const createBufferedSource = (buffer, volumeLevel, whenSec, destination) => {
+const createBufferedSource = (buffer, volumeLevel, whenSec, destination, sampleGain = 1) => {
   const ctx = getAudioContext();
   const startAt = normalizeScheduledTime(whenSec);
 
@@ -110,7 +110,10 @@ const createBufferedSource = (buffer, volumeLevel, whenSec, destination) => {
   const gainNode = ctx.createGain();
   source.buffer = buffer;
 
-  const normalizedGain = Math.max(0, Math.min(100, volumeLevel)) / 100;
+  // A few legacy percussion recordings (notably ching) are mastered far
+  // below the rest of the library, so allow their configured compensation
+  // before the master compressor safely catches peaks.
+  const normalizedGain = Math.max(0, Math.min(2400, volumeLevel * sampleGain)) / 100;
   const ATTACK = 0.003;          // ⭐ ramp ขึ้นตอนเริ่มโน้ต กันคลิก
   const RELEASE = 0.012;         // ⭐ ระยะ ramp ลงตอนหยุด กันเสียงช็อต
 
@@ -448,7 +451,8 @@ const scheduleNote = async (instrumentId, noteChar, whenSec, volumeLevel = 100, 
     return null;
   }
 
-  const src = createBufferedSource(buffer, volumeLevel, whenSec, destination);
+  const sampleGain = Math.max(0, Number(findKeyByFormattedNote(instrumentId, cleanNote)?.gain) || 1);
+  const src = createBufferedSource(buffer, volumeLevel, whenSec, destination, sampleGain);
   // ผูก token เข้ากับ source เพื่อให้ stopAllScheduledNotes invalidate token ได้ด้วย
   if (src) {
     src._tokenId = tokenId;

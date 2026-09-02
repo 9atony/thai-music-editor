@@ -115,8 +115,11 @@ export const INSTRUMENT_CONFIG = {
     name: "ฉิ่ง",
     type: "percussion",
     keys: [
-      { thai: 'ฉิ่ง', eng: 'CHING', audio: 'ching.wav' },
-      { thai: 'ฉับ', eng: 'CHAB', audio: 'chab.wav' }
+      // Source recordings are intentionally quiet compared with the other
+      // instrument samples. Compensate in AudioEngine so the mixer still
+      // remains the single, predictable volume control for users.
+      { thai: 'ฉิ่ง', eng: 'CHING', audio: 'ching.wav', gain: 20 },
+      { thai: 'ฉับ', eng: 'CHAB', audio: 'chab.wav', gain: 5 }
     ]
   },
   "krub": {

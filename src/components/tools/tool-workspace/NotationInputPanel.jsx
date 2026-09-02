@@ -1,10 +1,18 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
 import { INSTRUMENT_CONFIG } from '../../../utils/instrumentConfig';
 import { formatInstrumentNote } from '../../../utils/sheetUtils';
 
+const COMPUTER_KEYBOARD_CODES = [
+  'Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9', 'Digit0',
+  'KeyQ', 'KeyW', 'KeyE', 'KeyR', 'KeyT', 'KeyY', 'KeyU', 'KeyI', 'KeyO', 'KeyP',
+  'KeyA', 'KeyS', 'KeyD', 'KeyF', 'KeyG', 'KeyH', 'KeyJ', 'KeyK', 'KeyL',
+];
+
 export default function NotationInputPanel() {
   const { tracks, selectedNotationCell, setTrackInstrument, inputNotationNote, appendNotationNote, addNotationMeasures, removeNotationMeasures, setNotationHandMode, moveNotationSelection, notationSymbolTool, setNotationSymbolTool } = useWorkspace();
+  const [hoveredKeyIndex, setHoveredKeyIndex] = useState(null);
+  const [activeKeyIndex, setActiveKeyIndex] = useState(null);
   const selectedTrack = tracks.find((track) => track.id === selectedNotationCell?.trackId);
   const selectedClip = selectedTrack?.clips.find((clip) => clip.id === selectedNotationCell?.clipId);
   const instrument = INSTRUMENT_CONFIG[selectedTrack?.instrumentId] || INSTRUMENT_CONFIG['ranat-ek'];
@@ -16,6 +24,16 @@ export default function NotationInputPanel() {
   const supportsDoubleHand = instrument?.type !== 'percussion';
   const disabled = !selectedClip;
   const canRemoveMeasures = measureCount > 1;
+  // Keep the control visible before a cell is selected as well. It stays
+  // disabled until there is a clip to write into, but users can immediately
+  // see where the Ranat Ek octave mode lives.
+  const canUseOctavePair = instrument?.id === 'ranat-ek' && !isDoubleHand;
+  const isOctavePairEnabled = canUseOctavePair && Boolean(selectedTrack?.octavePairEnabled);
+
+  const getInputNote = (key) => {
+    const note = formatInstrumentNote(key);
+    return note;
+  };
 
   useEffect(() => {
     const onKeyDown = (event) => {
@@ -28,6 +46,35 @@ export default function NotationInputPanel() {
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
   }, [moveNotationSelection, selectedNotationCell]);
+
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if (!selectedNotationCell || disabled || event.ctrlKey || event.metaKey || event.altKey) return;
+      const target = event.target;
+      if (target instanceof HTMLElement && target.closest('input, textarea, select, [contenteditable="true"]')) return;
+
+      if (event.code === 'Backspace' || event.code === 'Delete') {
+        event.preventDefault();
+        inputNotationNote('-');
+        return;
+      }
+
+      const keyIndex = COMPUTER_KEYBOARD_CODES.indexOf(event.code);
+      const key = keys[keyIndex];
+      if (!key || event.repeat) return;
+      if (isOctavePairEnabled && keyIndex < 7) {
+        event.preventDefault();
+        return;
+      }
+      event.preventDefault();
+      const note = getInputNote(key);
+      if (event.shiftKey) appendNotationNote(note);
+      else inputNotationNote(note);
+    };
+
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, [appendNotationNote, canUseOctavePair, disabled, inputNotationNote, instrument, isOctavePairEnabled, keys, selectedNotationCell]);
 
   const changeHandMode = (mode) => {
     if (mode === 'single' && hasLeftHandNotes && !window.confirm('เปลี่ยนเป็นแถวเดียวแล้วโน้ตมือซ้ายจะถูกลบ ต้องการดำเนินการต่อหรือไม่?')) return;
@@ -63,14 +110,59 @@ export default function NotationInputPanel() {
           <button type="button" disabled={disabled || !canRemoveMeasures} onClick={() => removeNotationMeasures(8)} className="rounded-md bg-rose-400/10 px-3 py-1.5 text-[10px] font-semibold text-rose-100 hover:bg-rose-400/20 disabled:opacity-30" title="ลบ 8 ห้องในบรรทัดที่กำลังเลือก">ลบ 1 บรรทัด</button>
         </div>
       </div>
-      <div className={`flex gap-1.5 overflow-x-auto pb-1 ${disabled ? 'pointer-events-none opacity-40' : ''}`}>
-        <button type="button" onClick={() => inputNotationNote('-')} className="h-11 min-w-12 rounded-lg border border-amber-300/25 bg-amber-300/10 px-3 text-xs font-bold text-amber-100 transition-colors hover:bg-amber-300/20" title="ล้างโน้ตในช่องนี้">–</button>
-        {keys.map((key, index) => (
-          <button type="button" key={`${key.eng || key.thai}_${index}`} onContextMenu={(event) => { event.preventDefault(); inputNotationNote('-', true); }} onClick={(event) => event.shiftKey ? appendNotationNote(formatInstrumentNote(key)) : inputNotationNote(formatInstrumentNote(key))} className="h-11 min-w-11 rounded-lg border border-sky-300/20 bg-sky-300/[0.07] px-2 font-semibold text-sky-50 transition-colors hover:bg-sky-300/20 active:scale-95" title={`${formatInstrumentNote(key)} (${key.eng || ''}) · Shift+คลิกเพื่อพิมพ์ต่อในช่อง · คลิกขวาเพื่อเว้นช่อง`}>
-            <span className="block text-base leading-4">{formatInstrumentNote(key)}</span>
-            <span className="mt-1 block text-[8px] font-normal text-sky-100/45">{key.eng}</span>
-          </button>
-        ))}
+      <div className={`relative z-0 w-full overflow-hidden ${disabled ? 'pointer-events-none opacity-40' : ''}`}>
+        <div className="overflow-x-auto pb-2 pt-1 custom-scrollbar">
+          <div className="mx-auto flex w-max gap-[2px] rounded-xl border border-white/[0.08] bg-[#080c10] p-1.5 shadow-inner">
+            <button
+              type="button"
+              onPointerDown={(event) => { event.preventDefault(); setActiveKeyIndex(-1); }}
+              onPointerUp={() => setActiveKeyIndex(null)}
+              onPointerLeave={() => { setActiveKeyIndex(null); setHoveredKeyIndex(null); }}
+              onPointerCancel={() => { setActiveKeyIndex(null); setHoveredKeyIndex(null); }}
+              onPointerEnter={() => setHoveredKeyIndex(-1)}
+              onClick={() => inputNotationNote('-')}
+              className={`relative h-[62px] w-14 shrink-0 rounded-b-md border border-b-[5px] border-amber-300/30 bg-amber-300/[0.07] text-amber-100 transition-all select-none ${activeKeyIndex === -1 ? 'translate-y-1 border-b-0 bg-amber-300/25' : hoveredKeyIndex === -1 ? 'bg-amber-300/15' : ''}`}
+              title="ล้างโน้ตในช่องนี้"
+            >
+              <span className="text-xl font-bold">−</span>
+            </button>
+            {keys.map((key, index) => {
+              const isBlocked = isOctavePairEnabled && index < 7;
+              const isPairPartner = isOctavePairEnabled && ((hoveredKeyIndex !== null && index === hoveredKeyIndex - 7) || (activeKeyIndex !== null && index === activeKeyIndex - 7));
+              const isHovered = hoveredKeyIndex === index || isPairPartner;
+              const isActive = activeKeyIndex === index || (isPairPartner && activeKeyIndex !== null);
+              let keyClass = 'relative h-[62px] w-14 shrink-0 rounded-b-md border border-b-[5px] flex flex-col items-center justify-end pb-2.5 text-sky-50 transition-all select-none ';
+
+              if (isActive) keyClass += isOctavePairEnabled ? 'translate-y-1 border-amber-300 bg-amber-300 border-b-0 text-amber-950 ' : 'translate-y-1 border-sky-300 bg-sky-200 border-b-0 text-sky-950 ';
+              else if (isHovered) keyClass += isOctavePairEnabled ? 'border-amber-400 bg-amber-100/95 text-amber-800 ' : 'border-sky-400 bg-sky-50 text-sky-700 ';
+              else if (isBlocked) keyClass += 'cursor-not-allowed border-slate-700 bg-slate-800/70 text-slate-500 opacity-55 ';
+              else keyClass += 'border-slate-600 bg-slate-100 text-slate-700 hover:bg-white ';
+
+              return (
+                <button
+                  type="button"
+                  key={`${key.eng || key.thai}_${index}`}
+                  disabled={isBlocked}
+                  onPointerDown={(event) => { event.preventDefault(); if (!isBlocked) setActiveKeyIndex(index); }}
+                  onPointerUp={() => setActiveKeyIndex(null)}
+                  onPointerLeave={() => { setActiveKeyIndex(null); setHoveredKeyIndex(null); }}
+                  onPointerCancel={() => { setActiveKeyIndex(null); setHoveredKeyIndex(null); }}
+                  onPointerEnter={() => { if (!isBlocked) setHoveredKeyIndex(index); }}
+                  onContextMenu={(event) => { event.preventDefault(); if (!isBlocked) inputNotationNote('-'); }}
+                  onClick={(event) => { if (!isBlocked) (event.shiftKey ? appendNotationNote(getInputNote(key)) : inputNotationNote(getInputNote(key))); }}
+                  className={keyClass}
+                  title={isBlocked
+                    ? `${formatInstrumentNote(key)} (${key.eng || ''}) · ใช้ไม่ได้ในโหมดคู่ 8`
+                    : `${formatInstrumentNote(key)} (${key.eng || ''}) · Shift+คลิกเพื่อพิมพ์ต่อในช่อง · คลิกขวาเพื่อล้างช่อง`}
+                >
+                  <span className={`absolute top-1.5 text-[9px] font-semibold uppercase tracking-wider ${isHovered || isActive ? 'opacity-75' : 'opacity-45'}`}>{key.eng}</span>
+                  <span className="text-xl font-bold leading-none">{formatInstrumentNote(key)}</span>
+                  <span className="mt-1 text-[8px] font-medium opacity-50">{COMPUTER_KEYBOARD_CODES[index]?.replace('Key', '').replace('Digit', '')}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </div>
     </section>
   );

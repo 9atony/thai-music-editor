@@ -44,8 +44,8 @@ export const useAudioPlayback = ({
     enabled: false,
     linked: true,
     masterVolume: 80,
-    ching: { active: false, pattern: '', volume: 80 },
-    klong: { active: false, pattern: '', volume: 80 },
+    ching: { active: true, pattern: '', volume: 80 },
+    klong: { active: true, pattern: '', volume: 80 },
     krub: { active: false, pattern: '', volume: 80 },
     rhythms: { ching: [], klong: [], krub: [] }
   });
