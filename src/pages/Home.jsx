@@ -9,6 +9,7 @@ import { MusicContext } from '../contexts/MusicContext';
 import TmeIcon from '../assets/icon.png'; 
 import AdminUpdateForm from '../components/AdminUpdateForm'; // 👈 นำเข้าฟอร์มแอดมิน
 import PageHeader from '../components/layout/PageHeader';
+import { APP_METADATA } from '../config/appMetadata';
 
 const Home = ({ onNewProject, onPageChange, userProfile, isMobile = false }) => {
   const { newProject, loadProjectFromFirebase, loadProject } = useContext(MusicContext);
@@ -345,7 +346,7 @@ const Home = ({ onNewProject, onPageChange, userProfile, isMobile = false }) => 
         <div className="lg:col-span-3 bg-white border border-slate-100 md:border-slate-200 shadow-sm md:shadow-none rounded-3xl p-6 md:p-8 flex items-center justify-between relative overflow-hidden">
           <div className="relative z-10">
             <h3 className="text-lg md:text-xl font-bold text-slate-800 mb-0.5 md:mb-1">Thai Music Editor</h3>
-            <p className="text-xs md:text-sm font-semibold text-slate-400 mb-3 md:mb-4">เวอร์ชัน 1.0.0</p>
+            <p className="text-xs md:text-sm font-semibold text-slate-400 mb-3 md:mb-4">เวอร์ชัน {APP_METADATA.version}</p>
             <button onClick={() => { setIsPopupOpen(true); setIsNotifOpen(false); }} className="text-xs md:text-sm font-bold text-sky-500 hover:text-sky-600 flex items-center gap-1 cursor-pointer">
               ดูรายละเอียดการอัปเดต
               <svg className="w-3.5 h-3.5 md:w-4 md:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>

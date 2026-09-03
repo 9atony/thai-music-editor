@@ -419,6 +419,7 @@ export const MusicProvider = ({ children }) => {
       sheetData: sheetEditor.sheetData,
       rowTypes: sheetEditor.rowTypes,
       sectionLabels: sheetEditor.sectionLabels,
+      symbols: sheetEditor.symbols,
       playbackSequence: audioPlayback.playbackSequence
     });
     const url = URL.createObjectURL(new Blob([xml], { type: 'application/xml;charset=utf-8' }));
@@ -440,6 +441,7 @@ export const MusicProvider = ({ children }) => {
       sheetData: sheetEditor.sheetData,
       rowTypes: sheetEditor.rowTypes,
       sectionLabels: sheetEditor.sectionLabels,
+      symbols: sheetEditor.symbols,
       playbackSequence: audioPlayback.playbackSequence
     });
     const musicXml = thaiMusicXmlToMusicXml(thaiMusicXml, { startingPitch, debug: true });

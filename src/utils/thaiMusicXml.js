@@ -32,9 +32,19 @@ const makeElement = (documentXml, name, text) => {
   return node;
 };
 
-const appendBeat = (documentXml, measure, token, isUnpitched) => {
+const appendBeat = (documentXml, measure, token, isUnpitched, performance = null) => {
   const notes = splitThaiNoteToken(normalizeCellToken(token));
-  if (!notes.length) { measure.appendChild(makeElement(documentXml, 'rest')); return; }
+  if (!notes.length) {
+    const rest = makeElement(documentXml, 'rest');
+    if (performance?.type === 'sabat') {
+      rest.setAttribute('ornament', 'sabat');
+      rest.setAttribute('ornament-id', performance.id);
+      if (performance.isStart) rest.setAttribute('ornament-start', 'true');
+      if (performance.isEnd) rest.setAttribute('ornament-end', 'true');
+    }
+    measure.appendChild(rest);
+    return;
+  }
   const parent = notes.length === 1 ? measure : makeElement(documentXml, 'group');
   notes.forEach((noteToken) => {
     const note = makeElement(documentXml, 'note');
@@ -44,11 +54,17 @@ const appendBeat = (documentXml, measure, token, isUnpitched) => {
     else note.setAttribute('pitch', noteToken);
     parent.appendChild(note);
   });
+  if (performance?.type === 'sabat') {
+    parent.setAttribute('ornament', 'sabat');
+    parent.setAttribute('ornament-id', performance.id);
+    if (performance.isStart) parent.setAttribute('ornament-start', 'true');
+    if (performance.isEnd) parent.setAttribute('ornament-end', 'true');
+  }
   if (parent !== measure) measure.appendChild(parent);
 };
 
 /** Serializes the editor's basic score model as ThaiMusicXML v1.0. */
-export const toThaiMusicXml = ({ songName, headerDetails, layoutConfig, currentInstrument, sheetData, rowTypes, sectionLabels, playbackSequence }) => {
+export const toThaiMusicXml = ({ songName, headerDetails, layoutConfig, currentInstrument, sheetData, rowTypes, sectionLabels, symbols, playbackSequence }) => {
   const documentXml = document.implementation.createDocument(NAMESPACE, 'thai-score', null);
   const root = documentXml.documentElement;
   root.setAttribute('version', THAI_MUSIC_XML_VERSION);
@@ -131,7 +147,25 @@ export const toThaiMusicXml = ({ songName, headerDetails, layoutConfig, currentI
         row.forEach((measureData, measureIndex) => {
           if (visualRow.rowType.startsWith('double') && measureIndex === 0) return;
           const measure = makeElement(documentXml, 'measure'); measure.setAttribute('number', String(measureIndex + 1));
-          (measureData || []).forEach((cell) => appendBeat(documentXml, measure, cell, instrument.type === 'percussion'));
+          const sourceRowIndex = sheetData.indexOf(row);
+          (measureData || []).forEach((cell, cellIndex) => {
+            const performanceSymbol = (symbols || []).find((symbol) => {
+              if (symbol?.type !== 'sabat' || !Array.isArray(symbol.start) || !Array.isArray(symbol.end)) return false;
+              const [start, end] = [symbol.start, symbol.end].sort((left, right) => (left[1] - right[1]) || (left[2] - right[2]));
+              if (start[0] !== sourceRowIndex || end[0] !== sourceRowIndex) return false;
+              const position = (measureIndex * 1000) + cellIndex;
+              const startPosition = (start[1] * 1000) + start[2];
+              const endPosition = (end[1] * 1000) + end[2];
+              return position >= startPosition && position <= endPosition;
+            });
+            const performance = performanceSymbol ? {
+              type: 'sabat',
+              id: String(performanceSymbol.id),
+              isStart: performanceSymbol.start[1] === measureIndex && performanceSymbol.start[2] === cellIndex,
+              isEnd: performanceSymbol.end[1] === measureIndex && performanceSymbol.end[2] === cellIndex
+            } : null;
+            appendBeat(documentXml, measure, cell, instrument.type === 'percussion', performance);
+          });
           line.appendChild(measure);
         });
         sectionRef.appendChild(line);

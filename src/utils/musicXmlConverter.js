@@ -42,6 +42,10 @@ const subtractFractions = (left, right) => fraction((left.numerator * right.deno
 const compareFractions = (left, right) => (left.numerator * right.denominator) - (right.numerator * left.denominator);
 const multiplyFraction = (value, multiplier) => fraction(value.numerator * multiplier, value.denominator);
 const fractionNumber = (value) => value.numerator / value.denominator;
+// MuseScore's internal tick grid reliably supports down to a 128th note.
+// Quantizing only performance-generated fractions to this grid avoids invalid
+// 256th/512th tuplets while keeping timing error below one 128th-note step.
+const EXPORT_TICKS_PER_QUARTER = 32;
 
 export const parseStartingPitch = (value) => {
   const match = /^([A-Ga-g])([#b]?)(-?\d)$/.exec(String(value || '').trim());
@@ -90,13 +94,23 @@ const hasXmlFlag = (node, names) => names.some((name) => TRUE_VALUES.has(String(
 const CADENCE_ATTRIBUTES = ['isCadence', 'isLukTok', 'is-cadence', 'is-luk-tok'];
 const SUSTAIN_ATTRIBUTES = ['sustain', 'continuesPrevious', 'continues-previous'];
 
+const applyBeatPerformance = (group, beat) => {
+  if (beat.getAttribute('ornament') === 'sabat') {
+    group.ornament = 'sabat';
+    group.ornamentId = beat.getAttribute('ornament-id') || 'sabat';
+    group.ornamentStart = hasXmlFlag(beat, ['ornament-start']);
+    group.ornamentEnd = hasXmlFlag(beat, ['ornament-end']);
+  }
+  return group;
+};
+
 const parseMeasure = (measure) => {
   const beats = Array.from(measure.children || []).filter((child) => ['note', 'rest', 'group'].includes(child.localName));
   return beats.map((beat) => {
     if (beat.localName === 'rest') {
       const group = [{ rest: true, sustain: hasXmlFlag(beat, SUSTAIN_ATTRIBUTES) }];
       group.isLukTok = hasXmlFlag(beat, CADENCE_ATTRIBUTES);
-      return group;
+      return applyBeatPerformance(group, beat);
     }
     const notes = beat.localName === 'group'
       ? Array.from(beat.children || []).filter((child) => ['note', 'rest'].includes(child.localName))
@@ -111,7 +125,7 @@ const parseMeasure = (measure) => {
       isCadence: hasXmlFlag(note, CADENCE_ATTRIBUTES)
     }));
     group.isLukTok = hasXmlFlag(beat, CADENCE_ATTRIBUTES) || group.some((event) => event.isCadence);
-    return group;
+    return applyBeatPerformance(group, beat);
   });
 };
 
@@ -194,21 +208,20 @@ export const parseThaiMusicXmlForMusicXml = (source) => {
 };
 
 const durationType = (duration) => {
-  const standard = new Map([[4, 'whole'], [2, 'half'], [1, 'quarter'], [0.5, 'eighth'], [0.25, '16th'], [0.125, '32nd'], [0.0625, '64th']]);
+  const standard = new Map([[4, 'whole'], [2, 'half'], [1, 'quarter'], [0.5, 'eighth'], [0.25, '16th'], [0.125, '32nd'], [0.0625, '64th'], [0.03125, '128th']]);
   const value = duration.numerator / duration.denominator;
   if (standard.has(value)) return { type: standard.get(value), dots: 0, tuplet: null };
   for (const [base, type] of standard) {
     if (value === base * 1.5) return { type, dots: 1, tuplet: null };
   }
-  let odd = duration.denominator;
-  while (odd % 2 === 0) odd /= 2;
-  if (odd > 1) {
-    let normal = 1;
-    while (normal * 2 < odd) normal *= 2;
-    const printedDuration = value * odd / normal;
-    return { type: standard.get(printedDuration) || '16th', dots: 0, tuplet: { actual: odd, normal } };
-  }
-  return { type: 'eighth', dots: 0, tuplet: null };
+  // Arbitrary sabat spacing is represented as an exact ratio against one
+  // quarter note. This keeps MusicXML's visual type and sounding duration in
+  // agreement (for n/d quarter notes: d actual notes in the time of n).
+  return {
+    type: 'quarter',
+    dots: 0,
+    tuplet: { actual: duration.denominator, normal: duration.numerator, normalType: 'quarter' }
+  };
 };
 
 const pitchXml = (event, tuning) => {
@@ -216,19 +229,70 @@ const pitchXml = (event, tuning) => {
   return `<pitch><step>${pitch.step}</step>${pitch.alter ? `<alter>${pitch.alter}</alter>` : ''}<octave>${pitch.octave}</octave></pitch>`;
 };
 
-const renderNote = (event, duration, divisions, tuning, unpitched, instrumentId) => {
+const renderSingleNote = (event, duration, divisions, tuning, unpitched, instrumentId) => {
   const ticks = (duration.numerator * divisions) / duration.denominator;
-  const notation = durationType(duration);
-  const timeModification = notation.tuplet ? `<time-modification><actual-notes>${notation.tuplet.actual}</actual-notes><normal-notes>${notation.tuplet.normal}</normal-notes></time-modification>` : '';
+  const notation = event.tupletNotation || durationType(duration);
+  const timeModification = notation.tuplet ? `<time-modification><actual-notes>${notation.tuplet.actual}</actual-notes><normal-notes>${notation.tuplet.normal}</normal-notes><normal-type>${notation.tuplet.normalType || notation.type}</normal-type></time-modification>` : '';
   const ties = event.rest ? [] : [event.tieStop ? 'stop' : null, event.tieStart ? 'start' : null].filter(Boolean);
   const tieElements = ties.map((type) => `<tie type="${type}"/>`).join('');
-  const notations = ties.length ? `<notations>${ties.map((type) => `<tied type="${type}"/>`).join('')}</notations>` : '';
+  const notationElements = ties.map((type) => `<tied type="${type}"/>`);
+  const notations = notationElements.length ? `<notations>${notationElements.join('')}</notations>` : '';
   const head = event.rest
     ? '<rest/>'
     : unpitched || event.sound
       ? `<unpitched><display-step>B</display-step><display-octave>4</display-octave></unpitched><instrument id="${instrumentId}"/>`
       : pitchXml(event, tuning);
   return `<note>${head}<duration>${ticks}</duration>${tieElements}<type>${notation.type}</type>${'<dot/>'.repeat(notation.dots)}${timeModification}${notations}</note>`;
+};
+
+const splitPrintableDuration = (duration) => {
+  let units = Math.round(fractionNumber(duration) * EXPORT_TICKS_PER_QUARTER);
+  const pieces = [];
+  const values = [128, 64, 32, 16, 8, 4, 2, 1];
+  values.forEach((unitsPerNote) => {
+    while (units >= unitsPerNote) {
+      pieces.push(fraction(unitsPerNote, EXPORT_TICKS_PER_QUARTER));
+      units -= unitsPerNote;
+    }
+  });
+  return pieces.length ? pieces : [fraction(1, EXPORT_TICKS_PER_QUARTER)];
+};
+
+const renderNote = (event, duration, divisions, tuning, unpitched, instrumentId) => {
+  const pieces = splitPrintableDuration(duration);
+  return pieces.map((piece, index) => renderSingleNote({
+    ...event,
+    tieStop: !event.rest && (event.tieStop || index > 0),
+    tieStart: !event.rest && (event.tieStart || index < pieces.length - 1),
+    tupletStart: false,
+    tupletStop: false,
+    tupletNotation: null
+  }, piece, divisions, tuning, unpitched, instrumentId)).join('');
+};
+
+const quantizeMeasureEvents = (events, measureDuration) => {
+  if (!events.length) return events;
+  const totalUnits = Math.round(fractionNumber(measureDuration) * EXPORT_TICKS_PER_QUARTER);
+  let exactCursor = fraction(0);
+  let assignedUnits = 0;
+  return events.map((event, index) => {
+    exactCursor = addFractions(exactCursor, event.duration);
+    const remainingEvents = events.length - index - 1;
+    const desiredEnd = index === events.length - 1
+      ? totalUnits
+      : Math.round(fractionNumber(exactCursor) * EXPORT_TICKS_PER_QUARTER);
+    const endUnits = Math.max(assignedUnits + 1, Math.min(desiredEnd, totalUnits - remainingEvents));
+    const durationUnits = Math.max(1, endUnits - assignedUnits);
+    assignedUnits = endUnits;
+    return {
+      ...event,
+      duration: fraction(durationUnits, EXPORT_TICKS_PER_QUARTER),
+      tupletId: null,
+      tupletStart: false,
+      tupletStop: false,
+      tupletNotation: null
+    };
+  });
 };
 
 const allMeasureDenominators = (model) => model.parts.flatMap((part) => [...part.sections.values()].flatMap((measures) => measures.flatMap((beats) => {
@@ -337,6 +401,201 @@ const buildWesternTimeline = (part, orderedSections, sectionNames) => {
   return { measures, debugRows };
 };
 
+// Export playback must preserve the editor grid exactly. Re-barring the last
+// Thai slot as a Western downbeat creates an implicit pickup; several MusicXML
+// players pad that pickup before playback and shift notes around the first bar
+// line. Keeping one editor measure as one 2/4 MusicXML measure avoids that
+// ambiguity while retaining equal subdivisions for compact note groups.
+const buildEditorPlaybackTimeline = (part, orderedSections, sectionNames) => {
+  const ranges = [];
+  const slots = [];
+  let cursor = fraction(0);
+
+  orderedSections.forEach((sectionId) => {
+    const sectionMeasures = part.sections.get(sectionId) || [];
+    sectionMeasures.forEach((sourceBeats, sectionMeasureIndex) => {
+      const beats = sourceBeats.length ? sourceBeats : [[{ rest: true }]];
+      const slotDuration = fraction(2, beats.length);
+      beats.forEach((sourceGroup, slotIndex) => {
+        const group = sourceGroup.length ? sourceGroup : [{ rest: true }];
+        slots.push({
+          onset: addFractions(cursor, multiplyFraction(slotDuration, slotIndex)),
+          duration: slotDuration,
+          measureIndex: ranges.length,
+          group,
+          ornament: group.ornament,
+          ornamentId: group.ornamentId
+        });
+      });
+      const end = addFractions(cursor, fraction(2));
+      ranges.push({
+        start: cursor,
+        end,
+        number: ranges.length + 1,
+        implicit: false,
+        pickup: false,
+        markers: sectionMeasureIndex === 0
+          ? [{ onset: cursor, name: sectionNames.get(sectionId) || sectionId }]
+          : [],
+        duration: fraction(2)
+      });
+      cursor = end;
+    });
+  });
+
+  const events = [];
+  let previousAttack = null;
+  let previousMeasureIndex = -1;
+  for (let slotIndex = 0; slotIndex < slots.length;) {
+    const slot = slots[slotIndex];
+    if (slot.measureIndex !== previousMeasureIndex) previousAttack = null;
+    if (slot.ornament === 'sabat') {
+      let finalSlotIndex = slotIndex;
+      while (finalSlotIndex + 1 < slots.length && slots[finalSlotIndex + 1].ornament === 'sabat' && slots[finalSlotIndex + 1].ornamentId === slot.ornamentId) finalSlotIndex += 1;
+      const ornamentSlots = slots.slice(slotIndex, finalSlotIndex + 1);
+      const notes = ornamentSlots.flatMap((item) => item.group.filter((event) => !event.rest));
+      const ornamentStart = slot.onset;
+      const finalSlot = ornamentSlots.at(-1);
+      const ornamentEnd = addFractions(finalSlot.onset, finalSlot.duration);
+      const isSingleSlotOrnament = finalSlotIndex === slotIndex;
+      const finalAttackOnset = isSingleSlotOrnament ? ornamentEnd : finalSlot.onset;
+      const onsetDivisor = isSingleSlotOrnament ? notes.length : Math.max(1, notes.length - 1);
+
+      notes.forEach((sourceEvent, noteIndex) => {
+        const onset = notes.length <= 1
+          ? ornamentStart
+          : addFractions(ornamentStart, fraction(
+            (finalAttackOnset.numerator * ornamentStart.denominator - ornamentStart.numerator * finalAttackOnset.denominator) * noteIndex,
+            finalAttackOnset.denominator * ornamentStart.denominator * onsetDivisor
+          ));
+        const nextOnset = noteIndex === notes.length - 1
+          ? ornamentEnd
+          : addFractions(ornamentStart, fraction(
+            (finalAttackOnset.numerator * ornamentStart.denominator - ornamentStart.numerator * finalAttackOnset.denominator) * (noteIndex + 1),
+            finalAttackOnset.denominator * ornamentStart.denominator * onsetDivisor
+          ));
+        events.push({
+          ...sourceEvent,
+          onset,
+          duration: subtractFractions(nextOnset, onset),
+          ...((isSingleSlotOrnament || noteIndex < notes.length - 1) && notes.length > 1
+            ? { tupletId: `${slot.ornamentId}:${slotIndex}` }
+            : {})
+        });
+      });
+      if (!notes.length) events.push({ rest: true, onset: ornamentStart, duration: subtractFractions(ornamentEnd, ornamentStart) });
+      previousAttack = notes.length ? events.at(-1) : null;
+      previousMeasureIndex = finalSlot.measureIndex;
+      slotIndex = finalSlotIndex + 1;
+      continue;
+    }
+
+    const eventDuration = fraction(slot.duration.numerator, slot.duration.denominator * slot.group.length);
+    slot.group.forEach((sourceEvent, eventIndex) => {
+      const onset = addFractions(slot.onset, multiplyFraction(eventDuration, eventIndex));
+      if (sourceEvent.rest) {
+        if (previousAttack && !sourceEvent.forceRest) previousAttack.duration = addFractions(previousAttack.duration, eventDuration);
+        else {
+          events.push({ ...sourceEvent, rest: true, onset, duration: eventDuration });
+          previousAttack = null;
+        }
+      } else {
+        const attack = { ...sourceEvent, onset, duration: eventDuration };
+        events.push(attack);
+        previousAttack = attack;
+      }
+    });
+    previousMeasureIndex = slot.measureIndex;
+    slotIndex += 1;
+  }
+
+  const measures = ranges.map((range) => ({
+    ...range,
+    events: events.flatMap((event) => {
+      const eventEnd = addFractions(event.onset, event.duration);
+      const start = compareFractions(event.onset, range.start) < 0 ? range.start : event.onset;
+      const end = compareFractions(eventEnd, range.end) > 0 ? range.end : eventEnd;
+      if (compareFractions(start, end) >= 0) return [];
+      return [{
+        ...event,
+        onset: subtractFractions(start, range.start),
+        duration: subtractFractions(end, start),
+        tieStop: !event.rest && compareFractions(event.onset, range.start) < 0,
+        tieStart: !event.rest && compareFractions(eventEnd, range.end) > 0
+      }];
+    }),
+    markers: range.markers.map((marker) => ({ ...marker, onset: subtractFractions(marker.onset, range.start) }))
+  }));
+
+  return { measures, debugRows: [] };
+};
+
+// First resolve web-only performance timing (such as sabat), then re-cut that
+// audible timeline at Thai cadence onsets. This preserves what users hear in
+// the editor while still placing each luk tok on beat one of the next Western
+// measure.
+const buildSabatCadenceTimeline = (part, orderedSections, sectionNames) => {
+  const editorTimeline = buildEditorPlaybackTimeline(part, orderedSections, sectionNames);
+  const globalEvents = editorTimeline.measures.flatMap((measure, index) => measure.events.map((event) => ({
+    ...event,
+    onset: addFractions(fraction(index * 2), event.onset)
+  })));
+  const globalMarkers = editorTimeline.measures.flatMap((measure, index) => measure.markers.map((marker) => ({
+    ...marker,
+    onset: addFractions(fraction(index * 2), marker.onset)
+  })));
+  const cadenceBoundaries = [];
+  let cursor = fraction(0);
+
+  orderedSections.forEach((sectionId) => {
+    const sectionMeasures = part.sections.get(sectionId) || [];
+    sectionMeasures.forEach((sourceBeats) => {
+      const beats = sourceBeats.length ? sourceBeats : [[{ rest: true }]];
+      const slotDuration = fraction(2, beats.length);
+      const explicitCadence = beats.findIndex(groupIsCadence);
+      const cadenceSlot = explicitCadence >= 0 ? explicitCadence : beats.length - 1;
+      cadenceBoundaries.push(addFractions(cursor, multiplyFraction(slotDuration, cadenceSlot)));
+      cursor = addFractions(cursor, fraction(2));
+    });
+  });
+
+  const firstCadence = cadenceBoundaries[0];
+  if (!firstCadence) return editorTimeline;
+  const ranges = [];
+  if (compareFractions(firstCadence, fraction(0)) > 0) ranges.push({ start: fraction(0), end: firstCadence, number: 0, implicit: true, pickup: true });
+  cadenceBoundaries.forEach((start, index) => {
+    const end = cadenceBoundaries[index + 1] || cursor;
+    if (compareFractions(end, start) > 0) ranges.push({ start, end, number: index + 1, implicit: false, pickup: false });
+  });
+
+  const measures = ranges.map((range) => ({
+    ...range,
+    duration: subtractFractions(range.end, range.start),
+    events: globalEvents.flatMap((event) => {
+      const eventEnd = addFractions(event.onset, event.duration);
+      const start = compareFractions(event.onset, range.start) < 0 ? range.start : event.onset;
+      const end = compareFractions(eventEnd, range.end) > 0 ? range.end : eventEnd;
+      if (compareFractions(start, end) >= 0) return [];
+      return [{
+        ...event,
+        onset: subtractFractions(start, range.start),
+        duration: subtractFractions(end, start),
+        tieStop: !event.rest && (event.tieStop || compareFractions(event.onset, range.start) < 0),
+        tieStart: !event.rest && (event.tieStart || compareFractions(eventEnd, range.end) > 0)
+      }];
+    }),
+    markers: globalMarkers
+      .filter((marker) => compareFractions(marker.onset, range.start) >= 0 && compareFractions(marker.onset, range.end) < 0)
+      .map((marker) => ({ ...marker, onset: subtractFractions(marker.onset, range.start) }))
+  }));
+
+  measures.forEach((measure) => {
+    measure.events = quantizeMeasureEvents(measure.events, measure.duration);
+  });
+
+  return { measures, debugRows: buildWesternTimeline(part, orderedSections, sectionNames).debugRows };
+};
+
 export const buildCadenceDebugTable = (model) => {
   const orderedSections = model.playOrder.length ? model.playOrder : [...model.sectionNames.keys()];
   const firstPart = model.parts[0];
@@ -345,9 +604,11 @@ export const buildCadenceDebugTable = (model) => {
 
 export const thaiMusicXmlModelToMusicXml = (model, options = {}) => {
   const tuning = parseStartingPitch(options.startingPitch || 'C4');
-  const divisions = allMeasureDenominators(model).reduce((value, denominator) => lcm(value, denominator), 1);
   const fifths = FIFTHS_BY_TONIC[`${tuning.step}${tuning.alter === 1 ? '#' : tuning.alter === -1 ? 'b' : ''}`] ?? 0;
   const orderedSections = model.playOrder.length ? model.playOrder : [...model.sectionNames.keys()];
+  const timelines = new Map(model.parts.map((part) => [part.id, buildSabatCadenceTimeline(part, orderedSections, model.sectionNames)]));
+  const generatedDenominators = [...timelines.values()].flatMap((timeline) => timeline.measures.flatMap((measure) => measure.events.map((event) => event.duration.denominator)));
+  const divisions = [...allMeasureDenominators(model), ...generatedDenominators].reduce((value, denominator) => lcm(value, denominator), 1);
   if (options.debug && typeof console !== 'undefined' && typeof console.table === 'function') console.table(buildCadenceDebugTable(model));
   const partList = model.parts.map((part, index) => {
     const instrumentId = `${part.id}-I1`;
@@ -357,7 +618,7 @@ export const thaiMusicXmlModelToMusicXml = (model, options = {}) => {
 
   const parts = model.parts.map((part) => {
     const instrumentId = `${part.id}-I1`;
-    const timeline = buildWesternTimeline(part, orderedSections, model.sectionNames);
+    const timeline = timelines.get(part.id);
     const measures = timeline.measures.map((measure, measureIndex) => {
       let contents = '';
       if (measureIndex === 0) {

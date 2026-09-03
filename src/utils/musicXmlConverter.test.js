@@ -84,7 +84,6 @@ test('splits and ties a luk tok sustained from the preceding slot across the new
 
   assert.deepEqual({ step: pickupLast.step, duration: pickupLast.duration, tieStart: pickupLast.tieStart }, { step: 'E', duration: 1, tieStart: true });
   assert.deepEqual({ step: firstDownbeat.step, duration: firstDownbeat.duration, tieStop: firstDownbeat.tieStop }, { step: 'E', duration: 1, tieStop: true });
-  assert.equal(pickupLast.duration + firstDownbeat.duration, 2, 'the original sustained duration is preserved');
 });
 
 test('keeps cadence alignment across multiple sections and playback order', () => {
@@ -96,6 +95,60 @@ test('keeps cadence alignment across multiple sections and playback order', () =
   const lukTokRows = buildCadenceDebugTable(model).filter((row) => row['Is Luk Tok']);
   assert.deepEqual(lukTokRows.map((row) => row['Western measure']), [1, 2, 3]);
   assert.equal(measuresOf(thaiMusicXmlModelToMusicXml(model)).length, 4);
+});
+
+test('keeps compact notes evenly spaced across an editor barline', () => {
+  const xml = score({
+    measures: [
+      [[{ pitch: 'ล' }], [{ pitch: 'ซ' }], [{ pitch: 'ฟ' }], [{ pitch: 'ล' }]],
+      [[{ pitch: 'ซ' }, { pitch: 'ฟ' }], [{ pitch: 'ซ' }], [{ pitch: 'ฟ' }, { pitch: 'ม' }], [{ pitch: 'ล' }]]
+    ]
+  });
+  const measures = measuresOf(xml);
+  const durations = measures.flatMap(notesOf).map(({ duration }) => duration);
+  assert.deepEqual(durations, [2, 2, 2, 2, 1, 1, 2, 1, 1, 2]);
+  assert.match(measures[0].attributes, /implicit="yes"/);
+});
+
+test('gives mirrored single and compact-note cells equal total time around a barline', () => {
+  const xml = score({
+    measures: [
+      [[{ pitch: 'ด' }], [{ pitch: 'ร' }], [{ pitch: 'ม' }, { pitch: 'ฟ' }], [{ pitch: 'ซ' }]],
+      [[{ pitch: 'ล' }], [{ pitch: 'ท' }, { pitch: 'ดํ' }], [{ pitch: 'รํ' }], [{ pitch: 'มํ' }]]
+    ]
+  });
+  const measures = measuresOf(xml);
+  const durations = measures.flatMap(notesOf).map(({ duration }) => duration);
+  const leftOfBar = durations.slice(2, 5);
+  const rightOfBar = durations.slice(5, 8);
+
+  // คู่ + เดี่ยว และ เดี่ยว + คู่ ต่างใช้เวลารวมสองช่องเท่ากัน
+  assert.deepEqual(leftOfBar, [1, 1, 2]);
+  assert.deepEqual(rightOfBar, [2, 1, 1]);
+  assert.equal(leftOfBar.reduce((sum, duration) => sum + duration, 0), 4);
+  assert.equal(rightOfBar.reduce((sum, duration) => sum + duration, 0), 4);
+});
+
+test('uses sabat timing across a barline without exporting the web-only symbol', () => {
+  const lastCell = [{ pitch: 'ล' }];
+  lastCell.ornament = 'sabat';
+  lastCell.ornamentId = 'curve-1';
+  const firstCell = [{ pitch: 'ซ' }, { pitch: 'ฟ' }];
+  firstCell.ornament = 'sabat';
+  firstCell.ornamentId = 'curve-1';
+  const xml = score({
+    measures: [
+      [[{ pitch: 'ด' }], [{ pitch: 'ร' }], [{ pitch: 'ม' }], lastCell],
+      [firstCell, [{ pitch: 'ซ' }], [{ pitch: 'ล' }], [{ pitch: 'ท' }]]
+    ]
+  });
+  const measures = measuresOf(xml);
+  const firstWesternBar = notesOf(measures[1]);
+
+  assert.deepEqual(firstWesternBar.slice(0, 3).map(({ step, duration }) => [step, duration]), [['A', 1], ['G', 1], ['F', 2]]);
+  assert.doesNotMatch(xml, /<slur\b/);
+  assert.doesNotMatch(xml, /sabat|ornament-id|ornament-start|ornament-end/);
+  assert.doesNotMatch(xml, /<time-modification>|<tuplet\b/);
 });
 
 test('exports right-hand and left-hand rows as separate synchronized MusicXML parts', () => {

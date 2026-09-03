@@ -1,210 +1,180 @@
-import React, { useContext, useState } from 'react';
-import { MusicContext } from '../contexts/MusicContext';
-import { auth, fetchAllProjects } from '../utils/firebase'; 
+import React, { useContext, useEffect, useMemo, useState } from 'react';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
-import { FilePenLine, HardDriveDownload, Keyboard, Settings2, Volume2 } from 'lucide-react';
+import { BadgeInfo, Check, ChevronDown, CircleUserRound, Cloud, Crown, Download, FilePenLine, HardDrive, Keyboard, Music2, Settings2, ShieldCheck, Volume2 } from 'lucide-react';
+import { MusicContext } from '../contexts/MusicContext';
+import { APP_METADATA } from '../config/appMetadata';
+import { auth, fetchAllProjects, getUserStorageUsage } from '../utils/firebase';
 import PageHeader from '../components/layout/PageHeader';
 
-const Settings = () => {
-  const { 
-    layoutConfig, 
-    setLayoutConfig
-  } = useContext(MusicContext);
+const sections = [
+  { id: 'account', label: 'บัญชีและแผน', description: 'สมาชิกและพื้นที่ใช้งาน', Icon: CircleUserRound },
+  { id: 'editor', label: 'การเขียนโน้ต', description: 'รูปแบบเริ่มต้นของตัวแก้ไข', Icon: FilePenLine },
+  { id: 'audio', label: 'เสียงและการเล่น', description: 'ระดับเสียงสำหรับฝึกซ้อม', Icon: Volume2 },
+  { id: 'data', label: 'ข้อมูลและการสำรอง', description: 'สำเนาโครงการทั้งหมด', Icon: HardDrive },
+  { id: 'shortcuts', label: 'คีย์ลัดและข้อมูลแอป', description: 'คำสั่งและเวอร์ชัน', Icon: Keyboard },
+];
 
+const shortcuts = [
+  ['Space', 'เล่นหรือหยุดเพลง'], ['Backspace', 'ลบโน้ตทีละตัว'], ['Delete', 'ลบบรรทัดหรือสัญลักษณ์'],
+  ['Insert', 'เพิ่มบรรทัดใหม่'], ['↑ ↓ ← →', 'เลื่อนตำแหน่งในตาราง'], ['Ctrl + Z', 'เลิกทำ'],
+  ['Ctrl + Y', 'ทำซ้ำ'], ['Ctrl + C / X / V', 'คัดลอก ตัด และวาง'],
+];
+
+const formatBytes = (bytes = 0) => bytes < 1024 * 1024
+  ? `${(bytes / 1024).toFixed(1)} KB`
+  : `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+
+const roleDetails = {
+  user: { label: 'Free', className: 'border-slate-200 bg-slate-100 text-slate-600', Icon: Music2 },
+  premium: { label: 'Premium', className: 'border-amber-200 bg-amber-50 text-amber-700', Icon: Crown },
+  admin: { label: 'Admin', className: 'border-violet-200 bg-violet-50 text-violet-700', Icon: ShieldCheck },
+};
+
+const SettingHeader = ({ title, description }) => (
+  <div className="border-b border-slate-100 px-5 py-4 sm:px-6">
+    <h2 className="text-base font-black text-slate-900">{title}</h2>
+    <p className="mt-1 text-xs leading-5 text-slate-500">{description}</p>
+  </div>
+);
+
+const Settings = ({ userProfile }) => {
+  const { layoutConfig, setLayoutConfig } = useContext(MusicContext);
+  const [activeSection, setActiveSection] = useState('account');
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [storageInfo, setStorageInfo] = useState(null);
+  const [storageError, setStorageError] = useState('');
+  const role = userProfile?.role || 'user';
+  const roleInfo = roleDetails[role] || roleDetails.user;
+  const RoleIcon = roleInfo.Icon;
+  const currentSection = sections.find((section) => section.id === activeSection) || sections[0];
 
-  const handleVolumeChange = (e) => {
-    setLayoutConfig({ ...layoutConfig, volume: parseInt(e.target.value) });
-  };
+  useEffect(() => {
+    let active = true;
+    if (!auth.currentUser?.uid) return undefined;
+    getUserStorageUsage(auth.currentUser.uid)
+      .then((result) => { if (active) setStorageInfo(result); })
+      .catch(() => { if (active) setStorageError('ไม่สามารถอ่านข้อมูลพื้นที่ใช้งานได้'); });
+    return () => { active = false; };
+  }, []);
 
-  const getNotationSizeLabel = (size) => {
-    if (size <= 24) return 'small';
-    if (size >= 36) return 'large';
-    return 'medium';
-  };
-  const currentSize = getNotationSizeLabel(layoutConfig.fontSize || 30);
+  const storagePercent = useMemo(() => {
+    if (!storageInfo || storageInfo.unlimited) return 0;
+    if (storageInfo.maxBytes) return Math.min((storageInfo.usedBytes / storageInfo.maxBytes) * 100, 100);
+    if (storageInfo.maxProjects) return Math.min((storageInfo.projectCount / storageInfo.maxProjects) * 100, 100);
+    return 0;
+  }, [storageInfo]);
 
-  const handleNotationSizeChange = (sizeLabel) => {
-    let newSize = 30;
-    if (sizeLabel === 'small') newSize = 24;
-    if (sizeLabel === 'large') newSize = 36;
-    setLayoutConfig({ ...layoutConfig, fontSize: newSize });
-  };
+  const setLayoutValue = (key, value) => setLayoutConfig((current) => ({ ...current, [key]: value }));
 
   const handleExportAllData = async () => {
-    const user = auth.currentUser;
-    if (!user) {
-      alert("กรุณาเข้าสู่ระบบก่อนทำการดาวน์โหลดข้อมูลสำรองครับ");
-      return;
-    }
-
+    if (!auth.currentUser) return;
     setIsExporting(true);
     try {
-      const allProjects = await fetchAllProjects(user.uid);
-
-      if (allProjects.length === 0) {
-        alert("ยังไม่มีโปรเจกต์ที่ถูกบันทึกไว้ในระบบครับ");
-        setIsExporting(false);
-        return;
-      }
-
+      const projects = await fetchAllProjects(auth.currentUser.uid);
+      if (!projects.length) return window.alert('ยังไม่มีโครงการที่บันทึกไว้สำหรับสำรองข้อมูล');
       const zip = new JSZip();
-
-      allProjects.forEach((projectData) => {
-        const projectName = projectData.name || projectData.songName || "โปรเจกต์ไม่มีชื่อ";
-        const safeName = projectName.replace(/[^a-zA-Z0-9ก-๙\s]/g, "_").trim(); 
-        const fileContent = JSON.stringify(projectData, null, 2);
-        
-        zip.file(`${safeName}_${projectData.id.substring(0,5)}.tme`, fileContent);
+      projects.forEach((project) => {
+        const safeName = (project.name || project.songName || 'โครงการไม่มีชื่อ').replace(/[^a-zA-Z0-9ก-๙\s]/g, '_').trim();
+        zip.file(`${safeName}_${project.id.slice(0, 5)}.tme`, JSON.stringify(project, null, 2));
       });
-
-      const content = await zip.generateAsync({ type: "blob" });
-      saveAs(content, "ThaiMusicEditor_Backup.zip");
-
+      saveAs(await zip.generateAsync({ type: 'blob' }), 'ThaiMusicEditor_Backup.zip');
     } catch (error) {
-      console.error("Error exporting all projects:", error);
-      alert("เกิดข้อผิดพลาดในการดึงข้อมูลจากฐานข้อมูลครับ");
+      console.error('สำรองข้อมูลทั้งหมดไม่สำเร็จ:', error);
+      window.alert('ไม่สามารถสร้างไฟล์สำรองได้ กรุณาลองใหม่อีกครั้ง');
     } finally {
       setIsExporting(false);
     }
   };
 
-  const shortcuts = [
-    { key: "Spacebar", desc: "เล่น / หยุดเล่นดนตรี" },
-    { key: "Ctrl ขวา", desc: "ใส่เครื่องหมายพักเสียง (-) หรือขีดยาว" },
-    { key: "Backspace", desc: "ลบโน้ตทีละตัว หรือ ลบสัญลักษณ์ที่เลือกอยู่" },
-    { key: "Delete", desc: "ลบบรรทัดทิ้ง หรือ ลบสัญลักษณ์ที่เลือกอยู่" },
-    { key: "Insert", desc: "แทรกบรรทัดใหม่ (อัจฉริยะ: แทรกเดี่ยว/คู่ ตามบรรทัดปัจจุบัน)" },
-    { key: "ลูกศร ⬅️ ⬆️ ⬇️ ➡️", desc: "เลื่อนตำแหน่งเคอร์เซอร์ไปยังช่องหรือบรรทัดต่างๆ" },
-    { key: "Ctrl + Z", desc: "เลิกทำ (Undo)" },
-    { key: "Ctrl + Y / R", desc: "ทำซ้ำ (Redo)" },
-    { key: "Ctrl + C", desc: "คัดลอก (Copy) ข้อมูลรวมถึงสัญลักษณ์" },
-    { key: "Ctrl + X", desc: "ตัด (Cut) ข้อมูลรวมถึงสัญลักษณ์" },
-    { key: "Ctrl + V", desc: "วาง (Paste) ข้อมูลรวมถึงสัญลักษณ์" },
-  ];
-
   return (
-    <div 
-      className="app-page-shell animate-fadeIn text-slate-800"
-      style={{ fontFamily: 'Prompt, sans-serif' }}
-    >
-      <PageHeader icon={Settings2} badge="Preferences" title="การตั้งค่า" subtitle="ปรับแต่งสภาพแวดล้อมการทำงานและดูคีย์ลัดของแอป" />
-
-      <div className="space-y-6">
-        
-        {/* 1. หมวดเสียงและการจำลอง (Audio) */}
-        <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="px-5 md:px-6 py-4 border-b border-slate-100 bg-slate-50/50">
-            <h3 className="font-bold text-slate-800 flex items-center gap-2 text-sm md:text-base">
-              <Volume2 size={18} className="text-sky-500" /> เสียงและการเล่น
-            </h3>
-          </div>
-          <div className="p-5 md:p-6 space-y-6">
-            <div className="flex flex-col gap-3">
-              <div className="flex justify-between items-center">
-                <div>
-                  <h4 className="text-sm font-bold text-slate-700">ระดับเสียงหลัก (Master Volume)</h4>
-                  <p className="text-xs text-slate-500 mt-1">ปรับความดังเริ่มต้นของการบรรเลง</p>
-                </div>
-                <span className="text-sm font-bold text-sky-500 bg-sky-50 px-2 py-1 rounded-md">
-                  {layoutConfig.volume !== undefined ? layoutConfig.volume : 100}%
-                </span>
-              </div>
-              <input 
-                type="range" min="0" max="100" 
-                value={layoutConfig.volume !== undefined ? layoutConfig.volume : 100} 
-                onChange={handleVolumeChange} 
-                className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-sky-500" 
-              />
+    <div className="app-page-shell animate-fadeIn text-slate-800" style={{ fontFamily: 'Prompt, sans-serif' }}>
+      <PageHeader icon={Settings2} badge="Preferences" title="การตั้งค่า" subtitle="จัดการบัญชี รูปแบบการเขียนโน้ต เสียง และข้อมูลของคุณจากที่เดียว" />
+      <div className="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)] lg:gap-6">
+        <aside className="self-start overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm lg:sticky lg:top-24 lg:rounded-3xl">
+          <div className="hidden border-b border-slate-100 bg-gradient-to-br from-slate-50 to-indigo-50/60 p-4 lg:block">
+            <div className="flex items-center gap-3">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-slate-900 font-black text-white">{String(userProfile?.displayName || userProfile?.email || 'U')[0].toUpperCase()}</span>
+              <div className="min-w-0"><p className="truncate text-sm font-black text-slate-900">{userProfile?.displayName || 'ผู้ใช้งาน'}</p><p className="truncate text-[10px] text-slate-500">{userProfile?.email || auth.currentUser?.email || '—'}</p></div>
             </div>
+            <span className={`mt-3 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[9px] font-black uppercase tracking-wider ${roleInfo.className}`}><RoleIcon size={12} />{roleInfo.label}</span>
           </div>
-        </section>
-
-        {/* 2. หมวดหน้ากระดาษและตัวโน้ต (Editor) */}
-        <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="px-5 md:px-6 py-4 border-b border-slate-100 bg-slate-50/50">
-            <h3 className="font-bold text-slate-800 flex items-center gap-2 text-sm md:text-base">
-              <FilePenLine size={18} className="text-violet-500" /> หน้ากระดาษและตัวโน้ต
-            </h3>
+          <div className="p-2 lg:hidden">
+            <button type="button" onClick={() => setIsMobileMenuOpen((open) => !open)} aria-expanded={isMobileMenuOpen} className="flex min-h-14 w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-indigo-700 transition active:scale-[0.99]">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">{React.createElement(currentSection.Icon, { size: 19 })}</span>
+              <span className="min-w-0 flex-1"><span className="block text-[10px] font-bold text-slate-400">หมวดการตั้งค่า</span><strong className="block truncate text-sm font-black">{currentSection.label}</strong></span>
+              <ChevronDown size={19} className={`mr-1 shrink-0 text-slate-400 transition-transform ${isMobileMenuOpen ? 'rotate-180' : ''}`} />
+            </button>
+            {isMobileMenuOpen && (
+              <nav className="mt-2 grid gap-2 border-t border-slate-100 pt-2 sm:grid-cols-2">
+                {sections.map(({ id, label, description, Icon }) => (
+                  <button key={id} type="button" onClick={() => { setActiveSection(id); setIsMobileMenuOpen(false); }} className={`flex min-h-16 w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition active:scale-[0.99] ${activeSection === id ? 'bg-indigo-50 text-indigo-700 ring-1 ring-indigo-100' : 'bg-slate-50 text-slate-600'}`}>
+                    <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${activeSection === id ? 'bg-white text-indigo-600 shadow-sm' : 'bg-white text-slate-500'}`}>{React.createElement(Icon, { size: 18 })}</span>
+                    <span className="min-w-0 flex-1"><strong className="block text-xs font-black">{label}</strong><span className="mt-0.5 block truncate text-[9px] font-medium opacity-70">{description}</span></span>
+                    {activeSection === id && <Check size={16} className="shrink-0" />}
+                  </button>
+                ))}
+              </nav>
+            )}
           </div>
-          <div className="p-5 md:p-6 space-y-6">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div>
-                <h4 className="text-sm font-bold text-slate-700">ขนาดตัวอักษรโน้ตเริ่มต้น</h4>
-                <p className="text-xs text-slate-500 mt-1">ปรับขนาดการแสดงผลของตัวโน้ตในตาราง</p>
-              </div>
-              <div className="flex bg-slate-100 p-1 rounded-lg shrink-0">
-                <button onClick={() => handleNotationSizeChange('small')} className={`px-4 py-1.5 text-sm font-bold rounded-md transition-all ${currentSize === 'small' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>เล็ก</button>
-                <button onClick={() => handleNotationSizeChange('medium')} className={`px-4 py-1.5 text-sm font-bold rounded-md transition-all ${currentSize === 'medium' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>กลาง</button>
-                <button onClick={() => handleNotationSizeChange('large')} className={`px-4 py-1.5 text-sm font-bold rounded-md transition-all ${currentSize === 'large' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>ใหญ่</button>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* 3. หมวดคีย์ลัด (Keyboard Shortcuts) */}
-        <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="px-5 md:px-6 py-4 border-b border-slate-100 bg-slate-50/50">
-            <h3 className="font-bold text-slate-800 flex items-center gap-2 text-sm md:text-base">
-              <Keyboard size={18} className="text-amber-500" /> คีย์ลัด (Keyboard Shortcuts)
-            </h3>
-          </div>
-          <div className="p-5 md:p-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {shortcuts.map((item, index) => (
-                <div key={index} className="flex flex-col sm:flex-row sm:items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100 gap-2 hover:bg-slate-100/50 transition-colors">
-                  <span className="text-sm font-medium text-slate-600">{item.desc}</span>
-                  <kbd className="px-2.5 py-1 bg-white border border-slate-200 rounded-lg shadow-sm text-xs font-bold text-slate-700 whitespace-nowrap self-start sm:self-auto shrink-0 uppercase tracking-wide">
-                    {item.key}
-                  </kbd>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* 4. หมวดการสำรองข้อมูล (Backup) */}
-        <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden mb-6">
-          <div className="px-5 md:px-6 py-4 border-b border-slate-100 bg-slate-50/50">
-            <h3 className="font-bold text-slate-800 flex items-center gap-2 text-sm md:text-base">
-              <HardDriveDownload size={18} className="text-emerald-500" /> การสำรองข้อมูล
-            </h3>
-          </div>
-          <div className="p-5 md:p-6 space-y-6">
-            <div>
-              <p className="text-xs text-slate-500 mb-4 leading-relaxed">
-                ดาวน์โหลดโปรเจกต์ทั้งหมดที่คุณเคยสร้างไว้ในบัญชีนี้ ออกมาเป็นไฟล์ .zip เพื่อเก็บไว้สำรองในเครื่องของคุณ
-              </p>
-              
-              <button 
-                onClick={handleExportAllData}
-                disabled={isExporting}
-                className={`w-full md:w-auto flex items-center justify-center gap-2 py-2.5 px-6 font-bold rounded-xl transition-all active:scale-[0.98] text-sm shadow-sm ${
-                  isExporting 
-                    ? 'bg-slate-200 text-slate-500 cursor-not-allowed' 
-                    : 'bg-slate-800 text-white hover:bg-slate-900'
-                }`}
-              >
-                {isExporting ? (
-                  <>
-                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-slate-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    กำลังบีบอัดไฟล์...
-                  </>
-                ) : (
-                  <>
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                    ดาวน์โหลดข้อมูลทั้งหมด (.zip)
-                  </>
-                )}
+          <nav className="hidden p-2 lg:block lg:space-y-1">
+            {sections.map(({ id, label, description, Icon }) => (
+              <button key={id} type="button" onClick={() => setActiveSection(id)} className={`flex min-w-[190px] items-center gap-3 rounded-2xl px-3 py-3 text-left transition lg:w-full lg:min-w-0 ${activeSection === id ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'}`}>
+                <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${activeSection === id ? 'bg-white text-indigo-600 shadow-sm' : 'bg-slate-100 text-slate-500'}`}>{React.createElement(Icon, { size: 17 })}</span>
+                <span className="min-w-0"><strong className="block text-xs font-black">{label}</strong><span className="mt-0.5 block truncate text-[9px] font-medium opacity-70">{description}</span></span>
               </button>
-            </div>
-          </div>
-        </section>
+            ))}
+          </nav>
+        </aside>
 
+        <main className="min-w-0">
+          {activeSection === 'account' && (
+            <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+              <SettingHeader title="บัญชีและแผนสมาชิก" description="ตรวจสอบข้อมูลบัญชี สิทธิ์ และพื้นที่จัดเก็บที่กำลังใช้งาน" />
+              <div className="grid gap-4 p-5 sm:grid-cols-2 sm:p-6">
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><p className="text-[10px] font-black uppercase tracking-wider text-slate-400">ชื่อที่แสดง</p><p className="mt-2 text-sm font-black text-slate-800">{userProfile?.displayName || 'ยังไม่ได้ระบุชื่อ'}</p><p className="mt-1 truncate text-xs text-slate-500">{userProfile?.email || auth.currentUser?.email}</p></div>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><p className="text-[10px] font-black uppercase tracking-wider text-slate-400">แผนปัจจุบัน</p><span className={`mt-2 inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-black ${roleInfo.className}`}><RoleIcon size={15} />{roleInfo.label}</span><p className="mt-2 text-[10px] text-slate-500">สิทธิ์การใช้งานควบคุมโดยผู้ดูแลระบบ</p></div>
+                <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:col-span-2">
+                  <div className="flex items-center justify-between gap-3"><div className="flex items-center gap-2"><Cloud size={16} className="text-sky-500" /><p className="text-xs font-black text-slate-700">พื้นที่จัดเก็บและโครงการ</p></div><span className="text-[10px] font-bold text-slate-500">{storageInfo?.unlimited ? 'ไม่จำกัด' : storageInfo?.maxBytes ? `${formatBytes(storageInfo.usedBytes)} / ${formatBytes(storageInfo.maxBytes)}` : storageInfo ? `${storageInfo.projectCount} / ${storageInfo.maxProjects} โครงการ` : 'กำลังตรวจสอบ...'}</span></div>
+                  {!storageInfo?.unlimited && <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100"><div className={`h-full rounded-full ${storagePercent >= 90 ? 'bg-rose-500' : 'bg-sky-500'}`} style={{ width: `${Math.max(storagePercent, storageInfo ? 1 : 0)}%` }} /></div>}
+                  {storageError && <p className="mt-2 text-[10px] font-semibold text-rose-600">{storageError}</p>}
+                </div>
+              </div>
+            </section>
+          )}
+
+          {activeSection === 'editor' && (
+            <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+              <SettingHeader title="การเขียนโน้ต" description="กำหนดรูปแบบเริ่มต้นที่ใช้ในพื้นที่แก้ไขโน้ตเพลง" />
+              <div className="space-y-5 p-5 sm:p-6">
+                <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm font-black text-slate-800">ขนาดตัวโน้ตเริ่มต้น</p><p className="mt-1 text-xs text-slate-500">ปรับความหนาแน่นของโน้ตบนหน้ากระดาษ</p></div><div className="grid grid-cols-3 rounded-xl bg-slate-100 p-1">{[['เล็ก', 24], ['กลาง', 30], ['ใหญ่', 36]].map(([label, value]) => <button key={value} type="button" onClick={() => setLayoutValue('fontSize', value)} className={`rounded-lg px-4 py-2 text-xs font-black transition ${Number(layoutConfig.fontSize || 30) === value ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}>{label}</button>)}</div></div>
+                <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4"><div className="flex items-center gap-2 text-emerald-700"><Check size={16} /><p className="text-xs font-black">บันทึกอัตโนมัติเปิดอยู่</p></div><p className="mt-1 pl-6 text-[11px] leading-5 text-emerald-700/80">ระบบบันทึกการแก้ไขหลังหยุดพิมพ์ประมาณ 2 วินาทีเมื่อโครงการมีรหัสแล้ว</p></div>
+              </div>
+            </section>
+          )}
+
+          {activeSection === 'audio' && (
+            <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+              <SettingHeader title="เสียงและการเล่น" description="ควบคุมระดับเสียงหลักที่ใช้เล่นและทดลองโน้ต" />
+              <div className="p-5 sm:p-6"><div className="rounded-2xl border border-slate-200 p-4 sm:p-5"><div className="flex items-center justify-between"><div><p className="text-sm font-black text-slate-800">ระดับเสียงหลัก</p><p className="mt-1 text-xs text-slate-500">มีผลกับตัวแก้ไขโน้ตและการทดลองเสียง</p></div><span className="rounded-xl bg-indigo-50 px-3 py-1.5 text-sm font-black tabular-nums text-indigo-600">{layoutConfig.volume ?? 100}%</span></div><input type="range" min="0" max="100" value={layoutConfig.volume ?? 100} onChange={(event) => setLayoutValue('volume', Number(event.target.value))} className="mt-5 h-2 w-full accent-indigo-500" aria-label="ระดับเสียงหลัก" /><div className="mt-2 flex justify-between text-[9px] font-bold text-slate-400"><span>เงียบ</span><span>ดังสุด</span></div></div></div>
+            </section>
+          )}
+
+          {activeSection === 'data' && (
+            <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+              <SettingHeader title="ข้อมูลและการสำรอง" description="เก็บสำเนาโครงการทั้งหมดไว้นอกระบบเพื่อความปลอดภัย" />
+              <div className="p-5 sm:p-6"><div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5"><div className="flex items-start gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-600"><Download size={18} /></span><div><p className="text-sm font-black text-slate-800">ดาวน์โหลดข้อมูลทั้งหมด</p><p className="mt-1 max-w-xl text-xs leading-5 text-slate-500">รวมโครงการ Editor ทั้งหมดเป็น ZIP โดยแต่ละโครงการอยู่ในรูปแบบ .tme</p></div></div><button type="button" onClick={handleExportAllData} disabled={isExporting} className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-slate-900 px-5 text-xs font-black text-white shadow-sm transition hover:bg-slate-700 disabled:cursor-wait disabled:bg-slate-300"><HardDrive size={15} />{isExporting ? 'กำลังสร้างไฟล์...' : 'สร้างไฟล์สำรอง'}</button></div></div>
+            </section>
+          )}
+
+          {activeSection === 'shortcuts' && (
+            <div className="space-y-4">
+              <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm"><SettingHeader title="คีย์ลัดในตัวแก้ไข" description="คำสั่งที่ใช้บ่อยสำหรับการเขียนและจัดการโน้ต" /><div className="grid gap-2 p-5 sm:grid-cols-2 sm:p-6">{shortcuts.map(([key, description]) => <div key={key} className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50 px-3 py-3"><span className="text-[11px] font-medium text-slate-600">{description}</span><kbd className="shrink-0 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-black text-slate-700 shadow-sm">{key}</kbd></div>)}</div></section>
+              <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm"><SettingHeader title="เกี่ยวกับแอป" description="ข้อมูลเวอร์ชันและมาตรฐานไฟล์ที่ระบบรองรับ" /><div className="grid gap-3 p-5 sm:grid-cols-3 sm:p-6">{[['แอปพลิเคชัน', APP_METADATA.name], ['เวอร์ชัน', `v${APP_METADATA.version}`], ['ThaiMusicXML', `v${APP_METADATA.thaiMusicXmlVersion}`]].map(([label, value]) => <div key={label} className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><BadgeInfo size={16} className="text-indigo-500" /><p className="mt-3 text-[9px] font-black uppercase tracking-wider text-slate-400">{label}</p><p className="mt-1 text-xs font-black text-slate-800">{value}</p></div>)}</div></section>
+            </div>
+          )}
+        </main>
       </div>
     </div>
   );

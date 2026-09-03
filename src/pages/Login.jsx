@@ -17,6 +17,7 @@ import { auth } from '../utils/firebase';
 import { db } from '../utils/firebase'; 
 import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { recordLoginResult, recordSystemEvent } from '../utils/systemAnalytics';
+import { APP_METADATA } from '../config/appMetadata';
 
 // ⭐ เพิ่ม onBackToLanding เข้ามาใน Props
 const Login = ({ onLoginSuccess, onBackToLanding }) => {
@@ -359,7 +360,7 @@ const Login = ({ onLoginSuccess, onBackToLanding }) => {
         <div className="flex items-center gap-3">
           <span>THAI MUSIC EDITOR</span>
           <span className="w-1 h-1 rounded-full bg-[#EF4444]"></span>
-          <span>เวอร์ชัน 1.0.0</span>
+          <span>เวอร์ชัน {APP_METADATA.version}</span>
           <span className="w-1 h-1 rounded-full bg-[#3B82F6]"></span>
           <span>© 2026 Rattanachai Sakchai</span>
         </div>
