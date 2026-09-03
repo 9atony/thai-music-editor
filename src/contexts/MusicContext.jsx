@@ -1,6 +1,6 @@
 import React, { createContext, useState, useMemo, useEffect, useRef } from 'react';
 import { INSTRUMENT_CONFIG } from '../utils/instrumentConfig';
-import { primeAudioEngine, playNote } from '../utils/audioEngine'; 
+import { playNote } from '../utils/audioEngine';
 import { auth, saveProjectToDB, getUserProfile } from '../utils/firebase';
 
 import {
@@ -165,10 +165,6 @@ export const MusicProvider = ({ children }) => {
      }
      sheetEditor.stopPlayback = audioPlayback.stopPlayback;
   }, [audioPlayback.isPlayingRef, audioPlayback.stopPlayback, sheetEditor]);
-
-  useEffect(() => {
-    primeAudioEngine().catch(() => {});
-  }, []);
 
   const handleSetSongName = (newName) => {
     if (isReadOnlyRef.current) return;

@@ -24,7 +24,6 @@ const LIMITS = {
   deletes: 20000,
   storage: 1024 * 1024 * 1024,
 };
-const DEFAULT_ANALYTICS_API_URL = 'https://thai-music-api.onrender.com';
 
 const dateKey = (date = new Date()) => date.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
 const recentDateKeys = (days) => Array.from({ length: days }, (_, index) => {
@@ -178,7 +177,7 @@ export default function SystemAnalyticsPanel({ users = [], totalProjects = 0, es
         }, { merge: true });
       }
 
-      const apiUrl = import.meta.env.VITE_ANALYTICS_API_URL || DEFAULT_ANALYTICS_API_URL;
+      const apiUrl = import.meta.env.VITE_ANALYTICS_API_URL;
       if (apiUrl && auth.currentUser) {
         try {
           const token = await auth.currentUser.getIdToken();
@@ -192,6 +191,9 @@ export default function SystemAnalyticsPanel({ users = [], totalProjects = 0, es
           setCloudMetrics(null);
           setCloudError('เชื่อมต่อ Cloud Monitoring ไม่สำเร็จ กำลังแสดงตัวเลขที่แอปติดตามแทน');
         }
+      } else if (!apiUrl) {
+        setCloudMetrics(null);
+        setCloudError('ยังไม่ได้เปิดใช้ Cloud Monitoring API กำลังแสดงตัวเลขที่แอปติดตามแทน');
       } else {
         setCloudMetrics(null);
         setCloudError('ยังไม่พบผู้ใช้ที่ยืนยันตัวตน จึงแสดงตัวเลขที่แอปติดตามแทน');
