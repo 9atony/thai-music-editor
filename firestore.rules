@@ -84,5 +84,10 @@ service cloud.firestore {
     match /tuning_dataset/{entryId} {
       allow read, write: if isAdmin();
     }
+
+    match /system_settings/{settingId} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
   }
 }

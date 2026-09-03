@@ -1,12 +1,14 @@
 import React, { useContext, useState } from 'react';
 import { MusicContext } from '../../contexts/MusicContext';
 import { INSTRUMENT_CONFIG } from '../../utils/instrumentConfig';
+import { useFeatureAccess } from '../../contexts/FeatureAccessContext';
 
 const SettingsModal = ({ isOpen, onClose }) => {
+  const { canAccess } = useFeatureAccess();
   const { 
     currentInstrument, changeInstrument, 
     layoutConfig, setLayoutConfig,
-    headerDetails, addDetail, removeDetail, updateDetail
+    headerDetails, addDetail, removeDetail, updateDetail, userRole
   } = useContext(MusicContext);
   
   const [activeTab, setActiveTab] = useState('info');
@@ -90,11 +92,13 @@ const SettingsModal = ({ isOpen, onClose }) => {
                 </label>
                 <select 
                   value={currentInstrument.id}
-                  onChange={(e) => changeInstrument(e.target.value)}
+                  onChange={(e) => {
+                    if (canAccess(`instrument:${e.target.value}`, userRole)) changeInstrument(e.target.value);
+                  }}
                   className="w-full p-2.5 text-sm text-slate-700 bg-white border border-slate-200 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-sky-100 focus:border-sky-400 font-bold transition-all"
                 >
                   {Object.values(INSTRUMENT_CONFIG).map((inst) => (
-                    <option key={inst.id} value={inst.id}>{inst.name}</option>
+                    <option key={inst.id} value={inst.id} disabled={!canAccess(`instrument:${inst.id}`, userRole)}>{inst.name}{canAccess(`instrument:${inst.id}`, userRole) ? '' : ' (ล็อก)'}</option>
                   ))}
                 </select>
               </section>

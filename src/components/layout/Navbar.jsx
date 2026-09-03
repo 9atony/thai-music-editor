@@ -7,6 +7,7 @@ import saveIcon from '../../assets/icons/save.png';
 import newIcon from '../../assets/icons/new.png';
 import openIcon from '../../assets/icons/open.png';
 import MusicXmlExportDialog from '../editor/MusicXmlExportDialog';
+import { useFeatureAccess } from '../../contexts/FeatureAccessContext';
 
 const getPlainText = (html) => {
   if (!html) return '';
@@ -16,9 +17,10 @@ const getPlainText = (html) => {
 };
 
 const Navbar = ({ onPrint, onOpenSettings, onBack }) => {
+  const { canAccess } = useFeatureAccess();
   const { 
     saveProject, loadProject, newProject, undo, redo, exportThaiMusicXml, exportMusicXml, importThaiMusicXml,
-    canUndo, canRedo, stopPlayback, projectName, setSongName, isReadOnly
+    canUndo, canRedo, stopPlayback, projectName, setSongName, isReadOnly, userRole
   } = useContext(MusicContext);
   const [isMusicXmlDialogOpen, setIsMusicXmlDialogOpen] = useState(false);
 
@@ -82,18 +84,18 @@ const Navbar = ({ onPrint, onOpenSettings, onBack }) => {
             <span className="hidden lg:inline">Import TXML</span>
             <input type="file" accept=".txml,application/xml,text/xml" onChange={(e) => { const file = e.target.files[0]; if (file) importThaiMusicXml(file); e.target.value = null; }} className="hidden" />
           </label>
-          <button onClick={exportThaiMusicXml} className="flex items-center gap-1.5 hover:bg-emerald-50 px-3 py-1.5 rounded-lg text-sm font-semibold text-emerald-700 hover:text-emerald-800 transition-all active:scale-95" title="ส่งออก ThaiMusicXML v1.0">
+          {canAccess('export-txml', userRole) && <button onClick={exportThaiMusicXml} className="flex items-center gap-1.5 hover:bg-emerald-50 px-3 py-1.5 rounded-lg text-sm font-semibold text-emerald-700 hover:text-emerald-800 transition-all active:scale-95" title="ส่งออก ThaiMusicXML v1.0">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 21V9m0 0l4 4m-4-4l-4 4M5 3h14" /></svg>
             <span className="hidden lg:inline">Export TXML</span>
-          </button>
-          <button onClick={() => setIsMusicXmlDialogOpen(true)} className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold text-indigo-700 transition-all hover:bg-indigo-50 hover:text-indigo-800 active:scale-95" title="แปลงเป็นโน้ตสากล MusicXML">
+          </button>}
+          {canAccess('export-musicxml', userRole) && <button onClick={() => setIsMusicXmlDialogOpen(true)} className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold text-indigo-700 transition-all hover:bg-indigo-50 hover:text-indigo-800 active:scale-95" title="แปลงเป็นโน้ตสากล MusicXML">
             <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 18V5l10-2v13M9 9l10-2M6 21a3 3 0 100-6 3 3 0 000 6zm10-2a3 3 0 100-6 3 3 0 000 6z" /></svg>
             <span className="hidden xl:inline">โน้ตสากล</span>
-          </button>
+          </button>}
           
           <button onClick={saveProject} className="flex items-center gap-2 hover:bg-slate-100 px-3 py-1.5 rounded-lg text-sm font-semibold text-slate-600 hover:text-slate-900 transition-all active:scale-95"><img src={saveIcon} alt="save" className="w-5 h-5" /> <span className="hidden md:inline">บันทึก</span></button>
           
-          <button onClick={() => { stopPlayback(); onPrint(); }} className="flex items-center gap-2 bg-slate-800 hover:bg-slate-900 px-4 py-1.5 rounded-lg text-sm font-semibold text-white transition-all shadow-sm hover:shadow-md active:scale-95 ml-2"><img src={pdfIcon} alt="pdf" className="w-5 h-5 filter brightness-0 invert" /><span className="hidden md:inline">ส่งออก PDF</span></button>
+          {canAccess('export-pdf', userRole) && <button onClick={() => { stopPlayback(); onPrint(); }} className="flex items-center gap-2 bg-slate-800 hover:bg-slate-900 px-4 py-1.5 rounded-lg text-sm font-semibold text-white transition-all shadow-sm hover:bg-slate-900 active:scale-95 ml-2"><img src={pdfIcon} alt="pdf" className="w-5 h-5 filter brightness-0 invert" /><span className="hidden md:inline">ส่งออก PDF</span></button>}
         </div>
       </div>
 

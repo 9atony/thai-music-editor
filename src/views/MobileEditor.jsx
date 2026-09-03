@@ -4,6 +4,7 @@ import Sheet from '../components/editor/Sheet';
 import MobileMetronomeMenu from '../components/editor/MobileMetronomeMenu';
 import MusicXmlExportDialog from '../components/editor/MusicXmlExportDialog';
 import { initAudioContext } from '../utils/audioEngine';
+import { useFeatureAccess } from '../contexts/FeatureAccessContext';
 
 // ⭐ ฟังก์ชันสำหรับล้างแท็ก HTML ให้เหลือแต่ข้อความล้วน
 const getPlainText = (html) => {
@@ -14,6 +15,7 @@ const getPlainText = (html) => {
 };
 
 const MobileEditor = ({ onBack }) => {
+  const { canAccess } = useFeatureAccess();
   const { 
     projectName,
     songName, 
@@ -35,7 +37,7 @@ const MobileEditor = ({ onBack }) => {
     currentInstrument,
     exportMusicXml,
     // ⭐ ดึง State ของโหมดลดเสียงเครื่องมาใช้งาน
-    isReduceMode, setIsReduceMode 
+    isReduceMode, setIsReduceMode, userRole
   } = useContext(MusicContext);
 
   const sheetContainerRef = useRef(null);
@@ -172,9 +174,9 @@ const MobileEditor = ({ onBack }) => {
             <span className="text-[10px] text-sky-500 font-semibold tracking-wide">• Player</span>
           </div>
         </div>
-        <button type="button" onClick={() => setIsMusicXmlDialogOpen(true)} className="flex h-10 w-10 items-center justify-center rounded-full text-indigo-600 transition-colors hover:bg-indigo-50" aria-label="แปลงเป็นโน้ตสากล" title="แปลงเป็นโน้ตสากล">
+        {canAccess('export-musicxml', userRole) && <button type="button" onClick={() => setIsMusicXmlDialogOpen(true)} className="flex h-10 w-10 items-center justify-center rounded-full text-indigo-600 transition-colors hover:bg-indigo-50" aria-label="แปลงเป็นโน้ตสากล" title="แปลงเป็นโน้ตสากล">
           <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 18V5l10-2v13M9 9l10-2M6 21a3 3 0 100-6 3 3 0 000 6zm10-2a3 3 0 100-6 3 3 0 000 6z" /></svg>
-        </button>
+        </button>}
       </header>
 
       {/* 2. Sheet Area */}

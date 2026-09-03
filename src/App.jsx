@@ -20,6 +20,7 @@ import { onAuthStateChanged } from 'firebase/auth';
 // ⭐ นำเข้า getUserProfile จาก firebase.js
 import { auth, getUserProfile } from './utils/firebase'; 
 import { MusicContext } from './contexts/MusicContext'; 
+import { useFeatureAccess } from './contexts/FeatureAccessContext';
 import { primeAudioEngine } from './utils/audioEngine';
 import { recordSystemEvent, setAnalyticsPage, startSystemAnalytics } from './utils/systemAnalytics';
 
@@ -57,6 +58,7 @@ function App() {
   const [editorMode, setEditorMode] = useState(() => sessionStorage.getItem(EDITOR_MODE_SESSION_KEY) || 'normal');
   const [toolsVisit, setToolsVisit] = useState(0);
   const isAdmin = userProfile?.role === 'admin';
+  const { canAccess } = useFeatureAccess();
   const isAboutRoute = typeof window !== 'undefined' && window.location.pathname === '/about';
 
   // Keep the current workspace open after a browser refresh in this tab.
@@ -211,10 +213,18 @@ function App() {
       sessionStorage.removeItem(ACTIVE_TOOL_SESSION_KEY);
       setToolsVisit((current) => current + 1);
     }
+    const featureByPage = {
+      'my-projects': 'projects', templates: 'templates', samples: 'samples', tools: 'metronome', settings: 'settings', editor: 'editor',
+    };
+    if (featureByPage[page] && !canAccess(featureByPage[page], userProfile?.role)) {
+      setCurrentView('home');
+      return;
+    }
     setCurrentView(page);
   };
 
   const handleOpenEditor = (projectId = null, projectData = null, options = {}) => {
+    if (!canAccess('editor', userProfile?.role)) return;
     if (projectId || projectData) recordSystemEvent('projectOpens', { feature: 'openProject', projectId: projectId || projectData?.id });
     // Sample songs are a listening-only experience for regular users. Admins
     // open the same song in the full editor so they can maintain its content.
@@ -239,6 +249,7 @@ function App() {
   };
 
   const handleOpenArrangerProjects = () => {
+    if (!canAccess('arranger', userProfile?.role)) return;
     sessionStorage.setItem(ACTIVE_TOOL_SESSION_KEY, 'arranger-projects');
     setPreviousView(currentView);
     setToolsVisit((current) => current + 1);
@@ -246,6 +257,7 @@ function App() {
   };
 
   if (currentView === 'editor') {
+    if (!canAccess('editor', userProfile?.role)) return <FeatureUnavailable />;
     const isSampleListeningMode = editorMode === 'sample-readonly' && userProfile?.role !== 'admin';
     if (isMobile || isSampleListeningMode) {
       return <Suspense fallback={<LoadingScreen />}><MobileEditor onBack={() => setCurrentView(previousView)} readOnly={editorMode === 'sample-readonly'} /></Suspense>;
@@ -269,37 +281,38 @@ function App() {
       )}
       
       {currentView === 'my-projects' && (
-        <MyProjects 
+        canAccess('projects', userProfile?.role) ? <MyProjects
           userProfile={userProfile}
           onOpenArrangerProjects={handleOpenArrangerProjects}
           onNewProject={(...args) => {
             setEditorMode('normal');
             handleOpenEditor(...args);
           }} 
-        /> 
+        /> : <FeatureUnavailable />
       )}
 
       {currentView === 'templates' && (
-        <Templates 
+        canAccess('templates', userProfile?.role) ? <Templates
           userProfile={userProfile}
           onNewProject={(templateData) => {
             setEditorMode('normal');
             applyTemplate(templateData);
             handleOpenEditor(); 
           }} 
-        />
+        /> : <FeatureUnavailable />
       )}
 
       {currentView === 'samples' && (
-        <Samples userProfile={userProfile} onOpenProject={handleOpenEditor} /> 
+        canAccess('samples', userProfile?.role) ? <Samples userProfile={userProfile} onOpenProject={handleOpenEditor} /> : <FeatureUnavailable />
       )}
 
       {currentView === 'tools' && (
-        <Tools key={toolsVisit} userProfile={userProfile} />
+        canAccess('metronome', userProfile?.role) || canAccess('arranger', userProfile?.role)
+          ? <Tools key={toolsVisit} userProfile={userProfile} /> : <FeatureUnavailable />
       )}
 
       {currentView === 'settings' && (
-        <Settings userProfile={userProfile} />
+        canAccess('settings', userProfile?.role) ? <Settings userProfile={userProfile} /> : <FeatureUnavailable />
       )}
 
       {/* ⭐ เพิ่มการแสดงผลหน้า Admin Dashboard */}
@@ -327,6 +340,13 @@ function App() {
 const LoadingScreen = () => (
   <div className="min-h-screen bg-slate-50 flex items-center justify-center font-sans text-slate-500 font-medium">
     กำลังโหลด...
+  </div>
+);
+
+const FeatureUnavailable = () => (
+  <div className="m-4 rounded-3xl border border-slate-200 bg-white px-6 py-16 text-center shadow-sm">
+    <h2 className="text-lg font-black text-slate-800">ฟังก์ชันนี้ยังไม่เปิดให้ใช้ในแผนของคุณ</h2>
+    <p className="mt-2 text-sm text-slate-500">กรุณาติดต่อผู้ดูแลระบบเพื่อสอบถามสิทธิ์การใช้งาน</p>
   </div>
 );
 

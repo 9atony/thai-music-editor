@@ -16,6 +16,7 @@ import {
   Wrench
 } from 'lucide-react';
 import { ADMIN_TOOL_CATALOG, PUBLIC_TOOL_CATALOG } from '../data/toolCatalog';
+import { useFeatureAccess } from '../contexts/FeatureAccessContext';
 
 const ACTIVE_TOOL_SESSION_KEY = 'thaiMusicEditorActiveTool';
 const adminToolIds = new Set(['generator', 'dictionary', 'tuner-ai', 'rhythm-manager']);
@@ -25,12 +26,13 @@ const Tools = ({ userProfile }) => {
   
   const userRole = userProfile?.role || 'user';
   const isAdmin = userRole === 'admin';
-  const isPremium = userRole === 'premium' || isAdmin; 
+  const { canAccess } = useFeatureAccess();
+  const canUseTool = (toolId) => canAccess(toolId === 'workspace' ? 'arranger' : toolId, userRole);
 
   const [activeTool, setActiveToolState] = useState(() => {
     const storedTool = sessionStorage.getItem(ACTIVE_TOOL_SESSION_KEY);
     if (!validToolIds.has(storedTool)) return null;
-    if (storedTool === 'workspace' && !isPremium) return null;
+    if ((storedTool === 'workspace' || storedTool === 'metronome') && !canUseTool(storedTool)) return null;
     if (adminToolIds.has(storedTool) && !isAdmin) return null;
     return storedTool;
   });
@@ -46,8 +48,8 @@ const Tools = ({ userProfile }) => {
   const premiumTools = PUBLIC_TOOL_CATALOG;
   const adminTools = ADMIN_TOOL_CATALOG;
 
-  const handleToolClick = (toolId, isPremiumTool) => {
-    if (isPremiumTool && !isPremium) {
+  const handleToolClick = (toolId) => {
+    if (!canUseTool(toolId)) {
       setShowPremiumAlert(true);
       return;
     }
@@ -59,9 +61,9 @@ const Tools = ({ userProfile }) => {
       case 'generator': return isAdmin ? <RanatGenerator /> : null;
       case 'dictionary': return isAdmin ? <RanatDictionary /> : null;
       case 'tuner-ai': return isAdmin ? <TunerDashboard /> : null;
-      case 'arranger-projects': return isPremium ? <ArrangerProjectManager userRole={userRole} onOpen={() => setActiveTool('workspace')} /> : null;
-      case 'workspace': return isPremium ? <ToolWorkspace onBack={() => setActiveTool('arranger-projects')} /> : null;
-      case 'metronome': return <MetronomeTool />;
+      case 'arranger-projects': return canUseTool('workspace') ? <ArrangerProjectManager userRole={userRole} onOpen={() => setActiveTool('workspace')} /> : null;
+      case 'workspace': return canUseTool('workspace') ? <ToolWorkspace onBack={() => setActiveTool('arranger-projects')} /> : null;
+      case 'metronome': return canUseTool('metronome') ? <MetronomeTool /> : null;
       case 'rhythm-manager': return isAdmin ? <RhythmManager /> : null;
       default: return null;
     }
@@ -128,7 +130,7 @@ const Tools = ({ userProfile }) => {
             <div className="rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-2.5 text-right">
               <span className="block text-[9px] font-bold uppercase tracking-widest text-slate-400">เครื่องมือที่ใช้ได้</span>
               <span className="mt-0.5 block text-sm font-black text-slate-800">
-                {premiumTools.filter((tool) => !tool.requiresPremium || isPremium).length + (isAdmin ? adminTools.length : 0)} รายการ
+                {premiumTools.filter((tool) => canUseTool(tool.id)).length + (isAdmin ? adminTools.length : 0)} รายการ
               </span>
             </div>
             {isAdmin && (
@@ -157,22 +159,22 @@ const Tools = ({ userProfile }) => {
           {premiumTools.map((tool) => (
             <button 
               key={tool.id}
-              onClick={() => tool.id === 'workspace' ? handleToolClick('arranger-projects', tool.requiresPremium) : handleToolClick(tool.id, tool.requiresPremium)}
+              onClick={() => tool.id === 'workspace' ? handleToolClick('arranger-projects') : handleToolClick(tool.id)}
               className={`group relative flex min-h-[178px] w-full overflow-hidden rounded-3xl border border-slate-200 bg-white p-5 text-left shadow-sm transition-all duration-300 sm:p-6 ${tool.hoverClass} hover:-translate-y-0.5 hover:shadow-xl active:translate-y-0 active:scale-[0.99]`}
             >
               <div className={`absolute inset-x-0 top-0 h-1 bg-gradient-to-r ${tool.accentClass}`} />
               <div className={`pointer-events-none absolute -bottom-20 -right-16 h-44 w-44 rounded-full bg-gradient-to-br opacity-[0.07] blur-2xl transition-opacity group-hover:opacity-[0.13] ${tool.accentClass}`} />
 
-              <div className={`mr-5 flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl ring-1 ring-inset transition-transform duration-300 group-hover:scale-105 ${tool.iconClass} ${tool.requiresPremium && !isPremium ? 'grayscale' : ''}`}>
+              <div className={`mr-5 flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl ring-1 ring-inset transition-transform duration-300 group-hover:scale-105 ${tool.iconClass} ${!canUseTool(tool.id) ? 'grayscale' : ''}`}>
                 {React.createElement(tool.Icon, { size: 24 })}
               </div>
 
               <div className="relative min-w-0 flex-1 pr-8">
                 <div className="mb-2 flex flex-wrap items-center gap-2">
                   <h3 className="text-base font-black text-slate-900 md:text-[17px]">{tool.name}</h3>
-                  {tool.requiresPremium ? (
+                {!canUseTool(tool.id) ? (
                     <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-amber-700">
-                      {isPremium ? <Crown size={10} /> : <LockKeyhole size={10} />} Premium
+                      <LockKeyhole size={10} /> ไม่รวมในแผนนี้
                     </span>
                   ) : (
                     <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-emerald-700">ใช้งานได้ทันที</span>
@@ -180,7 +182,7 @@ const Tools = ({ userProfile }) => {
                 </div>
                 <p className="max-w-xl text-[11px] font-medium leading-5 text-slate-500 md:text-xs">{tool.desc}</p>
                 <span className="mt-4 inline-flex items-center gap-1.5 text-[10px] font-black text-slate-700 transition-colors group-hover:text-indigo-600">
-                  {tool.requiresPremium && !isPremium ? 'ดูสิทธิ์การใช้งาน' : 'เปิดเครื่องมือ'} <ArrowUpRight size={13} />
+                  {!canUseTool(tool.id) ? 'ดูสิทธิ์การใช้งาน' : 'เปิดเครื่องมือ'} <ArrowUpRight size={13} />
                 </span>
               </div>
 

@@ -1,9 +1,11 @@
 import React, { useContext, useState, useEffect, useRef } from 'react';
 import { MusicContext } from '../../contexts/MusicContext';
 import { INSTRUMENT_CONFIG } from '../../utils/instrumentConfig'; 
+import { useFeatureAccess } from '../../contexts/FeatureAccessContext';
 import MetronomePanel from './MetronomePanel'; 
 
 const Keyboard = () => {
+  const { canAccess } = useFeatureAccess();
   const {
     currentInstrument, changeInstrument, inputNote, layoutConfig,
     addRow, removeRow, addDoubleRow,
@@ -288,11 +290,10 @@ const Keyboard = () => {
 
                       {(() => {
                         const handleInstrumentSelect = (inst) => {
-                          const isPremiumInst = inst.tier === 'premium';
                           // ⭐ ใช้สิทธิ์จริงๆ จาก Context
-                          const hasAccess = userRole === 'premium' || userRole === 'admin';
+                          const hasAccess = canAccess(`instrument:${inst.id}`, userRole);
                           
-                          if (isPremiumInst && !hasAccess) {
+                          if (!hasAccess) {
                             alert(`เครื่องดนตรี "${inst.name}" สำหรับสมาชิก Premium เท่านั้นครับ\nสนใจอัปเกรดเพื่อใช้งานฟังก์ชันขั้นสูงหรือไม่?`);
                             setIsInstMenuOpen(false);
                             return;
@@ -307,7 +308,7 @@ const Keyboard = () => {
                             <div className="px-3 pt-2 pb-1 text-[10px] font-black text-amber-500/80 uppercase tracking-widest select-none">เครื่องดำเนินทำนอง</div>
                             {Object.values(INSTRUMENT_CONFIG).filter(i => i.type !== 'percussion').map(inst => {
                               // ⭐ อัปเดตเงื่อนไขให้ Admin เห็นครบ และปลดล็อคให้ด้วย
-                              const isLocked = inst.tier === 'premium' && userRole !== 'premium' && userRole !== 'admin';
+                              const isLocked = !canAccess(`instrument:${inst.id}`, userRole);
                               return (
                                 <button
                                   key={inst.id}
@@ -326,7 +327,7 @@ const Keyboard = () => {
 
                             <div className="px-3 pt-3 pb-1 mt-1 text-[10px] font-black text-amber-500/80 uppercase tracking-widest border-t border-amber-100 select-none">เครื่องประกอบจังหวะ</div>
                             {Object.values(INSTRUMENT_CONFIG).filter(i => i.type === 'percussion').map(inst => {
-                              const isLocked = inst.tier === 'premium' && userRole !== 'premium' && userRole !== 'admin';
+                              const isLocked = !canAccess(`instrument:${inst.id}`, userRole);
                               return (
                                 <button
                                   key={inst.id}

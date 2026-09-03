@@ -30,6 +30,8 @@ import {
 import { db, upgradeUserToPremium } from '../utils/firebase';
 import PageHeader from '../components/layout/PageHeader';
 import SystemAnalyticsPanel from '../components/admin/SystemAnalyticsPanel';
+import { FEATURE_CATALOG, FEATURE_GROUP_DETAILS } from '../data/featureCatalog';
+import { useFeatureAccess } from '../contexts/FeatureAccessContext';
 
 const GIB = 1024 * 1024 * 1024;
 const PREMIUM_BYTES = 5 * 1024 * 1024;
@@ -146,8 +148,33 @@ const AdminDashboard = ({ userProfile }) => {
   const [activeSection, setActiveSection] = useState('analytics');
   const [selectedUser, setSelectedUser] = useState(null);
   const [now, setNow] = useState(new Date());
+  const { access: featureAccess, saveAccess } = useFeatureAccess();
+  const [isSavingAccess, setIsSavingAccess] = useState(false);
+  const [accessSaveError, setAccessSaveError] = useState('');
 
   const isAdmin = userProfile?.role === 'admin';
+  const featureGroups = Object.entries(FEATURE_GROUP_DETAILS).map(([id, details]) => ({
+    id,
+    ...details,
+    features: FEATURE_CATALOG.filter((feature) => feature.group === id),
+  })).filter((group) => group.features.length > 0);
+
+  const updateFeatureAccess = async (featureId, plan) => {
+    const nextAccess = {
+      ...featureAccess,
+      [featureId]: { ...featureAccess[featureId], [plan]: !featureAccess[featureId]?.[plan] },
+    };
+    setIsSavingAccess(true);
+    setAccessSaveError('');
+    try {
+      await saveAccess(nextAccess);
+    } catch (error) {
+      console.error('บันทึกสิทธิ์การใช้งานไม่สำเร็จ:', error);
+      setAccessSaveError('บันทึกไม่สำเร็จ โปรดตรวจสอบสิทธิ์ Firestore แล้วลองอีกครั้ง');
+    } finally {
+      setIsSavingAccess(false);
+    }
+  };
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 60000);
@@ -359,6 +386,7 @@ const AdminDashboard = ({ userProfile }) => {
           ['analytics', 'System Analytics', Activity],
           ['overview', 'ภาพรวม', BarChart3],
           ['users', 'จัดการผู้ใช้', Users],
+          ['feature-access', 'สิทธิ์ตามแผน', SlidersHorizontal],
           ['database', 'ข้อมูล Firebase', Database],
         ].map(([id, label, Icon]) => (
           <button key={id} type="button" onClick={() => setActiveSection(id)} className={`flex min-w-36 flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold transition-all ${activeSection === id ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>
@@ -530,6 +558,45 @@ const AdminDashboard = ({ userProfile }) => {
           </div>
           <div className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-xs leading-6 text-amber-900">
             เทมเพลตมาตรฐาน {BUILT_IN_TEMPLATE_COUNT} แบบในหน้าผู้ใช้เป็นไฟล์ภายในตัวเว็บ จึงไม่กินพื้นที่ Firestore ส่วน “เทมเพลตบน Cloud” จะแสดงเฉพาะเอกสารใน collection <code className="rounded bg-white/70 px-1.5 py-0.5 font-mono">templates</code>
+          </div>
+        </section>
+      )}
+
+      {activeSection === 'feature-access' && (
+        <section className="mx-auto max-w-5xl">
+          <div className="overflow-hidden rounded-3xl border border-indigo-100 bg-white shadow-sm">
+            <div className="border-b border-indigo-100 bg-gradient-to-r from-indigo-50 via-white to-violet-50 px-5 py-6 md:px-7">
+              <div className="flex items-start gap-4">
+                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-lg shadow-indigo-500/20"><SlidersHorizontal size={21} /></span>
+                <div><p className="text-[10px] font-black uppercase tracking-[0.18em] text-indigo-600">Plan access control</p><h2 className="mt-1 text-xl font-black text-slate-900">สิทธิ์การใช้งานตามแผน</h2><p className="mt-1 text-xs leading-5 text-slate-500">เปิดหรือปิดฟังก์ชันสำหรับผู้ใช้ฟรีและ Premium ได้แยกกัน การเปลี่ยนแปลงจะอัปเดตกับผู้ใช้ที่เปิดแอปอยู่ทันที</p></div>
+              </div>
+            </div>
+            <div className="p-4 sm:p-5 md:p-7">
+              <div className="mb-3 hidden grid-cols-[minmax(0,1fr)_120px_120px] gap-3 border-b border-slate-100 px-4 pb-3 text-[10px] font-black uppercase tracking-wider text-slate-400 sm:grid"><span>ฟังก์ชัน</span><span className="text-center">Free</span><span className="text-center">Premium</span></div>
+              <div className="space-y-7">
+                {featureGroups.map((group, groupIndex) => (
+                  <section key={group.id}>
+                    <div className={`mb-3 flex items-end justify-between gap-4 ${groupIndex ? 'border-t border-slate-100 pt-6' : ''}`}>
+                      <div><p className="text-[10px] font-black uppercase tracking-[0.18em] text-indigo-500">หมวดสิทธิ์</p><h3 className="mt-1 text-base font-black text-slate-900">{group.label}</h3><p className="mt-1 text-[11px] text-slate-500">{group.description}</p></div>
+                      <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-black text-slate-500">{group.features.length} รายการ</span>
+                    </div>
+                    <div className="space-y-2">
+                      {group.features.map((feature) => (
+                        <div key={feature.id} className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-3.5 transition hover:border-slate-300 hover:bg-white sm:grid-cols-[minmax(0,1fr)_120px_120px] sm:items-center sm:p-4">
+                          <div><h4 className="text-sm font-black text-slate-800">{feature.name}</h4><p className="mt-1 text-[11px] text-slate-500">{feature.description}</p></div>
+                          {['free', 'premium'].map((plan) => {
+                            const enabled = featureAccess[feature.id]?.[plan] === true;
+                            return <button key={plan} type="button" onClick={() => updateFeatureAccess(feature.id, plan)} disabled={isSavingAccess} aria-pressed={enabled} className={`group flex h-11 items-center justify-between rounded-xl border px-3 text-xs font-black transition-all active:scale-[0.98] sm:justify-center sm:gap-2 ${enabled ? 'border-emerald-200 bg-emerald-50 text-emerald-700 shadow-sm shadow-emerald-950/5' : 'border-slate-200 bg-white text-slate-400'} disabled:cursor-wait disabled:opacity-60`}><span className="sm:hidden">{plan === 'free' ? 'Free' : 'Premium'}</span><span className={`relative h-6 w-11 rounded-full p-0.5 shadow-inner transition-colors ${enabled ? 'bg-emerald-500' : 'bg-slate-300 group-hover:bg-slate-400'}`}><span className={`flex h-5 w-5 items-center justify-center rounded-full bg-white shadow-md transition-transform duration-200 ${enabled ? 'translate-x-5' : 'translate-x-0'}`}><span className={`h-1.5 w-1.5 rounded-full ${enabled ? 'bg-emerald-500' : 'bg-slate-300'}`} /></span></span><span className="hidden min-w-7 text-left sm:inline">{enabled ? 'เปิด' : 'ปิด'}</span></button>;
+                          })}
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                ))}
+              </div>
+              {accessSaveError && <p className="mt-4 rounded-xl bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-700">{accessSaveError}</p>}
+              <p className="mt-5 rounded-xl border border-violet-100 bg-violet-50 px-4 py-3 text-[11px] leading-5 text-violet-700">ผู้ดูแลระบบยังเข้าถึงได้ทุกฟังก์ชันเสมอ และรายการสำหรับผู้ดูแลระบบจะไม่แสดงในหน้านี้</p>
+            </div>
           </div>
         </section>
       )}
