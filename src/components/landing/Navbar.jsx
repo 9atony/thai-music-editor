@@ -8,9 +8,9 @@ const Navbar = ({ onLoginClick }) => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center h-20">
           {/* Logo */}
-          <div className="flex-shrink-0 flex items-center gap-2 cursor-pointer" onClick={() => window.scrollTo(0,0)}>
+          <a href="/" className="flex flex-shrink-0 items-center gap-2" aria-label="หน้าแรก Thai Music Editor">
             <img src={logo} alt="TME Logo" className="h-14 w-auto drop-shadow-sm" /> 
-          </div>
+          </a>
 
           {/* Desktop Menu (ปรับให้เรียบง่ายและตรงประเด็น) */}
           <div className="hidden md:flex items-center space-x-8">
@@ -22,6 +22,9 @@ const Navbar = ({ onLoginClick }) => {
             </a>
             <a href="#contact" className="text-slate-600 hover:text-blue-600 font-medium transition-colors">
               ติดต่อเรา
+            </a>
+            <a href="/about" className="text-slate-600 hover:text-blue-600 font-medium transition-colors">
+              เกี่ยวกับ
             </a>
           </div>
 

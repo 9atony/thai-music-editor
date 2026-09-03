@@ -14,6 +14,7 @@ const Templates = React.lazy(() => import('./pages/Templates'));
 const Samples = React.lazy(() => import('./pages/Samples'));
 const Tools = React.lazy(() => import('./pages/Tools'));
 const AdminDashboard = React.lazy(() => import('./pages/AdminDashboard'));
+const About = React.lazy(() => import('./pages/About'));
 
 import { onAuthStateChanged } from 'firebase/auth';
 // ⭐ นำเข้า getUserProfile จาก firebase.js
@@ -56,6 +57,7 @@ function App() {
   const [editorMode, setEditorMode] = useState(() => sessionStorage.getItem(EDITOR_MODE_SESSION_KEY) || 'normal');
   const [toolsVisit, setToolsVisit] = useState(0);
   const isAdmin = userProfile?.role === 'admin';
+  const isAboutRoute = typeof window !== 'undefined' && window.location.pathname === '/about';
 
   // Keep the current workspace open after a browser refresh in this tab.
   useEffect(() => {
@@ -177,6 +179,9 @@ function App() {
   }
 
   if (!isAuthenticated) {
+    if (isAboutRoute) {
+      return <Suspense fallback={<LoadingScreen />}><About onLoginClick={() => { window.history.replaceState({}, '', '/'); setShowLogin(true); }} /></Suspense>;
+    }
     if (showLogin) {
       return (
         <Login 
@@ -189,6 +194,10 @@ function App() {
       );
     }
     return <Landing onLoginClick={() => setShowLogin(true)} />;
+  }
+
+  if (isAboutRoute) {
+    return <Suspense fallback={<LoadingScreen />}><About onLoginClick={() => { window.location.href = '/'; }} /></Suspense>;
   }
 
   // การกดเมนู “เครื่องมือ” เป็นการกลับไปหน้ารวมเสมอ แม้กำลังอยู่ในเครื่องมือย่อย

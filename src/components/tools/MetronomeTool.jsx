@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { MusicContext } from '../../contexts/MusicContext';
 import { initAudioContext } from '../../utils/audioEngine';
+import { applyRhythmLayer, filterRhythmPatternsByLayer, RHYTHM_LAYER_OPTIONS } from '../../utils/rhythmLayer';
 
 const instruments = [
   {
@@ -102,10 +103,23 @@ const MetronomeTool = () => {
     }));
   };
 
+  const updateRhythmLayer = (layer) => {
+    setMetronomeConfig((current) => applyRhythmLayer(current, layer));
+  };
+
   const togglePlayback = async () => {
     await initAudioContext().catch(() => {});
     setActiveStep(0);
-    setMetronomeConfig((current) => ({ ...current, linked: current.linked === false }));
+    setMetronomeConfig((current) => {
+      const shouldStart = current.linked !== false;
+      return {
+        ...current,
+        // หน้าเครื่องประกอบใช้โหมดเล่นแยกจากโน้ต จึงต้องเปิด enabled
+        // พร้อมกันด้วย มิฉะนั้น scheduler จะไม่สั่งเสียงหน้าทับเลย
+        enabled: shouldStart,
+        linked: !shouldStart
+      };
+    });
   };
 
   const handleTapTempo = () => {
@@ -256,10 +270,22 @@ const MetronomeTool = () => {
           </aside>
         </section>
 
+        <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm md:p-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-sm font-black text-slate-900">กรองหน้าทับตามชั้นเพลง</h2>
+              <p className="mt-1 text-[11px] font-medium text-slate-500">ใช้กับฉิ่ง กลองแขก และกรับพร้อมกัน</p>
+            </div>
+            <select value={metronomeConfig.rhythmLayer || 'all'} onChange={(event) => updateRhythmLayer(event.target.value)} className="h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-black text-slate-700 outline-none focus:border-indigo-400" aria-label="กรองหน้าทับตามชั้นเพลง">
+              {RHYTHM_LAYER_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
+          </div>
+        </section>
+
         <section className="grid gap-3 md:grid-cols-3">
           {instruments.map(({ key, label, description, Icon, iconClass, activeClass, rangeClass }) => {
             const config = metronomeConfig[key];
-            const patterns = metronomeConfig.rhythms?.[key] || [];
+            const patterns = filterRhythmPatternsByLayer(metronomeConfig.rhythms?.[key], metronomeConfig.rhythmLayer);
             return (
               <article key={key} className={`rounded-3xl border bg-white p-5 shadow-sm transition ${config.active ? 'border-slate-200' : 'border-slate-200 opacity-55'}`}>
                 <div className="mb-5 flex items-center justify-between">
@@ -279,7 +305,7 @@ const MetronomeTool = () => {
                 <div className="relative mb-5">
                   <select value={config.pattern} onChange={(event) => updateInstrument(key, { pattern: event.target.value })} disabled={!config.active || patterns.length === 0} className="h-11 w-full appearance-none rounded-xl border border-slate-200 bg-slate-50 px-3 pr-9 text-xs font-bold text-slate-700 outline-none transition focus:border-indigo-400 disabled:cursor-not-allowed disabled:opacity-50" aria-label={`เลือกหน้าทับ${label}`}>
                     {patterns.length === 0
-                      ? <option value="">กำลังโหลดหน้าทับ...</option>
+                      ? <option value="">ไม่พบหน้าทับในชั้นที่เลือก</option>
                       : patterns.map((pattern) => <option key={pattern.id} value={pattern.id}>{pattern.name}</option>)}
                   </select>
                   <ChevronDown size={15} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />

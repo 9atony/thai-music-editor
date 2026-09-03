@@ -14,8 +14,12 @@ import {
 
 const INDEPENDENT_METRONOME_GROUP = 'editor-independent-metronome';
 const LINKED_METRONOME_GROUP = 'editor-linked-metronome';
-const BACKGROUND_SCHEDULE_AHEAD_SEC = 15 * 60;
-const BACKGROUND_METRONOME_AHEAD_SEC = 30;
+// A very long queue (previously 15 minutes) is unreliable: browsers can
+// discard pending AudioBufferSources in a background tab, while this scheduler
+// still believes they are queued. Keep a modest safety buffer and refill it
+// continuously; throttled background timers still get ample time to do so.
+const BACKGROUND_SCHEDULE_AHEAD_SEC = 45;
+const BACKGROUND_METRONOME_AHEAD_SEC = 45;
 
 export const useAudioPlayback = ({
   sheetDataRef,
@@ -44,6 +48,7 @@ export const useAudioPlayback = ({
     enabled: false,
     linked: true,
     masterVolume: 80,
+    rhythmLayer: 'all',
     ching: { active: true, pattern: '', volume: 80 },
     klong: { active: true, pattern: '', volume: 80 },
     krub: { active: false, pattern: '', volume: 80 },

@@ -2,6 +2,7 @@ import React, { useContext } from 'react';
 import { AudioLines, ChevronDown, CircleDot, Drum, Hand, Link2, Unlink2, Volume2, X } from 'lucide-react';
 import { MusicContext } from '../../contexts/MusicContext';
 import { initAudioContext } from '../../utils/audioEngine';
+import { applyRhythmLayer, filterRhythmPatternsByLayer, RHYTHM_LAYER_OPTIONS } from '../../utils/rhythmLayer';
 
 const instruments = [
   { key: 'ching', label: 'ฉิ่ง', Icon: CircleDot, accent: 'emerald' },
@@ -43,6 +44,7 @@ const MobileMetronomeMenu = ({ isOpen, onClose }) => {
   };
 
   const unlockAudio = () => initAudioContext().catch(() => {});
+  const updateRhythmLayer = (layer) => setMetronomeConfig((current) => applyRhythmLayer(current, layer));
 
   return (
     <div className={`fixed inset-0 z-[70] flex flex-col justify-end transition-all duration-300 ${isOpen ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'}`}>
@@ -124,9 +126,17 @@ const MobileMetronomeMenu = ({ isOpen, onClose }) => {
             />
           </div>
 
+          <label className="block rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm">
+            <span className="block text-xs font-black text-slate-700">กรองหน้าทับตามชั้นเพลง</span>
+            <span className="mt-0.5 block text-[11px] text-slate-500">เปลี่ยนฉิ่ง กลองแขก และกรับพร้อมกัน</span>
+            <select value={metronomeConfig.rhythmLayer || 'all'} onChange={(event) => updateRhythmLayer(event.target.value)} className="mt-3 h-10 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-bold text-slate-700 outline-none focus:border-indigo-400" aria-label="กรองหน้าทับตามชั้นเพลง">
+              {RHYTHM_LAYER_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
+          </label>
+
           {instruments.map(({ key, label, Icon, accent }) => {
             const config = metronomeConfig[key];
-            const patterns = metronomeConfig.rhythms?.[key] || [];
+            const patterns = filterRhythmPatternsByLayer(metronomeConfig.rhythms?.[key], metronomeConfig.rhythmLayer);
             const colors = accentClasses[accent];
             return (
               <article key={key} className={`rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm transition ${config.active ? '' : 'opacity-65'}`}>
@@ -159,7 +169,7 @@ const MobileMetronomeMenu = ({ isOpen, onClose }) => {
                     aria-label={`เลือกหน้าทับ${label}`}
                   >
                     {patterns.length === 0
-                      ? <option value="">กำลังโหลดหน้าทับ...</option>
+                      ? <option value="">ไม่พบหน้าทับในชั้นที่เลือก</option>
                       : patterns.map((pattern) => <option key={pattern.id} value={pattern.id}>{pattern.name}</option>)}
                   </select>
                   <ChevronDown size={16} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />

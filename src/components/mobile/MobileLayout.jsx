@@ -3,8 +3,9 @@ import { onAuthStateChanged, signOut } from 'firebase/auth';
 import BottomNav from './BottomNav';
 import MobileTopBar from './MobileTopBar';
 import { auth, getUserStorageUsage } from '../../utils/firebase';
+import { APP_METADATA } from '../../config/appMetadata';
 
-const APP_VERSION = '1.0.0';
+const APP_VERSION = APP_METADATA.version;
 
 const MobileLayout = ({ children, currentPage, onPageChange, userProfile }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);

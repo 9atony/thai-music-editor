@@ -9,6 +9,8 @@ import {
 } from '../utils/sheetUtils';
 import { useSheetEditor } from '../hooks/useSheetEditor';
 import { useAudioPlayback } from '../hooks/useAudioPlayback';
+import { fromThaiMusicXml, toThaiMusicXml } from '../utils/thaiMusicXml';
+import { thaiMusicXmlToMusicXml } from '../utils/musicXmlConverter.js';
 
 export const MusicContext = createContext();
 
@@ -17,6 +19,7 @@ const getMetronomeProjectSettings = (config) => ({
   enabled: config.enabled === true,
   linked: config.linked !== false,
   masterVolume: config.masterVolume,
+  rhythmLayer: config.rhythmLayer || 'all',
   ching: { active: config.ching.active, pattern: config.ching.pattern, volume: config.ching.volume },
   klong: { active: config.klong.active, pattern: config.klong.pattern, volume: config.klong.volume },
   krub: { active: config.krub.active, pattern: config.krub.pattern, volume: config.krub.volume }
@@ -34,6 +37,7 @@ const applyMetronomeProjectSettings = (current, saved) => {
     ...(typeof saved.enabled === 'boolean' ? { enabled: saved.enabled } : { enabled: hasEnabledInstrument }),
     ...(typeof saved.linked === 'boolean' ? { linked: saved.linked } : {}),
     ...(typeof saved.masterVolume === 'number' ? { masterVolume: saved.masterVolume } : {}),
+    ...(typeof saved.rhythmLayer === 'string' ? { rhythmLayer: saved.rhythmLayer } : {}),
     ching: mergeInstrument('ching'),
     klong: mergeInstrument('klong'),
     krub: mergeInstrument('krub')
@@ -292,6 +296,7 @@ export const MusicProvider = ({ children }) => {
   const executeAction = (type, payload) => {
     if (type === 'NEW') performNewProject();
     else if (type === 'LOAD_LOCAL') performLoadProject(payload);
+    else if (type === 'IMPORT_TXML') performImportThaiMusicXml(payload);
     else if (type === 'LOAD_FIREBASE') performLoadProjectFromFirebase(payload);
     setPendingAction({ isOpen: false, type: null, payload: null });
   };
@@ -371,6 +376,83 @@ export const MusicProvider = ({ children }) => {
       }
     };
     reader.readAsText(file);
+  };
+
+  const performImportThaiMusicXml = (file) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      isImportingRef.current = true;
+      try {
+        const imported = fromThaiMusicXml(event.target?.result || '');
+        resetProjectScopedState();
+        setProjectName(imported.songName);
+        setSongName(imported.songName);
+        setLayoutConfig((current) => ({ ...createDefaultLayoutConfig(), ...current, bpm: imported.bpm }));
+        setHeaderDetails(() => {
+          const next = createDefaultHeaderDetails();
+          const assign = (keywords, value) => {
+            if (!value) return;
+            const detail = next.find((item) => keywords.some((keyword) => String(item.label).includes(keyword)));
+            if (detail) detail.value = value;
+            else next.push({ id: Date.now() + next.length, label: keywords[0], value });
+          };
+          assign(['ผู้ประพันธ์', 'ผู้แต่ง'], imported.composer);
+          assign(['บันไดเสียง', 'ทาง'], imported.key);
+          return next;
+        });
+        if (imported.currentInstrument && INSTRUMENT_CONFIG[imported.currentInstrument]) setCurrentInstrument(INSTRUMENT_CONFIG[imported.currentInstrument]);
+        audioPlayback.setPlaybackSequence(imported.playbackSequence || []);
+        sheetEditor.commitChange(imported.sheetData, imported.rowTypes, imported.sectionLabels, [], imported.rowMargins);
+      } catch (error) {
+        console.error('ThaiMusicXML import error:', error);
+        alert(error.message || 'ไม่สามารถนำเข้าไฟล์ ThaiMusicXML ได้');
+      } finally {
+        setTimeout(() => { isImportingRef.current = false; }, 1000);
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const exportThaiMusicXml = () => {
+    const xml = toThaiMusicXml({
+      songName,
+      headerDetails,
+      layoutConfig,
+      currentInstrument,
+      sheetData: sheetEditor.sheetData,
+      rowTypes: sheetEditor.rowTypes,
+      sectionLabels: sheetEditor.sectionLabels,
+      playbackSequence: audioPlayback.playbackSequence
+    });
+    const url = URL.createObjectURL(new Blob([xml], { type: 'application/xml;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${projectName || 'thai-music'}.txml`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportMusicXml = ({ startingPitch = 'C4' } = {}) => {
+    // ลำดับการแปลงตั้งใจให้ผ่าน ThaiMusicXML v1.0 ก่อนเสมอ เพื่อให้ MusicXML
+    // ใช้โครงสร้างท่อน ห้อง และลำดับเล่นชุดเดียวกับไฟล์แลกเปลี่ยนของระบบ
+    const thaiMusicXml = toThaiMusicXml({
+      songName,
+      headerDetails,
+      layoutConfig,
+      currentInstrument,
+      sheetData: sheetEditor.sheetData,
+      rowTypes: sheetEditor.rowTypes,
+      sectionLabels: sheetEditor.sectionLabels,
+      playbackSequence: audioPlayback.playbackSequence
+    });
+    const musicXml = thaiMusicXmlToMusicXml(thaiMusicXml, { startingPitch, debug: true });
+    const url = URL.createObjectURL(new Blob([musicXml], { type: 'application/vnd.recordare.musicxml+xml;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${projectName || 'thai-music'}.musicxml`;
+    link.click();
+    URL.revokeObjectURL(url);
   };
 
   const performLoadProjectFromFirebase = (projectData) => {
@@ -720,6 +802,9 @@ export const MusicProvider = ({ children }) => {
       
       saveProject, 
       loadProject: (file, skipWarning) => checkUnsavedAndPrompt('LOAD_LOCAL', file, skipWarning || isReadOnlyRef.current), 
+      importThaiMusicXml: (file, skipWarning) => checkUnsavedAndPrompt('IMPORT_TXML', file, skipWarning || isReadOnlyRef.current),
+      exportThaiMusicXml,
+      exportMusicXml,
       loadProjectFromFirebase: (data, skipWarning, readOnly) => { setReadOnlyMode(readOnly); checkUnsavedAndPrompt('LOAD_FIREBASE', data, skipWarning || (isReadOnlyRef.current && !readOnly)); }, 
       newProject: (skipWarning) => checkUnsavedAndPrompt('NEW', null, skipWarning || isReadOnlyRef.current),
       applyTemplate: (templateData) => {

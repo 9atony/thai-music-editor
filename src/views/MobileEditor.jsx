@@ -2,6 +2,7 @@ import React, { useContext, useEffect, useRef, useState } from 'react';
 import { MusicContext } from '../contexts/MusicContext';
 import Sheet from '../components/editor/Sheet'; 
 import MobileMetronomeMenu from '../components/editor/MobileMetronomeMenu';
+import MusicXmlExportDialog from '../components/editor/MusicXmlExportDialog';
 import { initAudioContext } from '../utils/audioEngine';
 
 // ⭐ ฟังก์ชันสำหรับล้างแท็ก HTML ให้เหลือแต่ข้อความล้วน
@@ -32,6 +33,7 @@ const MobileEditor = ({ onBack }) => {
     isLoopOne, setIsLoopOne,
     layoutConfig, setLayoutConfig,
     currentInstrument,
+    exportMusicXml,
     // ⭐ ดึง State ของโหมดลดเสียงเครื่องมาใช้งาน
     isReduceMode, setIsReduceMode 
   } = useContext(MusicContext);
@@ -39,6 +41,7 @@ const MobileEditor = ({ onBack }) => {
   const sheetContainerRef = useRef(null);
   const [isQueueOpen, setIsQueueOpen] = useState(false);
   const [isMetronomeOpen, setIsMetronomeOpen] = useState(false);
+  const [isMusicXmlDialogOpen, setIsMusicXmlDialogOpen] = useState(false);
   const [isDesktopViewport, setIsDesktopViewport] = useState(() => window.matchMedia('(min-width: 768px)').matches);
 
   useEffect(() => {
@@ -169,7 +172,9 @@ const MobileEditor = ({ onBack }) => {
             <span className="text-[10px] text-sky-500 font-semibold tracking-wide">• Player</span>
           </div>
         </div>
-        <div className="w-10"></div> 
+        <button type="button" onClick={() => setIsMusicXmlDialogOpen(true)} className="flex h-10 w-10 items-center justify-center rounded-full text-indigo-600 transition-colors hover:bg-indigo-50" aria-label="แปลงเป็นโน้ตสากล" title="แปลงเป็นโน้ตสากล">
+          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 18V5l10-2v13M9 9l10-2M6 21a3 3 0 100-6 3 3 0 000 6zm10-2a3 3 0 100-6 3 3 0 000 6z" /></svg>
+        </button>
       </header>
 
       {/* 2. Sheet Area */}
@@ -371,6 +376,7 @@ const MobileEditor = ({ onBack }) => {
       </div>
 
       <MobileMetronomeMenu isOpen={isMetronomeOpen} onClose={() => setIsMetronomeOpen(false)} />
+      <MusicXmlExportDialog isOpen={isMusicXmlDialogOpen} onClose={() => setIsMusicXmlDialogOpen(false)} onExport={(startingPitch) => exportMusicXml({ startingPitch })} />
 
     </div>
   );
