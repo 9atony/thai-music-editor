@@ -5,8 +5,8 @@ import mockupImage from '../../assets/hero-mockup.png';
 
 const HeroSection = ({ onLoginClick }) => {
   return (
-    <section className="pt-32 pb-20 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
-      <div className="flex flex-col lg:flex-row items-center gap-12 lg:gap-8">
+    <section className="mx-auto max-w-[1440px] px-4 pb-20 pt-32 sm:px-6 lg:px-10">
+      <div className="flex flex-col items-center gap-12 lg:flex-row lg:gap-14">
         
         {/* Left Text */}
         <div className="w-full lg:w-1/2 space-y-8 z-10">

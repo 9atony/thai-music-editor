@@ -2,6 +2,7 @@ import React from 'react';
 import { BookOpen, Code2, ExternalLink, HeartHandshake, Info, Music2, PackageCheck, UsersRound } from 'lucide-react';
 import Navbar from '../components/landing/Navbar';
 import Footer from '../components/landing/Footer';
+import ContactLinks from '../components/landing/ContactLinks';
 import { APP_METADATA, DEVELOPER_CONTACTS, THAI_MUSIC_XML_LINKS } from '../config/appMetadata';
 
 const SectionCard = ({ icon: Icon, title, children }) => (
@@ -19,7 +20,7 @@ const About = ({ onLoginClick }) => (
     <Navbar onLoginClick={onLoginClick} />
     <main className="pt-20" id="main-content">
       <header className="border-b border-blue-100 bg-gradient-to-br from-blue-50 via-white to-sky-50">
-        <div className="mx-auto max-w-5xl px-4 py-16 sm:px-6 sm:py-20 lg:px-8">
+        <div className="mx-auto max-w-[1440px] px-4 py-16 sm:px-6 sm:py-20 lg:px-10">
           <div className="max-w-3xl">
             <span className="mb-4 inline-flex items-center gap-2 rounded-full border border-blue-100 bg-white px-3 py-1.5 text-xs font-bold text-blue-700 shadow-sm"><Info size={14} aria-hidden="true" />ข้อมูลโครงการ</span>
             <h1 className="text-3xl font-black tracking-tight text-slate-900 sm:text-5xl">เกี่ยวกับ Thai Music Editor</h1>
@@ -28,15 +29,30 @@ const About = ({ onLoginClick }) => (
         </div>
       </header>
 
-      <div className="mx-auto grid max-w-5xl gap-5 px-4 py-10 sm:px-6 sm:py-14 lg:px-8">
+      <div className="mx-auto grid max-w-[1440px] gap-5 px-4 py-10 sm:px-6 sm:py-14 lg:px-10">
         <SectionCard icon={Music2} title="เกี่ยวกับ Thai Music Editor">
           <p>Thai Music Editor คือเว็บแอปพลิเคชันสำหรับสร้าง แก้ไข เล่นเสียง และจัดการโน้ตดนตรีไทยในรูปแบบดิจิทัล ออกแบบให้รองรับรูปแบบการเขียนโน้ตและกระบวนการทำงานเฉพาะของดนตรีไทย เพื่อช่วยให้การเรียนรู้ การสร้างสรรค์ และการอนุรักษ์ดนตรีไทยสามารถเข้าถึงได้สะดวกยิ่งขึ้น</p>
         </SectionCard>
 
         <SectionCard icon={UsersRound} title="ผู้พัฒนา">
           <dl className="grid gap-3 sm:grid-cols-2">
-            {DEVELOPER_CONTACTS.map((contact) => <div key={contact.label} className="rounded-2xl bg-slate-50 px-4 py-3"><dt className="text-xs font-bold text-slate-500">{contact.label}</dt><dd className="mt-1 font-bold text-slate-800">{contact.value}</dd></div>)}
+            {DEVELOPER_CONTACTS.map((contact) => (
+              <div key={contact.label} className="rounded-2xl bg-slate-50 px-4 py-3">
+                <dt className="text-xs font-bold text-slate-500">{contact.label}</dt>
+                <dd className="mt-1 font-bold text-slate-800">
+                  {contact.href ? (
+                    <a href={contact.href} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-blue-600 underline decoration-blue-200 underline-offset-4 transition hover:text-blue-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-blue-600">
+                      {contact.value}<ExternalLink size={14} aria-label="เปิดในแท็บใหม่" />
+                    </a>
+                  ) : contact.value}
+                </dd>
+              </div>
+            ))}
           </dl>
+        </SectionCard>
+
+        <SectionCard icon={UsersRound} title="ติดต่อและคอมมูนิตี้">
+          <ContactLinks />
         </SectionCard>
 
         <SectionCard icon={HeartHandshake} title="ผู้สนับสนุนและแหล่งที่มาของเสียง">

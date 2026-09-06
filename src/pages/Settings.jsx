@@ -90,7 +90,7 @@ const Settings = ({ userProfile }) => {
 
   return (
     <div className="app-page-shell animate-fadeIn text-slate-800" style={{ fontFamily: 'Prompt, sans-serif' }}>
-      <PageHeader icon={Settings2} badge="Preferences" title="การตั้งค่า" subtitle="จัดการบัญชี รูปแบบการเขียนโน้ต เสียง และข้อมูลของคุณจากที่เดียว" />
+      <PageHeader icon={Settings2} title="การตั้งค่า" subtitle="จัดการบัญชี รูปแบบการเขียนโน้ต เสียง และข้อมูลของคุณจากที่เดียว" />
       <div className="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)] lg:gap-6">
         <aside className="self-start overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm lg:sticky lg:top-24 lg:rounded-3xl">
           <div className="hidden border-b border-slate-100 bg-gradient-to-br from-slate-50 to-indigo-50/60 p-4 lg:block">

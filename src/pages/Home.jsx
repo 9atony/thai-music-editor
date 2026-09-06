@@ -184,7 +184,7 @@ const Home = ({ onNewProject, onPageChange, userProfile, isMobile = false }) => 
         </div>
       )}
 
-      <PageHeader icon={Hand} badge="Dashboard" title="ยินดีต้อนรับกลับมา" subtitle="ใช้งาน Thai Music Editor อย่างสร้างสรรค์ในทุกจังหวะของคุณ" hideActionsOnMobile>
+      <PageHeader icon={Hand} title="ยินดีต้อนรับกลับมา" subtitle="ใช้งาน Thai Music Editor อย่างสร้างสรรค์ในทุกจังหวะของคุณ" hideActionsOnMobile>
         <div className="flex items-center gap-3">
             {/* 🔴 ปุ่มโพสต์ประกาศ จะเห็นเฉพาะถ้าเป็น Admin */}
             {isAdmin && (

@@ -3,8 +3,8 @@ import { PlayCircle, Edit3, Share2 } from 'lucide-react';
 
 const GuideSection = () => {
   return (
-    <section id="guide" className="py-20 bg-white">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <section id="guide" className="scroll-mt-20 py-20 bg-white">
+      <div className="mx-auto max-w-[1440px] px-4 sm:px-6 lg:px-10">
         <div className="text-center mb-16">
           <h2 className="text-3xl md:text-4xl font-bold mb-4 text-slate-900">
             เริ่มต้นใช้งานใน 3 ขั้นตอนง่ายๆ

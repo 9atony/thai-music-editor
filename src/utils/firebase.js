@@ -288,6 +288,16 @@ export const saveProjectToDB = async (uid, projectId, projectData) => {
   }
 };
 
+export const saveSampleToDB = async (sampleId, projectData) => {
+  if (!sampleId) throw new Error('SAMPLE_ID_REQUIRED');
+
+  await updateDoc(doc(db, 'samples', sampleId), {
+    name: projectData.name || projectData.songName || 'เพลงไม่มีชื่อ',
+    fileContent: JSON.stringify(projectData),
+    updatedAt: serverTimestamp()
+  });
+};
+
 // Arranger projects live in their own collection so timeline/mixer data never
 // mixes with the sheet projects used by the notation editor.
 export const fetchArrangerProjects = async (uid) => {

@@ -362,7 +362,7 @@ const Login = ({ onLoginSuccess, onBackToLanding }) => {
           <span className="w-1 h-1 rounded-full bg-[#EF4444]"></span>
           <span>เวอร์ชัน {APP_METADATA.version}</span>
           <span className="w-1 h-1 rounded-full bg-[#3B82F6]"></span>
-          <span>© 2026 Rattanachai Sakchai</span>
+          <span>© 2026 รัตนชัย ศักดิ์จาย</span>
         </div>
       </div>
     </div>

@@ -369,7 +369,6 @@ const AdminDashboard = ({ userProfile }) => {
     <div className="app-page-shell animate-fadeIn text-slate-800" style={{ fontFamily: 'Prompt, sans-serif' }}>
       <PageHeader
         icon={ShieldCheck}
-        badge="Admin Console"
         title="System Analytics"
         subtitle="ติดตามผู้ใช้งาน กิจกรรมระบบ และ Firebase quota จากศูนย์กลางเดียว"
       >

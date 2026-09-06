@@ -4,8 +4,8 @@ import { FileText, Gamepad2, Music, Briefcase, Heart } from 'lucide-react';
 const FeaturesSection = () => {
   return (
     // ⭐ เติม id="features" ตรงนี้
-    <section id="features" className="py-20 bg-gray-50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+    <section id="features" className="scroll-mt-20 py-20 bg-gray-50">
+      <div className="mx-auto max-w-[1440px] px-4 text-center sm:px-6 lg:px-10">
         <div className="mb-16">
           <h2 className="text-3xl md:text-4xl font-bold mb-4 flex items-center justify-center gap-4">
             <span className="text-red-500 text-2xl">•</span>

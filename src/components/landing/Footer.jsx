@@ -1,10 +1,11 @@
 import React from 'react';
 import logo from '../../assets/logo wep.png';
+import { CONTACT_LINKS } from '../../config/contactLinks';
 
 const Footer = () => {
   return (
     <footer id="contact" className="border-t border-gray-100 pt-16 pb-8 bg-white">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-[1440px] px-4 sm:px-6 lg:px-10">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-8 mb-16">
           
           {/* Logo & Description */}
@@ -19,8 +20,8 @@ const Footer = () => {
           <div>
             <h4 className="font-bold mb-4 text-gray-800">ระบบของเรา</h4>
             <ul className="space-y-3 text-sm text-gray-500">
-              <li><a href="#features" className="hover:text-blue-600 transition-colors">คุณสมบัติเด่น</a></li>
-              <li><a href="#guide" className="hover:text-blue-600 transition-colors">วิธีใช้งานเบื้องต้น</a></li>
+              <li><a href="/#features" className="hover:text-blue-600 transition-colors">คุณสมบัติเด่น</a></li>
+              <li><a href="/#guide" className="hover:text-blue-600 transition-colors">วิธีใช้งานเบื้องต้น</a></li>
               <li><a href="/about" className="hover:text-blue-600 transition-colors">เกี่ยวกับ</a></li>
               <li><a href="#" className="hover:text-blue-600 transition-colors">อัปเดตล่าสุด</a></li>
             </ul>
@@ -30,21 +31,13 @@ const Footer = () => {
           <div>
             <h4 className="font-bold mb-4 text-gray-800">ติดต่อและคอมมูนิตี้</h4>
             <ul className="space-y-3 text-sm text-gray-500">
-              <li>
-                <a href="https://www.facebook.com/share/g/1D1FvNehDM/" target="_blank" rel="noopener noreferrer" className="hover:text-blue-600 transition-colors">
-                  เข้าร่วมกลุ่ม Facebook
-                </a>
-              </li>
-              <li>
-                <a href="https://www.facebook.com/ratn.chay.sakdi.cay/" target="_blank" rel="noopener noreferrer" className="hover:text-blue-600 transition-colors">
-                  ติดต่อผู้พัฒนา (Facebook)
-                </a>
-              </li>
-              <li>
-                <a href="mailto:hunmnum@gmail.com" className="hover:text-blue-600 transition-colors">
-                  ติดต่อผ่านอีเมล
-                </a>
-              </li>
+              {CONTACT_LINKS.map((link) => (
+                <li key={link.href}>
+                  <a href={link.href} target={link.external ? '_blank' : undefined} rel={link.external ? 'noopener noreferrer' : undefined} className="hover:text-blue-600 transition-colors">
+                    {link.label}
+                  </a>
+                </li>
+              ))}
             </ul>
           </div>
         </div>
@@ -52,7 +45,7 @@ const Footer = () => {
         {/* Bottom Bar */}
         <div className="flex flex-col md:flex-row justify-between items-center border-t border-gray-100 pt-8">
           <p className="text-xs text-gray-400 mb-4 md:mb-0">
-            © {new Date().getFullYear()} Rattanachai Sakchai. All rights reserved.
+            © {new Date().getFullYear()} รัตนชัย ศักดิ์จาย. All rights reserved.
           </p>
           
           <div className="flex gap-4 items-center">

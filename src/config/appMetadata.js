@@ -6,13 +6,12 @@ export const APP_METADATA = {
   version: packageJson.version,
   thaiMusicXmlVersion: THAI_MUSIC_XML_VERSION,
   // กำหนดวันที่เผยแพร่จริงได้จาก environment โดยไม่ต้องแก้ข้อความในหลายหน้า
-  lastUpdated: import.meta.env.VITE_APP_LAST_UPDATED || 'ยังไม่ได้ระบุ'
+  lastUpdated: import.meta.env.VITE_APP_LAST_UPDATED || '6 กันยายน 2569'
 };
 
-// ตั้งใจใช้ placeholder เพราะยังไม่มีข้อมูลติดต่อที่ยืนยันแล้ว
 export const DEVELOPER_CONTACTS = [
-  { label: 'ชื่อผู้พัฒนา', value: '[รอระบุชื่อผู้พัฒนา]' },
-  { label: 'ช่องทางติดต่อ', value: '[รอระบุช่องทางติดต่อ]' }
+  { label: 'ชื่อผู้พัฒนา', value: 'รัตนชัย ศักดิ์จาย' },
+  { label: 'ช่องทางติดต่อ', value: 'Facebook ส่วนตัว', href: 'https://www.facebook.com/ratn.chay.sakdi.cay/' }
 ];
 
 export const THAI_MUSIC_XML_LINKS = [

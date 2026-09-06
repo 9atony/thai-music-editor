@@ -15,6 +15,7 @@ const Samples = React.lazy(() => import('./pages/Samples'));
 const Tools = React.lazy(() => import('./pages/Tools'));
 const AdminDashboard = React.lazy(() => import('./pages/AdminDashboard'));
 const About = React.lazy(() => import('./pages/About'));
+const Contact = React.lazy(() => import('./pages/Contact'));
 
 import { onAuthStateChanged } from 'firebase/auth';
 // ⭐ นำเข้า getUserProfile จาก firebase.js
@@ -60,6 +61,8 @@ function App() {
   const isAdmin = userProfile?.role === 'admin';
   const { canAccess } = useFeatureAccess();
   const isAboutRoute = typeof window !== 'undefined' && window.location.pathname === '/about';
+  const isContactRoute = typeof window !== 'undefined' && window.location.pathname === '/contact';
+  const PublicPage = isContactRoute ? Contact : About;
 
   // Keep the current workspace open after a browser refresh in this tab.
   useEffect(() => {
@@ -180,9 +183,13 @@ function App() {
     return <div className="min-h-screen bg-slate-50 flex items-center justify-center font-sans text-slate-500 font-medium">กำลังตรวจสอบข้อมูล...</div>;
   }
 
+  if (window.location.pathname === '/' && ['#features', '#guide'].includes(window.location.hash)) {
+    return <Landing onLoginClick={() => { window.history.replaceState({}, '', '/'); setShowLogin(true); }} />;
+  }
+
   if (!isAuthenticated) {
-    if (isAboutRoute) {
-      return <Suspense fallback={<LoadingScreen />}><About onLoginClick={() => { window.history.replaceState({}, '', '/'); setShowLogin(true); }} /></Suspense>;
+    if (isAboutRoute || isContactRoute) {
+      return <Suspense fallback={<LoadingScreen />}><PublicPage onLoginClick={() => { window.history.replaceState({}, '', '/'); setShowLogin(true); }} /></Suspense>;
     }
     if (showLogin) {
       return (
@@ -198,8 +205,8 @@ function App() {
     return <Landing onLoginClick={() => setShowLogin(true)} />;
   }
 
-  if (isAboutRoute) {
-    return <Suspense fallback={<LoadingScreen />}><About onLoginClick={() => { window.location.href = '/'; }} /></Suspense>;
+  if (isAboutRoute || isContactRoute) {
+    return <Suspense fallback={<LoadingScreen />}><PublicPage onLoginClick={() => { window.location.href = '/'; }} /></Suspense>;
   }
 
   // การกดเมนู “เครื่องมือ” เป็นการกลับไปหน้ารวมเสมอ แม้กำลังอยู่ในเครื่องมือย่อย
@@ -229,6 +236,7 @@ function App() {
     // Sample songs are a listening-only experience for regular users. Admins
     // open the same song in the full editor so they can maintain its content.
     const isSampleView = options?.readOnly === true && userProfile?.role !== 'admin';
+    const editableSampleId = userProfile?.role === 'admin' ? options?.sampleId || null : null;
     setEditorMode(isSampleView ? 'sample-readonly' : 'normal');
 
     if (projectData && loadProjectFromFirebase) {
@@ -238,7 +246,7 @@ function App() {
           ? parsedData
           : { ...(parsedData || {}), ...(projectId ? { id: projectId } : {}) };
 
-        loadProjectFromFirebase(payload, true, isSampleView); 
+        loadProjectFromFirebase(payload, true, isSampleView, editableSampleId);
       } catch (e) {
         console.error("รูปแบบข้อมูลไม่ถูกต้อง แปลง JSON ไม่สำเร็จ:", e);
       }

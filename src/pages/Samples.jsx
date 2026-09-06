@@ -75,6 +75,7 @@ const Samples = ({ onOpenProject, userProfile }) => {
         await deleteDoc(doc(db, 'samples', sample.id));
         alert('ลบข้อมูลเรียบร้อยแล้ว');
       } catch (error) {
+        console.error('ลบเพลงตัวอย่างไม่สำเร็จ:', error);
         alert('เกิดข้อผิดพลาดในการลบข้อมูล');
       }
     }
@@ -132,6 +133,7 @@ const Samples = ({ onOpenProject, userProfile }) => {
       }
       setIsModalOpen(false);
     } catch (error) {
+      console.error('บันทึกเพลงตัวอย่างไม่สำเร็จ:', error);
       alert('เกิดข้อผิดพลาดในการบันทึกข้อมูล');
     } finally {
       setIsUploading(false);
@@ -153,12 +155,13 @@ const Samples = ({ onOpenProject, userProfile }) => {
     if (sample.fileContent) {
       try {
         const parsedContent = JSON.parse(sample.fileContent);
-        onOpenProject(sample.id, parsedContent, { readOnly: true }); 
+        onOpenProject(sample.id, parsedContent, { readOnly: true, sampleId: isAdmin ? sample.id : null });
       } catch (error) {
-        onOpenProject(sample.id, sample.fileContent, { readOnly: true });
+        console.error('อ่านข้อมูลเพลงตัวอย่างไม่สำเร็จ:', error);
+        onOpenProject(sample.id, sample.fileContent, { readOnly: true, sampleId: isAdmin ? sample.id : null });
       }
     } else {
-      onOpenProject(sample.id, null, { readOnly: true });
+      onOpenProject(sample.id, null, { readOnly: true, sampleId: isAdmin ? sample.id : null });
     }
   };
 
@@ -168,7 +171,7 @@ const Samples = ({ onOpenProject, userProfile }) => {
       style={{ fontFamily: 'Prompt, sans-serif' }}
       onClick={() => setAdminMenuOpen(null)} // คลิกพื้นที่ว่างเพื่อปิดเมนูแอดมิน
     >
-      <PageHeader icon={Music2} badge="Learning Library" title="ตัวอย่างเพลง" subtitle="ศึกษาและเรียนรู้จากโน้ตเพลงไทยมาตรฐานที่จัดทำไว้สมบูรณ์แล้ว">
+      <PageHeader icon={Music2} title="ตัวอย่างเพลง" subtitle="ศึกษาและเรียนรู้จากโน้ตเพลงไทยมาตรฐานที่จัดทำไว้สมบูรณ์แล้ว">
         {isAdmin && (
           <button 
             onClick={handleUploadNew}
@@ -178,6 +181,13 @@ const Samples = ({ onOpenProject, userProfile }) => {
           </button>
         )}
       </PageHeader>
+
+      {isAdmin && (
+        <div className="mb-6 flex items-start gap-3 rounded-2xl border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-sky-800">
+          <span className="mt-0.5 text-base" aria-hidden="true">✦</span>
+          <p><strong>โหมดผู้ดูแลระบบ:</strong> คลิกเพลงตัวอย่างเพื่อแก้ไขใน Editor ระบบจะบันทึกโน้ตและชื่อเพลงกลับไปยังคลังเพลงตัวอย่างโดยอัตโนมัติ</p>
+        </div>
+      )}
 
       {/* ⭐ Toolbar: Search, Filter, Tabs */}
       <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-sm mb-6 flex flex-col md:flex-row gap-3 items-center sticky top-4 z-30">

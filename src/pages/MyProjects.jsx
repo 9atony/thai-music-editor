@@ -253,7 +253,7 @@ const MyProjects = ({ onNewProject, onOpenArrangerProjects }) => {
 
   return (
     <div className="app-page-shell app-page-with-floating-footer animate-fadeIn text-slate-800 flex flex-col" style={{ fontFamily: 'Prompt, sans-serif' }}>
-      <PageHeader icon={FolderKanban} badge="Project Library" title="โปรเจกต์ของฉัน" subtitle="จัดการ ค้นหา และเปิดไฟล์โปรเจกต์ของคุณ">
+      <PageHeader icon={FolderKanban} title="โปรเจกต์ของฉัน" subtitle="จัดการ ค้นหา และเปิดไฟล์โปรเจกต์ของคุณ">
         <div className="flex items-center gap-3 w-full md:w-auto">
           <div className="relative w-full md:w-64">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">

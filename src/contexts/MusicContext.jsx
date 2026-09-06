@@ -1,7 +1,7 @@
 import React, { createContext, useState, useMemo, useEffect, useRef } from 'react';
 import { INSTRUMENT_CONFIG } from '../utils/instrumentConfig';
 import { playNote } from '../utils/audioEngine';
-import { auth, saveProjectToDB, getUserProfile } from '../utils/firebase';
+import { auth, saveProjectToDB, saveSampleToDB, getUserProfile } from '../utils/firebase';
 
 import {
   getFlattenedCol, createDefaultLayoutConfig, createDefaultHeaderDetails,
@@ -49,6 +49,7 @@ export const MusicProvider = ({ children }) => {
   const [songName, setSongName] = useState("เพลงลาวดวงเดือน");
   const [projectName, setProjectName] = useState("โปรเจกต์ไม่มีชื่อ");
   const [projectId, setProjectId] = useState(null);
+  const [sampleId, setSampleId] = useState(null);
   
   // ⭐ เพิ่ม State สำหรับเก็บยศของผู้ใช้
   const [userRole, setUserRole] = useState("user");
@@ -525,6 +526,14 @@ export const MusicProvider = ({ children }) => {
     }
   };
 
+  const autoSaveSampleToFirebase = async (data, currentSampleId) => {
+    try {
+      await saveSampleToDB(currentSampleId, data);
+    } catch (err) {
+      console.error('บันทึกเพลงตัวอย่างอัตโนมัติไม่สำเร็จ:', err);
+    }
+  };
+
   useEffect(() => {
     const saved = localStorage.getItem('thaiMusicEditorAutoSave');
     if (saved) {
@@ -587,10 +596,14 @@ export const MusicProvider = ({ children }) => {
     localStorage.setItem('thaiMusicEditorAutoSave', JSON.stringify(projectData));
 
     if (!isFreshProject) {
-      const debounceTimer = setTimeout(() => autoSaveToFirebase(projectData, projectId), 2000);
+      const debounceTimer = setTimeout(() => (
+        sampleId
+          ? autoSaveSampleToFirebase(projectData, sampleId)
+          : autoSaveToFirebase(projectData, projectId)
+      ), 2000);
       return () => clearTimeout(debounceTimer);
     }
-  }, [isLoaded, projectName, songName, sheetEditor.sheetData, sheetEditor.rowTypes, sheetEditor.sectionLabels, sheetEditor.symbols, layoutConfig, headerDetails, currentInstrument, sheetEditor.rowMargins, audioPlayback.playbackSequence, audioPlayback.metronomeConfig, isLoopAll, isLoopOne, intervalMode, isReduceMode, isShowPlayMode, projectId, sheetEditor.historyIndex, isReadOnly]);
+  }, [isLoaded, projectName, songName, sheetEditor.sheetData, sheetEditor.rowTypes, sheetEditor.sectionLabels, sheetEditor.symbols, layoutConfig, headerDetails, currentInstrument, sheetEditor.rowMargins, audioPlayback.playbackSequence, audioPlayback.metronomeConfig, isLoopAll, isLoopOne, intervalMode, isReduceMode, isShowPlayMode, projectId, sampleId, sheetEditor.historyIndex, isReadOnly]);
 
   const actionsRef = useRef({});
   useEffect(() => {
@@ -803,9 +816,10 @@ export const MusicProvider = ({ children }) => {
       importThaiMusicXml: (file, skipWarning) => checkUnsavedAndPrompt('IMPORT_TXML', file, skipWarning || isReadOnlyRef.current),
       exportThaiMusicXml,
       exportMusicXml,
-      loadProjectFromFirebase: (data, skipWarning, readOnly) => { setReadOnlyMode(readOnly); checkUnsavedAndPrompt('LOAD_FIREBASE', data, skipWarning || (isReadOnlyRef.current && !readOnly)); }, 
-      newProject: (skipWarning) => checkUnsavedAndPrompt('NEW', null, skipWarning || isReadOnlyRef.current),
+      loadProjectFromFirebase: (data, skipWarning, readOnly, nextSampleId = null) => { setReadOnlyMode(readOnly); setSampleId(nextSampleId); checkUnsavedAndPrompt('LOAD_FIREBASE', data, skipWarning || (isReadOnlyRef.current && !readOnly)); },
+      newProject: (skipWarning) => { setSampleId(null); checkUnsavedAndPrompt('NEW', null, skipWarning || isReadOnlyRef.current); },
       applyTemplate: (templateData) => {
+        setSampleId(null);
         resetProjectScopedState();
         setSongName(templateData.defaultSongName || "เพลงใหม่");
         setProjectName("โปรเจกต์ไม่มีชื่อ");

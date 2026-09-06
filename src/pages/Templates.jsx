@@ -43,7 +43,7 @@ const Templates = ({ onNewProject, userProfile }) => {
       style={{ fontFamily: 'Prompt, sans-serif' }}
       onClick={() => setAdminMenuOpen(null)} // คลิกที่ว่างเพื่อปิดเมนูแอดมิน
     >
-      <PageHeader icon={LayoutTemplate} badge="Templates" title="เทมเพลต" subtitle="เริ่มต้นสร้างผลงานหรือแบบฝึกหัดอย่างรวดเร็วด้วยโครงสร้างมาตรฐาน">
+      <PageHeader icon={LayoutTemplate} title="เทมเพลต" subtitle="เริ่มต้นสร้างผลงานหรือแบบฝึกหัดอย่างรวดเร็วด้วยโครงสร้างมาตรฐาน">
         {isAdmin && (
           <button 
             onClick={handleCreateNew}
