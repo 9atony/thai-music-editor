@@ -222,7 +222,7 @@ const Keyboard = () => {
   const iconClass = 'w-4 h-4';
 
   return (
-    <div className={`relative flex flex-col z-[70] w-full font-sans transition-colors duration-300 ${isIntervalActive && !isMinimized ? 'bg-[#fffdf0]' : 'bg-[#eaf4fc]'}`}>
+    <div className={`relative flex flex-col z-[200] w-full font-sans transition-colors duration-300 ${isIntervalActive && !isMinimized ? 'bg-[#fffdf0]' : 'bg-[#eaf4fc]'}`}>
       
       <style>
         {`
@@ -253,7 +253,7 @@ const Keyboard = () => {
         `}
       </style>
 
-      <div className="absolute -top-[30px] right-4 sm:right-8 z-20 flex gap-2">
+      <div className="absolute -top-[30px] right-4 sm:right-8 z-[260] flex gap-2">
         <button
           onClick={() => setIsMinimized(!isMinimized)}
           className="flex items-center gap-1.5 px-4 py-1.5 bg-white border border-slate-200 border-b-0 rounded-t-xl shadow-[0_-4px_10px_-2px_rgba(0,0,0,0.05)] text-xs font-bold text-slate-500 hover:text-sky-600 transition-colors"

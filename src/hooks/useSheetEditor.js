@@ -601,8 +601,11 @@ export const useSheetEditor = ({
     let insertIdx;
     let isFirstHalf = false;
 
-    if (rowTypes[rIdx] === 'page-break') {
-      insertIdx = rIdx + 1; 
+    const isTextAnchor = rowTypes[rIdx] === 'text';
+    if (isTextAnchor) {
+      insertIdx = rIdx + 1;
+    } else if (rowTypes[rIdx] === 'page-break') {
+      insertIdx = rIdx + 1;
     } else {
       const currentMeasureCount = sheetData[rIdx]?.length || 8;
       isFirstHalf = typeof insertAtTop === 'boolean' ? insertAtTop : (mIdx < Math.ceil(currentMeasureCount / 2));
@@ -658,7 +661,7 @@ export const useSheetEditor = ({
       : [];
     commitChange(newData, newRowTypes, newSectionLabels, newSymbols, newRowMargins, createInsertedRowIndexMap(insertIdx, 1), styleCopies);
     
-    if (rowTypes[rIdx] === 'page-break') setSelectedCell([insertIdx, 0, 0]);
+    if (isTextAnchor || rowTypes[rIdx] === 'page-break') setSelectedCell([insertIdx, 0, 0]);
     else if (isFirstHalf) setSelectedCell([insertIdx + 1, 0, 0]); 
   };
 
@@ -671,7 +674,10 @@ export const useSheetEditor = ({
     let insertIdx;
     let isFirstHalf = false;
 
-    if (rowTypes[rIdx] === 'page-break') {
+    const isTextAnchor = rowTypes[rIdx] === 'text';
+    if (isTextAnchor) {
+      insertIdx = rIdx + 1;
+    } else if (rowTypes[rIdx] === 'page-break') {
       insertIdx = rIdx + 1;
     } else {
       const currentMeasureCount = sheetData[rIdx]?.length || (rowTypes[rIdx]?.startsWith('double') ? 9 : 8);
@@ -748,7 +754,7 @@ export const useSheetEditor = ({
       : [];
     commitChange(newData, newRowTypes, newSectionLabels, newSymbols, newRowMargins, createInsertedRowIndexMap(insertIdx, 2), styleCopies);
     
-    if (rowTypes[rIdx] === 'page-break') setSelectedCell([insertIdx, 0, 0]);
+    if (isTextAnchor || rowTypes[rIdx] === 'page-break') setSelectedCell([insertIdx, 0, 0]);
     else if (isFirstHalf) setSelectedCell([insertIdx + 2, 0, 0]); 
   };
 
@@ -782,15 +788,20 @@ export const useSheetEditor = ({
     setSelectedCell([insertIdx, 0, 0]);
   };
 
-  const addTextRow = (insertAtTop = null) => {
+  const addTextRow = (insertAtTop = null, options = {}) => {
     if (isReadOnlyRef.current) return;
     if (isPlayingRef?.current) stopPlayback(); 
     setSelectionRange(null);
     
-    const [rIdx,  mIdx] = selectedCell;
+    const [selectedRowIndex, selectedMeasureIndex] = selectedCell;
+    const rIdx = Number.isInteger(options.sourceRowIndex) ? options.sourceRowIndex : selectedRowIndex;
+    const mIdx = rIdx === selectedRowIndex ? selectedMeasureIndex : 0;
     let insertIdx;
 
-    if (rowTypes[rIdx] === 'page-break') {
+    if (rowTypes[rIdx] === 'text') {
+      // A text cursor always inserts the next editable row directly below it.
+      insertIdx = rIdx + 1;
+    } else if (rowTypes[rIdx] === 'page-break') {
       insertIdx = rIdx + 1;
     } else {
       const isDouble = rowTypes[rIdx]?.startsWith('double');
@@ -806,6 +817,9 @@ export const useSheetEditor = ({
     }
 
     const newData = [...sheetData], newRowTypes = [...rowTypes], newRowMargins = [...rowMargins];
+    if (typeof options.sourceText === 'string' && rowTypes[rIdx] === 'text') {
+      newData[rIdx] = [[options.sourceText]];
+    }
     newData.splice(insertIdx, 0, [[""]]); 
     newRowTypes.splice(insertIdx, 0, 'text');
     newRowMargins.splice(insertIdx, 0, { top: 0, bottom: 0, left: 0 }); 
@@ -817,10 +831,21 @@ export const useSheetEditor = ({
     }));
     commitChange(newData, newRowTypes, { ...sectionLabels }, newSymbols, newRowMargins, createInsertedRowIndexMap(insertIdx, 1));
     setTimeout(() => { setSelectedCell([insertIdx, 0, 0]); }, 10);
+    return insertIdx;
   };
 
-  const updateTextRow = (rIndex, text) => {
+  const updateTextRow = (rIndex, text, options = {}) => {
     if (isReadOnlyRef.current) return;
+    if (options.preview) {
+      setSheetData((currentData) => {
+        if (!currentData[rIndex] || currentData[rIndex][0]?.[0] === text) return currentData;
+        const nextData = [...currentData];
+        nextData[rIndex] = [[text]];
+        return nextData;
+      });
+      return;
+    }
+
     const newData = [...sheetData];
     newData[rIndex] = [[text]];
     commitChange(newData);
@@ -834,7 +859,9 @@ export const useSheetEditor = ({
     const [rIdx,  mIdx] = selectedCell;
     let insertIdx;
 
-    if (rowTypes[rIdx] === 'page-break') {
+    if (rowTypes[rIdx] === 'text') {
+      insertIdx = rIdx + 1;
+    } else if (rowTypes[rIdx] === 'page-break') {
       insertIdx = rIdx + 1;
     } else {
       const isDouble = rowTypes[rIdx]?.startsWith('double');
@@ -873,18 +900,19 @@ export const useSheetEditor = ({
     
     const [rIdx] = Array.isArray(targetCell) ? targetCell : selectedCell;
     let insertIdx;
+    const isTextAnchor = rowTypes[rIdx] === 'text';
 
     let parentRIdx = rIdx;
     while (parentRIdx >= 0 && (rowTypes[parentRIdx] === 'annotation' || rowTypes[parentRIdx] === 'nathap' || rowTypes[parentRIdx] === 'text')) {
       parentRIdx--;
     }
-    const isUnderDouble = parentRIdx >= 0 && rowTypes[parentRIdx]?.startsWith('double');
+    const isUnderDouble = !isTextAnchor && parentRIdx >= 0 && rowTypes[parentRIdx]?.startsWith('double');
 
     if (Array.isArray(targetCell)) {
       insertIdx = rowTypes[rIdx] === 'double-right' && rowTypes[rIdx + 1] === 'double-left'
         ? rIdx + 2
         : rIdx + 1;
-    } else if (rowTypes[rIdx] === 'page-break') {
+    } else if (isTextAnchor || rowTypes[rIdx] === 'page-break') {
       insertIdx = rIdx + 1;
     } else {
       insertIdx = parentRIdx + 1;
@@ -894,7 +922,9 @@ export const useSheetEditor = ({
 
     const newData = [...sheetData], newRowTypes = [...rowTypes], newRowMargins = [...rowMargins];
     const sourceParentRow = rowTypes[parentRIdx] === 'double-left' ? parentRIdx - 1 : parentRIdx;
-    const sourceMeasures = isUnderDouble
+    const sourceMeasures = isTextAnchor
+      ? Array.from({ length: 8 }, () => Array(4).fill('-'))
+      : isUnderDouble
       ? (sheetData[sourceParentRow]?.slice(1) || [])
       : (sheetData[sourceParentRow] || []);
     const blankMeasures = sourceMeasures.map((measure) => {
@@ -989,37 +1019,61 @@ export const useSheetEditor = ({
 
     const newData = sheetData.map(row => row.map(meas => [...meas]));
 
-    if (isBlockSelection) {
-      for (let r = minR; r <= maxR; r++) {
-        if (rowTypes[r] === 'page-break' || rowTypes[r] === 'text' || rowTypes[r] === 'annotation') continue;
+    const getParentRowIndex = (rowIndex) => {
+      let parentRowIndex = rowIndex;
+      while (parentRowIndex >= 0 && ['annotation', 'nathap', 'text'].includes(rowTypes[parentRowIndex])) parentRowIndex--;
+      if (rowTypes[parentRowIndex] === 'double-left') parentRowIndex--;
+      return parentRowIndex;
+    };
 
-        let actualMinM = minM;
-        if (rowTypes[r].startsWith('double') && actualMinM === 0) actualMinM = 1;
-        if (actualMinM > maxM) continue;
+    const removeMeasuresFromGroup = (parentRowIndex, measureIndex, requestedCount = 1) => {
+      const parentType = rowTypes[parentRowIndex];
+      if (!newData[parentRowIndex] || (parentType !== 'single' && parentType !== 'double-right')) return 0;
 
-        const deleteCount = maxM - actualMinM + 1;
-        const minAllowed = rowTypes[r].startsWith('double') ? 2 : 1; 
+      const minimumLength = parentType === 'double-right' ? 2 : 1;
+      const parentCanRemove = measureIndex < newData[parentRowIndex].length;
+      const removableCount = parentCanRemove
+        ? Math.min(requestedCount, newData[parentRowIndex].length - minimumLength)
+        : 0;
 
-        if (rowTypes[r] === 'single' || rowTypes[r] === 'nathap') {
-          const canDelete = Math.min(deleteCount, newData[r].length - minAllowed);
-          if (canDelete > 0) newData[r].splice(actualMinM, canDelete);
-        } 
-        else if (rowTypes[r] === 'double-right') {
-          const canDelete = Math.min(deleteCount, newData[r].length - minAllowed);
-          if (canDelete > 0) {
-            newData[r].splice(actualMinM, canDelete);
-            if (newData[r + 1]) newData[r + 1].splice(actualMinM, canDelete);
-          }
-        } 
-        else if (rowTypes[r] === 'double-left') {
-          if (r === minR) {
-            const canDelete = Math.min(deleteCount, newData[r].length - minAllowed);
-            if (canDelete > 0) {
-              newData[r].splice(actualMinM, canDelete);
-              if (newData[r - 1]) newData[r - 1].splice(actualMinM, canDelete);
-            }
-          }
+      if (removableCount > 0) {
+        newData[parentRowIndex].splice(measureIndex, removableCount);
+        if (parentType === 'double-right' && newData[parentRowIndex + 1]) {
+          newData[parentRowIndex + 1].splice(measureIndex, removableCount);
         }
+      }
+
+      const firstRelatedRow = parentRowIndex + (parentType === 'double-right' ? 2 : 1);
+      const parentLastMeasureIndex = newData[parentRowIndex].length - 1;
+      const isExtraMeasure = !parentCanRemove && measureIndex > parentLastMeasureIndex;
+      let removedExtraMeasure = false;
+      for (let relatedRowIndex = firstRelatedRow; relatedRowIndex < rowTypes.length; relatedRowIndex++) {
+        const relatedType = rowTypes[relatedRowIndex];
+        if (relatedType === 'page-break' || relatedType === 'single' || relatedType === 'double-right' || relatedType === 'double-left') break;
+        if (relatedType !== 'nathap' || !newData[relatedRowIndex]) continue;
+
+        const relatedMinimumLength = hasNathapLeadingLabel(newData[relatedRowIndex], relatedType) ? 2 : 1;
+        const requestedRelatedCount = removableCount || (isExtraMeasure ? requestedCount : 0);
+        const relatedRemovableCount = Math.min(requestedRelatedCount, newData[relatedRowIndex].length - relatedMinimumLength);
+        if (relatedRemovableCount > 0 && measureIndex < newData[relatedRowIndex].length) {
+          newData[relatedRowIndex].splice(measureIndex, relatedRemovableCount);
+          removedExtraMeasure = true;
+        }
+      }
+
+      return removableCount || (removedExtraMeasure ? 1 : 0);
+    };
+
+    if (isBlockSelection) {
+      const processedParents = new Set();
+      for (let r = minR; r <= maxR; r++) {
+        if (!['single', 'double-right', 'double-left', 'nathap'].includes(rowTypes[r])) continue;
+        const parentRowIndex = getParentRowIndex(r);
+        if (processedParents.has(parentRowIndex)) continue;
+        processedParents.add(parentRowIndex);
+
+        const actualMinM = rowTypes[parentRowIndex] === 'double-right' ? Math.max(1, minM) : minM;
+        if (actualMinM <= maxM) removeMeasuresFromGroup(parentRowIndex, actualMinM, maxM - actualMinM + 1);
       }
       
       commitChange(newData);
@@ -1031,11 +1085,8 @@ export const useSheetEditor = ({
       const [rowIdx, measIdx] = selectedCell;
       if (rowTypes[rowIdx] === 'page-break' || rowTypes[rowIdx] === 'text' || (rowTypes[rowIdx].startsWith('double') && measIdx === 0) || (measIdx === 0 && hasNathapLeadingLabel(sheetData[rowIdx], rowTypes[rowIdx]))) return;
       
-      if (sheetData[rowIdx].length > (rowTypes[rowIdx].startsWith('double') ? 2 : 1)) {
-        if (rowTypes[rowIdx] === 'single' || rowTypes[rowIdx] === 'nathap') newData[rowIdx].splice(measIdx, 1);
-        else if (rowTypes[rowIdx] === 'double-right') { newData[rowIdx].splice(measIdx, 1); newData[rowIdx + 1].splice(measIdx, 1); }
-        else if (rowTypes[rowIdx] === 'double-left') { newData[rowIdx].splice(measIdx, 1); newData[rowIdx - 1].splice(measIdx, 1); }
-        
+      const parentRowIndex = getParentRowIndex(rowIdx);
+      if (removeMeasuresFromGroup(parentRowIndex, measIdx) > 0) {
         commitChange(newData);
         if (measIdx >= newData[rowIdx].length) setSelectedCell([rowIdx, newData[rowIdx].length - 1, 0]);
       }

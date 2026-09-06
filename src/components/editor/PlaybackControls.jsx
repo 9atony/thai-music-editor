@@ -25,7 +25,10 @@ const PlaybackControls = () => {
   } = useContext(MusicContext);
 
   const [textFontSize, setTextFontSize] = useState(16);
+  const [bpmInput, setBpmInput] = useState(String(layoutConfig.bpm ?? 80));
+  const [fontSizeInput, setFontSizeInput] = useState('16');
   const savedSelection = useRef(null);
+  const [textFormat, setTextFormat] = useState({});
   
   const [isCollapsed, setIsCollapsed] = useState(false);
 
@@ -41,15 +44,24 @@ const PlaybackControls = () => {
   const isEditingMode = toolbarMode === 'symbol'; 
 
   const handleBpmChange = (e) => {
-    let val = parseInt(e.target.value);
-    setLayoutConfig({ ...layoutConfig, bpm: isNaN(val) ? "" : val });
+    const raw = e.target.value;
+    setBpmInput(raw);
+    const val = parseInt(raw, 10);
+    setLayoutConfig({ ...layoutConfig, bpm: raw === '' || Number.isNaN(val) ? '' : val });
   };
   const handleBpmBlur = () => {
     let val = parseInt(layoutConfig.bpm);
     if (isNaN(val) || val < 20) val = 20;
     if (val > 300) val = 300;
+    setBpmInput(String(val));
     setLayoutConfig({ ...layoutConfig, bpm: val });
   };
+
+  useEffect(() => {
+    if (document.activeElement?.dataset.bpmInput !== 'true') {
+      setBpmInput(String(layoutConfig.bpm ?? 80));
+    }
+  }, [layoutConfig.bpm]);
   const handleVolumeChange = (e) => {
     setLayoutConfig({ ...layoutConfig, volume: parseInt(e.target.value) });
   };
@@ -189,10 +201,17 @@ const PlaybackControls = () => {
           }
           savedSelection.current = selection.getRangeAt(0).cloneRange();
           const computedStyle = window.getComputedStyle(element);
+          setTextFormat({
+            fontFamily: computedStyle.fontFamily,
+            color: '#' + (computedStyle.color.match(/\d+/g) || [15, 23, 42]).slice(0, 3).map(v => Number(v).toString(16).padStart(2, '0')).join(''),
+            bold: document.queryCommandState('bold'), italic: document.queryCommandState('italic'), underline: document.queryCommandState('underline'),
+            sectionLabel: isInsideEditor.dataset.sectionLabelEditor === 'true'
+          });
           if (computedStyle && computedStyle.fontSize) {
             const sizeInt = parseInt(computedStyle.fontSize, 10);
             if (!isNaN(sizeInt) && sizeInt !== textFontSize) {
               setTextFontSize(sizeInt);
+              setFontSizeInput(String(sizeInt));
             }
           }
         }
@@ -234,7 +253,7 @@ const PlaybackControls = () => {
     if (!savedSelection.current) return null;
     let node = savedSelection.current.commonAncestorContainer;
     const editor = node.nodeType === 3 ? node.parentElement.closest('[contenteditable="true"]') : node.closest('[contenteditable="true"]');
-    return editor?.dataset.rowLabelEditor === 'true' ? null : editor;
+    return !editor?.isConnected || editor.dataset.rowLabelEditor === 'true' || (editor.dataset.sectionLabelEditor === 'true' && toolbarMode !== 'text') ? null : editor;
   };
 
   const handleUniversalFontSizeChange = (val, step = 0) => {
@@ -252,6 +271,11 @@ const PlaybackControls = () => {
                 const selection = window.getSelection();
                 selection.removeAllRanges();
                 selection.addRange(savedSelection.current);
+                if (editor.dataset.sectionLabelEditor === 'true' && selection.isCollapsed && editor.textContent) {
+                  const range = document.createRange();
+                  range.selectNodeContents(editor);
+                  selection.removeAllRanges(); selection.addRange(range);
+                }
                 
                 document.execCommand("styleWithCSS", false, true);
                 document.execCommand("fontSize", false, "7");
@@ -282,6 +306,11 @@ const PlaybackControls = () => {
     const selection = window.getSelection();
     selection.removeAllRanges();
     selection.addRange(savedSelection.current);
+                if (editor.dataset.sectionLabelEditor === 'true' && selection.isCollapsed && editor.textContent) {
+                  const range = document.createRange();
+                  range.selectNodeContents(editor);
+                  selection.removeAllRanges(); selection.addRange(range);
+                }
 
     document.execCommand("styleWithCSS", false, true);
     
@@ -302,6 +331,17 @@ const PlaybackControls = () => {
     syncFormatToState();
   };
 
+  const handleFontSizeInputChange = (e) => {
+    const raw = e.target.value;
+    setFontSizeInput(raw);
+    if (raw !== '' && /^\d+$/.test(raw)) handleUniversalFontSizeChange(parseInt(raw, 10));
+  };
+  const handleFontSizeInputBlur = () => {
+    const value = Math.min(150, Math.max(10, parseInt(fontSizeInput, 10) || 16));
+    setFontSizeInput(String(value));
+    handleUniversalFontSizeChange(value);
+  };
+
   const defaultFontFamily = layoutConfig.fontFamily || "'Sarabun', sans-serif";
   const selectedRowLabelStyle = selectionRange?.labelOnly
     ? layoutConfig.customStyles?.[`${selectionRange.start[0]}_0_0`] || {}
@@ -310,6 +350,18 @@ const PlaybackControls = () => {
     || (selectionRange?.labelOnly ? layoutConfig.rowLabelFontFamily : null)
     || layoutConfig.noteFontFamily
     || defaultFontFamily;
+
+  useEffect(() => {
+    if (toolbarMode === 'text') {
+      setFontSizeInput(String(textFontSize || 16));
+      return;
+    }
+    const size = selectionRange?.labelOnly
+      ? (selectedRowLabelStyle?.fontSize ?? layoutConfig.rowLabelFontSize ?? layoutConfig.fontSize ?? 16)
+      : ((selectedCell && layoutConfig.customStyles?.[`${selectedCell[0]}_${selectedCell[1]}_${selectedCell[2]}`]?.fontSize)
+        ?? layoutConfig.fontSize ?? 16);
+    setFontSizeInput(String(size));
+  }, [toolbarMode, textFontSize, selectedCell, selectionRange, layoutConfig.fontSize, layoutConfig.rowLabelFontSize, selectedRowLabelStyle?.fontSize]);
 
   const renderModeContent = () => {
     switch(toolbarMode) {
@@ -358,7 +410,7 @@ const PlaybackControls = () => {
 
             <div className="flex items-center gap-2 bg-slate-50 px-2 py-1.5 rounded-lg border border-slate-200 shrink-0">
               <span className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider pl-1">BPM</span>
-              <input type="number" min="20" max="300" value={layoutConfig.bpm || 80} onChange={handleBpmChange} onBlur={handleBpmBlur} className="w-12 text-center text-sm font-bold text-slate-700 bg-transparent border-none focus:outline-none focus:ring-0 p-0" />
+              <input type="number" min="20" max="300" data-bpm-input="true" value={bpmInput} onChange={handleBpmChange} onBlur={handleBpmBlur} className="w-12 text-center text-sm font-bold text-slate-700 bg-transparent border-none focus:outline-none focus:ring-0 p-0" />
             </div>
             
             <div className="flex items-center gap-2 bg-slate-50 px-2 py-1.5 rounded-lg border border-slate-200 border-r border-slate-200 pr-4 shrink-0">
@@ -367,11 +419,11 @@ const PlaybackControls = () => {
             </div>
 
             <div className="flex items-center gap-3 shrink-0">
-              <span className="text-xs font-bold text-sky-600 bg-sky-50 px-2 py-1.5 rounded-md border border-sky-100 whitespace-nowrap">เครื่องมือจัดหน้า</span>
+              <span className="text-xs font-bold text-sky-600 bg-sky-50 px-2 py-1.5 rounded-md border border-sky-100 whitespace-nowrap">{toolbarMode === 'text' && textFormat.sectionLabel ? 'กำลังแก้ไข: ป้ายกำกับ' : 'เครื่องมือจัดหน้า'}</span>
               
               <div className="flex items-center gap-2">
                 <select 
-                  value={selectedFontFamily}
+                  value={toolbarMode === 'text' ? (FONT_OPTIONS.find(font => textFormat.fontFamily?.replaceAll('"', "'").includes(font.label))?.value || selectedFontFamily) : selectedFontFamily}
                   onChange={(e) => {
                     const hasTextSelection = savedSelection.current && savedSelection.current.toString().length > 0;
                     if (toolbarMode === 'text' || (hasTextSelection && getActiveEditor())) {
@@ -390,14 +442,9 @@ const PlaybackControls = () => {
                 <button onMouseDown={(e) => { e.preventDefault(); handleUniversalFontSizeChange(null, -2); }} className="w-8 h-full text-slate-500 hover:bg-slate-100 font-black transition-colors">−</button>
                 <input 
                   type="number" min="10" max="150" 
-                  value={toolbarMode === 'text' || (savedSelection.current && savedSelection.current.toString().length > 0 && getActiveEditor()) 
-                    ? textFontSize 
-                    : (selectionRange?.labelOnly
-                        ? (selectedRowLabelStyle?.fontSize ?? layoutConfig.rowLabelFontSize ?? layoutConfig.fontSize ?? 16)
-                        : (selectedCell && layoutConfig.customStyles?.[`${selectedCell[0]}_${selectedCell[1]}_${selectedCell[2]}`]?.fontSize
-                        ? layoutConfig.customStyles[`${selectedCell[0]}_${selectedCell[1]}_${selectedCell[2]}`].fontSize
-                        : (layoutConfig.fontSize || 16)))}
-                  onChange={(e) => handleUniversalFontSizeChange(parseInt(e.target.value) || 16)} 
+                  value={fontSizeInput}
+                  onChange={handleFontSizeInputChange}
+                  onBlur={handleFontSizeInputBlur}
                   className="w-10 text-center text-sm font-bold text-slate-700 bg-slate-50 border-none focus:ring-0 p-0 h-full" 
                 />
                 <button onMouseDown={(e) => { e.preventDefault(); handleUniversalFontSizeChange(null, 2); }} className="w-8 h-full text-slate-500 hover:bg-slate-100 font-black transition-colors">+</button>
@@ -414,7 +461,7 @@ const PlaybackControls = () => {
                       handleNoteStyle('isBold', null, true);
                     }
                   }} 
-                  className={`w-7 h-7 flex items-center justify-center text-sm rounded-md transition-all ${layoutConfig.isBold && toolbarMode !== 'text' ? 'bg-sky-500 text-white font-bold shadow-sm' : 'text-slate-600 hover:bg-slate-100 font-medium'}`}
+                  className={`w-7 h-7 flex items-center justify-center text-sm rounded-md transition-all ${(toolbarMode === 'text' ? textFormat.bold : layoutConfig.isBold) ? 'bg-sky-500 text-white font-bold shadow-sm' : 'text-slate-600 hover:bg-slate-100 font-medium'}`}
                 >B</button>
                 
                 <button 
@@ -427,7 +474,7 @@ const PlaybackControls = () => {
                       handleNoteStyle('isItalic', null, true);
                     }
                   }} 
-                  className={`w-7 h-7 flex items-center justify-center text-sm rounded-md italic transition-all ${layoutConfig.isItalic && toolbarMode !== 'text' ? 'bg-sky-500 text-white font-bold shadow-sm' : 'text-slate-600 hover:bg-slate-100 font-medium'}`}
+                  className={`w-7 h-7 flex items-center justify-center text-sm rounded-md italic transition-all ${(toolbarMode === 'text' ? textFormat.italic : layoutConfig.isItalic) ? 'bg-sky-500 text-white font-bold shadow-sm' : 'text-slate-600 hover:bg-slate-100 font-medium'}`}
                 >I</button>
 
                 <button 
@@ -457,7 +504,7 @@ const PlaybackControls = () => {
                 <div className="p-0.5 bg-white border border-slate-300 rounded-lg shadow-sm hover:border-slate-400 transition-all flex items-center justify-center cursor-pointer">
                   <input 
                     type="color" 
-                    value={layoutConfig.symbolColor || '#1e293b'} 
+                    value={toolbarMode === 'text' ? (textFormat.color || '#0f172a') : (layoutConfig.symbolColor || '#1e293b')}
                     onChange={(e) => {
                       const hasTextSelection = savedSelection.current && savedSelection.current.toString().length > 0;
                       

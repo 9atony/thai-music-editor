@@ -660,7 +660,15 @@ export const MusicProvider = ({ children }) => {
       togglePlay: audioPlayback.togglePlay, 
       inputNote: sheetEditor.inputNote, 
       removeSymbol: sheetEditor.removeSymbol, removeSymbolByCell: sheetEditor.removeSymbolByCell, 
-      addRow: sheetEditor.addRow, addDoubleRow: sheetEditor.addDoubleRow, removeRow: sheetEditor.removeRow, 
+      addRow: sheetEditor.addRow, addDoubleRow: sheetEditor.addDoubleRow, removeRow: sheetEditor.removeRow, removeMeasure: sheetEditor.removeMeasure,
+      hasMeasureSelection: Boolean(
+        sheetEditor.selectionRange
+        && !sheetEditor.selectionRange.labelOnly
+        && sheetEditor.selectionRange.start
+        && sheetEditor.selectionRange.end
+        && (sheetEditor.selectionRange.start[0] !== sheetEditor.selectionRange.end[0]
+          || sheetEditor.selectionRange.start[1] !== sheetEditor.selectionRange.end[1])
+      ),
       setSelectionRange: sheetEditor.setSelectionRange, setSelectedCell: sheetEditor.setSelectedCell,
       setSelectedSymbolId
     };
@@ -727,6 +735,8 @@ export const MusicProvider = ({ children }) => {
           if (e.key === 'Backspace') {
              actionsRef.current.removeSymbolByCell(sheetEditor.selectedCellRef.current);
              actionsRef.current.inputNote('BACKSPACE');
+          } else if (actionsRef.current.hasMeasureSelection) {
+             actionsRef.current.removeMeasure();
           } else {
              actionsRef.current.removeRow(); 
           }

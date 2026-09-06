@@ -1,3 +1,4 @@
+import SectionLabel from './SectionLabel';
 import React, { useContext, forwardRef, useMemo, useEffect, useState, useCallback, useRef } from 'react';
 import { Copy, Plus, Trash2 } from 'lucide-react';
 import { MusicContext } from '../../contexts/MusicContext';
@@ -342,11 +343,33 @@ const Sheet = forwardRef((props, ref) => {
     setEditingTokenValue('');
   }, []);
 
+  const getRowInsertGuideWidth = (rowIndex) => {
+    const row = sheetData[rowIndex] || [];
+    const rowType = rowTypes[rowIndex] || '';
+    if (rowType === 'text' || rowType === 'page-break') return '100%';
+
+    const hasLeadingLabel = rowType.startsWith('double') || hasNathapLeadingLabel(row, rowType);
+    const pairedRow = rowType === 'double-right' ? (sheetData[rowIndex + 1] || []) : [];
+    const measureCount = rowType === 'double-right'
+      ? Math.max(0, Math.max(row.length, pairedRow.length) - 1)
+      : Math.max(0, row.length - (hasLeadingLabel ? 1 : 0));
+    const visibleMeasureCount = Math.max(1, Math.min(MAIN_STAFF_MEASURE_COUNT, measureCount));
+
+    if (visibleMeasureCount >= MAIN_STAFF_MEASURE_COUNT) return '100%';
+    const ratio = visibleMeasureCount / MAIN_STAFF_MEASURE_COUNT;
+    return hasLeadingLabel
+      ? `calc(${staffLabelColumnWidth}px + ${ratio * 100}% - ${staffLabelColumnWidth * ratio}px)`
+      : `${ratio * 100}%`;
+  };
+
   const RowInsertControl = ({ rowIndex }) => {
     if (isReadOnly || !addNathapRow) return null;
+    if (rowTypes[rowIndex] === 'text') return null;
+    if (rowTypes[rowIndex + 1] === 'single' || rowTypes[rowIndex + 1] === 'double-right') return null;
+    const guideWidth = getRowInsertGuideWidth(rowIndex);
 
     return (
-      <div className="group/row-insert print-hidden absolute -bottom-2 left-0 right-0 z-40 flex h-4 items-center">
+      <div className="group/row-insert print-hidden absolute -bottom-2 left-0 z-40 flex h-4 items-center" style={{ width: guideWidth }}>
         <div className="h-0.5 w-full bg-transparent transition-colors duration-150 group-hover/row-insert:bg-blue-500 group-hover/row-insert:shadow-[0_0_5px_rgba(59,130,246,0.75)]" />
         <button
           type="button"
@@ -358,7 +381,7 @@ const Sheet = forwardRef((props, ref) => {
             event.stopPropagation();
             addNathapRow([rowIndex, 0, 0]);
           }}
-          className="absolute -left-2 flex h-4 w-4 items-center justify-center rounded-full border border-blue-500 bg-white text-blue-600 opacity-0 shadow-sm transition-all group-hover/row-insert:opacity-100 hover:scale-110 hover:bg-blue-50 focus:opacity-100 focus:outline-none focus:ring-1 focus:ring-blue-300"
+          className="absolute -left-2 top-0 flex h-4 w-4 items-center justify-center rounded-full border border-blue-500 bg-white text-blue-600 opacity-0 shadow-sm transition-all group-hover/row-insert:opacity-100 hover:scale-110 hover:bg-blue-50 focus:opacity-100 focus:outline-none focus:ring-1 focus:ring-blue-300"
         >
           <Plus className="h-2.5 w-2.5" strokeWidth={2.5} aria-hidden="true" />
         </button>
@@ -539,6 +562,7 @@ const Sheet = forwardRef((props, ref) => {
       setToolbarMode('default');
       return undefined;
     }
+    if (document.activeElement?.dataset.sectionLabelEditor === 'true') { setToolbarMode('text'); return; }
     const [r, m] = selectedCell;
     if (rowTypes[r] === 'text') {
       setToolbarMode('text'); 
@@ -763,7 +787,9 @@ const Sheet = forwardRef((props, ref) => {
     const mTopPx = getMarginPx(layoutConfig.marginTop ?? 48, mUnit);
     const mBotPx = getMarginPx(layoutConfig.marginBottom ?? 48, mUnit);
     const PAGE_PADDING = mTopPx + mBotPx;
-    const FOOTER_SPACE = 20;   
+    // Matches the rows container's pb-12 (48px) plus a small safety gap above
+    // the absolutely positioned footer.
+    const FOOTER_SPACE = 56;
     
     const headerLines = layoutConfig.detailsAlign === 'between' ? Math.ceil(headerDetails.length / 2) : headerDetails.length;
     const headerBottomSpacing = layoutConfig.headerBottomSpacing ?? 8;
@@ -793,15 +819,20 @@ const Sheet = forwardRef((props, ref) => {
       if (rType === 'text') {
         let textValue = (row && row[0] && typeof row[0][0] === 'string') ? row[0][0] : '';
         const breakCount = (textValue.match(/<br\s*\/?>/gi) || []).length;
-        const divCount = (textValue.match(/<div/gi) || []).length;
-        const pCount = (textValue.match(/<p/gi) || []).length;
-        const totalLines = Math.max(1, 1 + breakCount + divCount + pCount);
+        const blockCount = (textValue.match(/<(?:div|p)(?:\s[^>]*)?>/gi) || []).length;
+        const emptyBlockCount = (textValue.match(/<(?:div|p)(?:\s[^>]*)?>\s*(?:<br\s*\/?>)?\s*<\/(?:div|p)>/gi) || []).length;
+        const hasText = textValue.replace(/<[^>]+>/g, '').replace(/&nbsp;/gi, '').trim().length > 0;
+        // contenteditable commonly turns one empty Enter into <div><br></div>.
+        // That is one visual line, not three lines.
+        const totalLines = blockCount > 0
+          ? Math.max(1, blockCount + breakCount - emptyBlockCount)
+          : (hasText ? Math.max(1, breakCount + 1) : Math.max(1, breakCount));
 
         const textLineHeight = layoutConfig.textLineHeight || 1.5;
         const baseLineHeight = Math.max(20, (layoutConfig.textFontSize || 16) * textLineHeight);
-        const textRowHeight = (baseLineHeight * totalLines) + rMarginTop + rMarginBot; 
+        const textRowHeight = (baseLineHeight * totalLines) + rMarginTop + rMarginBot + 8;
         
-        if ((currentUsedHeight + textRowHeight + 120 + headerSpace + PAGE_PADDING + FOOTER_SPACE > A4_HEIGHT_PX) && currentRows.length > 0) {
+        if ((currentUsedHeight + textRowHeight + headerSpace + PAGE_PADDING + FOOTER_SPACE > A4_HEIGHT_PX) && currentRows.length > 0) {
           calculatedPages.push({ rows: currentRows, startIndex: i - currentRows.length });
           currentRows = [row]; currentUsedHeight = textRowHeight; isFirstPage = false;
         } else {
@@ -813,12 +844,12 @@ const Sheet = forwardRef((props, ref) => {
       const isDoubleRight = rType === 'double-right';
       const isDoubleLeft = rType === 'double-left';
       const isDouble = isDoubleRight || isDoubleLeft;
-      const isNathap = rType === 'nathap';
       const measureCount = getMeasureCountForRowType(row, rType);
       const visualLines = Math.max(1, Math.ceil(measureCount / MAIN_STAFF_MEASURE_COUNT));
       
       const gridHeight = (layoutConfig.measureHeight * visualLines) + (layoutConfig.rowGap * Math.max(0, visualLines - 1));
-      const pb = (isDoubleRight || isNathap) ? 0 : layoutConfig.rowGap; 
+      const nextType = rowTypes[i + 1];
+      const pb = (isDoubleRight || nextType === 'annotation' || nextType === 'nathap') ? 0 : layoutConfig.rowGap;
       const actualRowHeight = gridHeight + pb + rMarginTop + rMarginBot;
       let combinedHeight = actualRowHeight;
       
@@ -829,7 +860,9 @@ const Sheet = forwardRef((props, ref) => {
          const nextGridHeight = (layoutConfig.measureHeight * nextVisualLines) + (layoutConfig.rowGap * Math.max(0, nextVisualLines - 1));
          const nextRMarginTop = rowMargins[i+1]?.top || 0;
          const nextRMarginBot = rowMargins[i+1]?.bottom || 0;
-         combinedHeight += nextGridHeight + layoutConfig.rowGap + nextRMarginTop + nextRMarginBot;
+         const nextAfterPair = rowTypes[i + 2];
+         const pairGap = (nextAfterPair === 'annotation' || nextAfterPair === 'nathap') ? 0 : layoutConfig.rowGap;
+         combinedHeight += nextGridHeight + pairGap + nextRMarginTop + nextRMarginBot;
       }
 
       if (rType !== 'double-left' && (currentUsedHeight + combinedHeight + headerSpace + PAGE_PADDING + FOOTER_SPACE > A4_HEIGHT_PX) && currentRows.length > 0) {
@@ -1208,12 +1241,13 @@ const Sheet = forwardRef((props, ref) => {
     );
   };
 
-  const renderSectionLabels = (visualIndex, rowType, actualRowIndex) => { 
+  const renderSectionLabels = (visualIndex, actualRowIndex, showTop, showBottom) => {
     const labels = sectionLabels[visualIndex];
     if (!labels || labels.length === 0) return null;
     
     return labels.map((label) => {
-      if (!label.text) return null;
+      if (!label.text && isReadOnly) return null;
+      if (label.position.includes('top') ? !showTop : !showBottom) return null;
       
       // ⭐ ลบเงื่อนไขที่บล็อกป้ายออกไป เนื่องจากเราวาดมือซ้ายและมือขวารวมกันในกล่องเดียว (double-right) แล้ว
       // กล่องนี้จึงมีสิทธิ์วาดป้ายได้ทั้งด้านบนและด้านล่างอย่างอิสระครับ
@@ -1236,20 +1270,9 @@ const Sheet = forwardRef((props, ref) => {
       else if (label.position.includes('right')) positionStyle.right = '0'; 
 return (
         <div key={label.id} style={positionStyle} className="tracking-wide">
-          <div
-            id={`sheet-label-${label.id}`} // ⭐ 1. เพิ่ม ID ให้ระบบลิงก์ข้อความหากันเจอ
-            onMouseDown={(e) => {
-                e.stopPropagation();
-                setSelectedCell([actualRowIndex, 0, 0]); 
-            }}
-          
-            onClick={(e) => {
-                e.stopPropagation();
-                window.dispatchEvent(new CustomEvent('tme-open-labels-tab'));
-            }}
-            dangerouslySetInnerHTML={{ __html: label.text || 'ป้ายกำกับ' }}
-            className="cursor-pointer hover:ring-2 hover:ring-indigo-300 hover:bg-indigo-50/50 rounded px-1 transition-all print:hover:bg-transparent print:hover:ring-0 min-w-[20px]"
-            title="คลิกเพื่อแก้ไขในแถบเครื่องมือ"
+          <SectionLabel label={label} readOnly={isReadOnly}
+            onSelect={() => { setSelectedCell([actualRowIndex, 0, 0]); setSelectedSymbolId(null); setToolbarMode('text'); }}
+            onSave={(text) => updateSectionLabel(visualIndex, label.id, { text })}
           />
         </div>
       );
@@ -1653,7 +1676,7 @@ return (
               )}
 
               {/* Rows Rendering */}
-              <div className="flex flex-col w-full pb-12 print:pb-[15mm] h-full relative">
+              <div className="flex flex-col w-full pb-12 print:pb-[15mm] flex-1 min-h-0 relative">
                 {page.rows.map((row, localIndex) => {
                   const rIndex = page.startIndex + localIndex;
                   const rType = rowTypes[rIndex];
@@ -1697,6 +1720,11 @@ return (
   id={`text-row-${rIndex}`} 
   contentEditable
   suppressContentEditableWarning
+  onFocus={() => {
+    if (selectedCell[0] !== rIndex) setSelectedCell([rIndex, 0, 0]);
+    if (setSelectedSymbolId) setSelectedSymbolId(null);
+    if (setToolbarMode) setToolbarMode('text');
+  }}
   onMouseDown={(e) => e.stopPropagation()}
   onMouseUp={(e) => {
     e.stopPropagation();
@@ -1708,9 +1736,7 @@ return (
   // 1. เซฟค่าชั่วคราวตอนพิมพ์ (ป้องกันเคอร์เซอร์เด้ง)
                           // เซฟแบบเงียบๆ ป้องกันเคอร์เซอร์เด้ง
                           onInput={(e) => {
-                            if (sheetData[rIndex] && sheetData[rIndex][0]) {
-                              sheetData[rIndex][0][0] = e.target.innerHTML;
-                            }
+                            updateTextRow?.(rIndex, e.target.innerHTML, { preview: true });
                             setPaginateTrigger(prev => prev + 1); 
                           }}
                           // ❌ ลบ onKeyUp ทิ้งไปแล้ว ❌
@@ -1726,30 +1752,33 @@ return (
 
                             // ⭐ ระบบ Enter อัจฉริยะ (ทับของเดิมเลยครับ)
                             if (e.key === 'Enter') {
-                              const pageEl = e.target.closest('.print-page');
-                              if (pageEl) {
-                                 const pageRect = pageEl.getBoundingClientRect();
-                                 const divRect = e.target.getBoundingClientRect();
-                                 // เรดาร์กะระยะขอบล่าง (เว้นที่ไว้ 120px)
-                                 const threshold = 120 * (zoom / 100); 
-                                 
-                                 // 🚨 ถ้ากล่องข้อความยาวจนชิดขอบล่างกระดาษแล้ว
-                                 if (divRect.bottom > pageRect.bottom - threshold) {
-                                    e.preventDefault();
-                                    e.target.blur(); // เซฟเนื้อหาแผ่นนี้
-                                    if (addTextRow) addTextRow(false); // ขึ้นกล่องใหม่/หน้าใหม่ให้ทันที!
-                                    return;
-                                 }
-                              }
-                              
-                              // ✅ ถ้ากระดาษยังเหลือ: สับบรรทัด ณ "จุดที่เคอร์เซอร์อยู่" พอดีเป๊ะ
                               e.preventDefault();
-                              document.execCommand('insertLineBreak');
+                              // Enter creates a separate text row immediately below the active
+                              // cursor, regardless of where that cursor is on the page.
+                              if (addTextRow) {
+                                addTextRow(false, {
+                                  sourceRowIndex: rIndex,
+                                  sourceText: e.currentTarget.innerHTML
+                                });
+                                return;
+                              }
+
+                              const selection = window.getSelection();
+                              if (selection?.rangeCount) {
+                                const range = selection.getRangeAt(0);
+                                if (e.currentTarget.contains(range.commonAncestorContainer)) {
+                                  range.deleteContents();
+                                  const lineBreak = document.createElement('br');
+                                  range.insertNode(lineBreak);
+                                  range.setStartAfter(lineBreak);
+                                  range.collapse(true);
+                                  selection.removeAllRanges();
+                                  selection.addRange(range);
+                                }
+                              }
                               
                               // บันทึกเงียบๆ ไม่ให้ React รีเฟรชจนเคอร์เซอร์เด้งหนี
-                              if (sheetData[rIndex] && sheetData[rIndex][0]) {
-                                sheetData[rIndex][0][0] = e.target.innerHTML;
-                              }
+                              updateTextRow?.(rIndex, e.currentTarget.innerHTML, { preview: true });
                               setPaginateTrigger(prev => prev + 1);
                               return;
                             }
@@ -1820,7 +1849,6 @@ return (
                           className="w-full outline-none text-slate-800 cursor-text bg-transparent min-h-[24px]"
                           style={{ fontSize: `${layoutConfig.textFontSize || 16}px`, fontFamily: textFontFamily, lineHeight: layoutConfig.textLineHeight || 1.5 }}
                         />
-                        <RowInsertControl rowIndex={rIndex} />
                       </div>
                     );
                   }
@@ -1832,17 +1860,27 @@ return (
                   
                   // ⭐ เช็กว่าบรรทัดถัดไปเป็นคำอธิบายหรือหน้าทับหรือไม่ เพื่อลดระยะห่างให้ติดกัน
                   const nextRType = rIndex + 1 < rowTypes.length ? rowTypes[rIndex + 1] : null;
-                  // ⭐ Bug fix 2: nathap row ลด padding ให้ชิดกับบรรทัดแม่
-                  const isNathapRow = rType === 'nathap';
-                  const pb = (isDoubleRight || isNathapRow || nextRType === 'annotation' || nextRType === 'nathap') ? 0 : layoutConfig.rowGap;
+                  // แถวประกอบติดกับแถวด้านบน และเว้นระยะหลังแถวสุดท้ายของกลุ่ม
+                  const pb = (isDoubleRight || nextRType === 'annotation' || nextRType === 'nathap') ? 0 : layoutConfig.rowGap;
 
                   let visualRowNumber = displayRowNumbers[rIndex];
                   if (isDoubleLeft && rIndex > 0) visualRowNumber = displayRowNumbers[rIndex - 1]; 
                   const visualIndex = visualRowNumber !== '' && visualRowNumber != null ? visualRowNumber - 1 : null;                  
                   
                   // ⭐ 1. เพิ่มการเช็กว่าบรรทัดนี้มีป้ายกำกับอยู่หรือไม่
-                  const currentLabels = visualIndex !== null ? sectionLabels[visualIndex] : null;
-                  const hasLabels = currentLabels && currentLabels.length > 0;
+                  // Bottom labels belong to the final companion row in the staff group.
+                  let labelOwnerIndex = rIndex;
+                  while (labelOwnerIndex > 0 && (rowTypes[labelOwnerIndex] === 'nathap' || rowTypes[labelOwnerIndex] === 'annotation')) {
+                    labelOwnerIndex--;
+                  }
+                  if (rowTypes[labelOwnerIndex] === 'double-left') labelOwnerIndex--;
+                  const ownerNumber = displayRowNumbers[labelOwnerIndex];
+                  const labelVisualIndex = ownerNumber !== '' && ownerNumber != null ? ownerNumber - 1 : null;
+                  const nextGroupRow = rowTypes[rIndex + (isDoubleRight ? 2 : 1)];
+                  const showTopLabels = labelOwnerIndex === rIndex;
+                  const showBottomLabels = nextGroupRow !== 'nathap' && nextGroupRow !== 'annotation';
+                  const currentLabels = labelVisualIndex !== null ? sectionLabels[labelVisualIndex] : null;
+                  const hasLabels = currentLabels?.some(label => label.position.includes('top') ? showTopLabels : showBottomLabels);
 
                   // ⭐ สร้างแพ็กเกจสำหรับวาดช่องโน้ต (รองรับการหั่นบรรทัดเมื่อล้น 8 ห้อง และบรรทัดคำอธิบาย)
                   const renderMeasureBlock = (measure, actualMIndex, localMIdx, actualRIndex, actualRType, chunkLength) => {
@@ -2151,7 +2189,8 @@ return (
                                 minCol = Math.min(startColVal, endColVal); maxCol = Math.max(startColVal, endColVal);
                               }
 
-                              if (selectionRange && actualRIndex >= minR && actualRIndex <= maxR) {
+                              // การเลือกชื่อมือ (labelOnly) ต้องไม่ทำให้ช่องโน้ตในแถวเดียวกันถูกเลือกด้วย
+                              if (selectionRange && !selectionRange.labelOnly && actualRIndex >= minR && actualRIndex <= maxR) {
                                   const currentCol = getFlattenedCol(sheetData[actualRIndex], actualRType, actualMIndex, cIndex);
                                   if (currentCol >= minCol && currentCol <= maxCol) isInRange = true;
                               }
@@ -2393,6 +2432,9 @@ return (
                   }
 
                   const canAddInlineStructure = !isReadOnly && (isDoubleRight || rType === 'single');
+                  const canAddRowBelow = canAddInlineStructure
+                    && nextRType !== 'single'
+                    && nextRType !== 'double-right';
                   const lastMeasureIndex = Math.max(0, row.length - 1);
 
                   const handleAddNextRow = (event) => {
@@ -2406,18 +2448,20 @@ return (
                     event.stopPropagation();
                     if (addMeasure) addMeasure([rIndex, lastMeasureIndex, 0]);
                   };
+                  // Labels extend outside their staff. Keep their parent above
+                  // neighbouring staff hover layers so the labels remain clickable.
+                  const rowLayerClass = hasLabels
+                    ? 'z-[120] hover:z-[120] focus-within:z-[130]'
+                    : `${(isDoubleRight || rType === 'single') ? 'z-50' : ((rMarginTop < 0 || rMarginBot < 0) ? 'z-20' : 'z-[1]')} hover:z-[100]`;
 
                   return (
                     <div 
                       key={`note-${rIndex}-${rType}`} 
-                      className="flex flex-col w-full relative transition-colors"
+                      className={`group/staff-row flex flex-col w-full relative transition-colors ${rowLayerClass}`}
                       style={{ 
                         paddingBottom: `${containerPb}px`, marginTop: `${rMarginTop}px`, marginBottom: `${containerMarginBot}px`,
                         paddingLeft: `calc(1rem + ${rIndent}px)`, paddingRight: '1rem',
                         // ⭐ 2. ปรับ zIndex ให้บรรทัดที่มีป้ายกำกับลอยอยู่เหนือบรรทัดอื่น ป้องกันโดนพื้นหลังบรรทัดล่างบัง
-                        zIndex: (isDoubleRight || rType === 'single')
-                          ? 50
-                          : ((rMarginTop < 0 || rMarginBot < 0) ? 20 : (hasLabels ? 30 : 1))
                       }}
                     >     
                       <div className="group/row relative w-full">
@@ -2443,11 +2487,11 @@ return (
                           />
                         )}
 
-                        {visualIndex !== null && renderSectionLabels(visualIndex, rType, rIndex)}
+                        {labelVisualIndex !== null && renderSectionLabels(labelVisualIndex, labelOwnerIndex, showTopLabels, showBottomLabels)}
 
                         {measuresContent}
 
-                        {canAddInlineStructure && (
+                        {canAddRowBelow && (
                           <>
                             <div className="hidden">
                               <button
@@ -2464,7 +2508,7 @@ return (
                               </button>
                             </div>
 
-                            <div className="group/row-insert print-hidden absolute -bottom-2 left-0 right-0 z-50 flex h-4 items-center">
+                            <div className="group/row-insert print-hidden absolute -bottom-2 left-0 z-50 flex h-4 items-center" style={{ width: getRowInsertGuideWidth(rIndex) }}>
                               <div className="h-0.5 w-full bg-transparent transition-colors duration-150 group-hover/row-insert:bg-blue-500 group-hover/row-insert:shadow-[0_0_5px_rgba(59,130,246,0.75)]" />
                               <button
                                 type="button"
@@ -2472,7 +2516,7 @@ return (
                                 aria-label="เพิ่มบรรทัดร่วมที่เล่นพร้อมกับบรรทัดนี้"
                                 onMouseDown={(event) => event.stopPropagation()}
                                 onClick={handleAddNextRow}
-                                className="absolute -left-2 flex h-4 w-4 items-center justify-center rounded-full border border-blue-500 bg-white text-blue-600 opacity-0 shadow-sm transition-all group-hover/row-insert:opacity-100 hover:scale-110 hover:bg-blue-50 focus:opacity-100 focus:outline-none focus:ring-1 focus:ring-blue-300"
+                                className="absolute -left-2 top-0 flex h-4 w-4 items-center justify-center rounded-full border border-blue-500 bg-white text-blue-600 opacity-0 shadow-sm transition-all group-hover/row-insert:opacity-100 hover:scale-110 hover:bg-blue-50 focus:opacity-100 focus:outline-none focus:ring-1 focus:ring-blue-300"
                               >
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-2.5 w-2.5" aria-hidden="true">
                                   <path d="M12 5v14M5 12h14" strokeWidth="2.5" strokeLinecap="round" />
