@@ -468,7 +468,7 @@ export const useAudioPlayback = ({
       if (currentRowTypes[r] === 'page-break' || currentRowTypes[r] === 'text' || currentRowTypes[r] === 'annotation' || currentRowTypes[r] === 'nathap') continue; 
       const vIdx = getVisualIndex(r, currentRowTypes);
       const labels = currentSectionLabels[vIdx] || [];
-      const validLabels = labels.filter(l => l.text && l.text.trim() !== '');
+      const validLabels = labels.filter(l => l.text && l.text.trim() !== '' && l.position === 'top-left');
 
       if (validLabels.length > 0 && vIdx !== lastProcessedVIdx) {
         if (sheetSections.length > 0) sheetSections[sheetSections.length - 1].endRow = lastValidRow;
@@ -665,7 +665,7 @@ export const useAudioPlayback = ({
       }
     };
 
-    const scheduleCell = (r, m, c, cellStartSec) => {
+    const scheduleCell = (r, m, c, cellStartSec, schedulerSeqIdx, schedulerLoop) => {
       if (currentRowTypes[r] === 'page-break' || currentRowTypes[r] === 'text' || currentRowTypes[r] === 'annotation' || currentRowTypes[r] === 'nathap') return 0;
 
       const cellCountInMeasure = currentSheetData[r][m].length;
@@ -747,7 +747,7 @@ export const useAudioPlayback = ({
           let normalizedCr = cr;
           if (currentRowTypes[cr] === 'double-left') normalizedCr -= 1;
           const currentIdx = normalizedCr * 1000 + cm * 10 + cc;
-          return currentIdx === Math.min(startIdx, endIdx);
+          return currentIdx === (s.wraps ? startIdx : Math.min(startIdx, endIdx));
         });
 
         startingSymbols.forEach(sym => {
@@ -760,7 +760,68 @@ export const useAudioPlayback = ({
           if (currentRowTypes[endPos[0]] === 'double-left') endPos[0] -= 1;
           const startAbs = startPos[0] * 1000 + startPos[1] * 10 + startPos[2];
           const endAbs = endPos[0] * 1000 + endPos[1] * 10 + endPos[2];
-          if (startAbs > endAbs) {
+          const wraps = Boolean(sym.wraps);
+
+          let wrapSection = null;
+          if (wraps) {
+            wrapSection = sheetMapRef.current.find(section => startPos[0] >= section.startRow && startPos[0] <= section.endRow);
+            const targetSection = sheetMapRef.current.find(section => endPos[0] >= section.startRow && endPos[0] <= section.endRow);
+            if (!wrapSection || !targetSection || wrapSection.label !== targetSection.label) return;
+
+            const sequence = playbackSequenceRef.current;
+            const sequenceIndex = Number.isInteger(schedulerSeqIdx) ? schedulerSeqIdx : activeSequenceIdxRef.current;
+            const loopNumber = Number.isInteger(schedulerLoop) ? schedulerLoop : activeLoopRef.current;
+            const currentItem = sequence[sequenceIndex];
+            const repeatsCurrentSection = Boolean(
+              isLoopOneRef.current
+              || (currentItem && loopNumber < Math.max(1, Number(currentItem.loops) || 1))
+              || (currentItem && sequence[sequenceIndex + 1]?.label?.trim() === wrapSection.label)
+              || (isLoopAllRef.current && sequenceIndex === sequence.length - 1 && sequence[0]?.label?.trim() === wrapSection.label)
+            );
+
+            if (!repeatsCurrentSection) {
+              const nextItem = sequence[sequenceIndex + 1] || (isLoopAllRef.current ? sequence[0] : null);
+              const nextSection = nextItem ? sheetMapRef.current.find(section => section.label === nextItem.label?.trim()) : null;
+              if (!nextSection) return;
+
+              let blankCells = 0;
+              let foundNote = false;
+              for (let nr = nextSection.startRow; nr <= nextSection.endRow && !foundNote; nr++) {
+                if (currentRowTypes[nr] === 'page-break' || currentRowTypes[nr] === 'text' || currentRowTypes[nr] === 'double-left' || currentRowTypes[nr] === 'annotation' || currentRowTypes[nr] === 'nathap') continue;
+                const firstMeasure = currentRowTypes[nr]?.startsWith('double') ? 1 : 0;
+                for (let nm = firstMeasure; nm < currentSheetData[nr].length && !foundNote; nm++) {
+                  for (let nc = 0; nc < currentSheetData[nr][nm].length; nc++) {
+                    const top = currentSheetData[nr]?.[nm]?.[nc];
+                    const bottom = currentRowTypes[nr] === 'double-right' ? currentSheetData[nr + 1]?.[nm]?.[nc] : '-';
+                    const hasNote = splitThaiNoteToken(top || '-').some(note => note && note !== '-')
+                      || splitThaiNoteToken(bottom || '-').some(note => note && note !== '-');
+                    if (hasNote) { foundNote = true; break; }
+                    blankCells++;
+                  }
+                }
+              }
+              if (blankCells === 0) return;
+
+              const sourceEvents = [];
+              if (currentRowTypes[startPos[0]] === 'double-right') {
+                const topParts = splitThaiNoteToken(currentSheetData[startPos[0]]?.[startPos[1]]?.[startPos[2]] || '-');
+                const bottomParts = splitThaiNoteToken(currentSheetData[startPos[0] + 1]?.[startPos[1]]?.[startPos[2]] || '-');
+                const chord = [];
+                if (topParts[0] && topParts[0] !== '-') chord.push({ note: topParts[0], r: startPos[0], m: startPos[1], c: startPos[2], subIdx: 0 });
+                if (bottomParts[0] && bottomParts[0] !== '-') chord.push({ note: bottomParts[0], r: startPos[0] + 1, m: startPos[1], c: startPos[2], subIdx: 0 });
+                if (chord.length) sourceEvents.push(chord);
+              } else {
+                const parts = splitThaiNoteToken(currentSheetData[startPos[0]]?.[startPos[1]]?.[startPos[2]] || '-');
+                parts.forEach((note, subIdx) => { if (note && note !== '-') sourceEvents.push([{ note, r: startPos[0], m: startPos[1], c: startPos[2], subIdx }]); });
+              }
+              if (sourceEvents.length) {
+                mutedCellsRef.current.add(getCellId(startPos[0], startPos[1], startPos[2]));
+                scheduleSymbolPlayback(sym, sourceEvents, (blankCells + 1) * msPerCell, cellStartSec);
+              }
+              return;
+            }
+          }
+          if (!wraps && startAbs > endAbs) {
             const temp = startPos;
             startPos = endPos;
             endPos = temp;
@@ -777,6 +838,7 @@ export const useAudioPlayback = ({
           let cellIds = [];
           let dist = 0;
           let failSafe = 0;
+          let hasWrapped = false;
 
           while (failSafe < 500) {
             const stepRowType = currentRowTypes[currR];
@@ -810,7 +872,7 @@ export const useAudioPlayback = ({
 
             if (colNotesData.length > 0) events.push(...colNotesData);
 
-            if (currR === endR && currM === endM && currC === endC) break;
+            if (currR === endR && currM === endM && currC === endC && (!wraps || hasWrapped)) break;
             dist += 1;
             currC += 1;
             const currentMeasureLength = currentSheetData[currR]?.[currM]?.length ?? 0;
@@ -820,7 +882,18 @@ export const useAudioPlayback = ({
               if (currM >= (currentSheetData[currR]?.length ?? 0)) {
                 let tempR = currR + 1;
                 while (tempR < currentSheetData.length && (currentRowTypes[tempR] === 'page-break' || currentRowTypes[tempR] === 'text' || currentRowTypes[tempR] === 'double-left' || currentRowTypes[tempR] === 'nathap')) tempR++;
-                if (tempR >= currentSheetData.length) break;
+                if (wraps && !hasWrapped && tempR > wrapSection.endRow) {
+                  tempR = wrapSection.startRow;
+                  while (tempR <= wrapSection.endRow && (currentRowTypes[tempR] === 'page-break' || currentRowTypes[tempR] === 'text' || currentRowTypes[tempR] === 'double-left' || currentRowTypes[tempR] === 'nathap')) tempR++;
+                  if (tempR > wrapSection.endRow) break;
+                  hasWrapped = true;
+                } else if (tempR >= currentSheetData.length) {
+                  if (!wraps || hasWrapped) break;
+                  tempR = 0;
+                  while (tempR < currentSheetData.length && (currentRowTypes[tempR] === 'page-break' || currentRowTypes[tempR] === 'text' || currentRowTypes[tempR] === 'double-left' || currentRowTypes[tempR] === 'nathap')) tempR++;
+                  if (tempR >= currentSheetData.length) break;
+                  hasWrapped = true;
+                }
                 currR = tempR;
                 currM = currentRowTypes[currR]?.startsWith('double') ? 1 : 0;
               }
@@ -993,7 +1066,7 @@ export const useAudioPlayback = ({
 
       while (schedulerStateRef.current && nextNoteTimeRef.current < schedulingHorizon) {
         const { r, m, c, seqIdx, loop } = schedulerStateRef.current;
-        const msPerCell = scheduleCell(r, m, c, nextNoteTimeRef.current);
+        const msPerCell = scheduleCell(r, m, c, nextNoteTimeRef.current, seqIdx, loop);
         const scheduledAtSec = nextNoteTimeRef.current + ((msPerCell || 0) / 1000);
         const nextState = advanceCursor(r, m, c, scheduledAtSec, seqIdx, loop);
         nextNoteTimeRef.current = scheduledAtSec;
@@ -1029,7 +1102,7 @@ export const useAudioPlayback = ({
       if (currentRowTypes[r] === 'page-break' || currentRowTypes[r] === 'text' || currentRowTypes[r] === 'annotation' || currentRowTypes[r] === 'nathap') continue; 
       const vIdx = getVisualIndex(r, currentRowTypes);
       const labels = currentSectionLabels[vIdx] || [];
-      const validLabels = labels.filter(l => l.text && l.text.trim() !== '');
+      const validLabels = labels.filter(l => l.text && l.text.trim() !== '' && l.position === 'top-left');
 
       if (validLabels.length > 0 && vIdx !== lastProcessedVIdx) {
         sheetSections.forEach(sec => { if (sec.endRow === currentSheetData.length - 1) sec.endRow = lastValidRow; });
@@ -1123,7 +1196,7 @@ export const useAudioPlayback = ({
         if (currentRowTypes[r] === 'page-break' || currentRowTypes[r] === 'text' || currentRowTypes[r] === 'annotation' || currentRowTypes[r] === 'nathap') continue; 
         const vIdx = getVisualIndex(r, currentRowTypes);
         const labels = currentSectionLabels[vIdx] || [];
-        const validLabels = labels.filter(l => l.text && l.text.trim() !== '');
+        const validLabels = labels.filter(l => l.text && l.text.trim() !== '' && l.position === 'top-left');
         if (validLabels.length > 0 && vIdx !== lastProcessedVIdx) {
             if (sheetSections.length > 0) sheetSections[sheetSections.length - 1].endRow = lastValidRow;
             sheetSections.push({ label: validLabels[0].text.trim(), startRow: r, endRow: currentSheetData.length - 1 });

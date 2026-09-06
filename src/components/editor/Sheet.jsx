@@ -1062,6 +1062,45 @@ const Sheet = forwardRef((props, ref) => {
       const offset = sym.offset !== undefined ? sym.offset : (isKro ? (layoutConfig.kroOffset || 30) : (layoutConfig.sabatOffset || 4));
       const curve = sym.curve !== undefined ? sym.curve : (layoutConfig.sabatCurve ?? 20);
 
+      if (isKro && sym.wraps) {
+        const startEl = document.getElementById(`note-${sym.start[0]}-${sym.start[1]}-${sym.start[2]}`);
+        const endEl = document.getElementById(`note-${sym.end[0]}-${sym.end[1]}-${sym.end[2]}`);
+        const startPageIndex = pages.findIndex(p => sym.start[0] >= p.startIndex && sym.start[0] < p.startIndex + p.rows.length);
+        const endPageIndex = pages.findIndex(p => sym.end[0] >= p.startIndex && sym.end[0] < p.startIndex + p.rows.length);
+
+        if (startEl && endEl && startPageIndex !== -1 && endPageIndex !== -1) {
+          const addWrapSegment = (pageIndex, element, isStart) => {
+            const pageEl = document.getElementById(`page-${pageIndex}`);
+            if (!pageEl) return;
+            const pageRect = pageEl.getBoundingClientRect();
+            const cellRect = element.getBoundingClientRect();
+            const noteParts = element.querySelectorAll('.tme-note-part');
+            const noteRect = noteParts.length > 0
+              ? noteParts[isStart ? 0 : noteParts.length - 1].getBoundingClientRect()
+              : cellRect;
+            const noteX = (noteRect.left - pageRect.left + (noteRect.width / 2)) / scale;
+            const y = (cellRect.top - pageRect.top) / scale + offset;
+            const rowIndex = isStart ? sym.start[0] : sym.end[0];
+            const row = sheetData[rowIndex] || [];
+            const firstMeasureIndex = rowTypes[rowIndex]?.startsWith('double') ? 1 : 0;
+            const lastMeasureIndex = Math.max(firstMeasureIndex, row.length - 1);
+            const firstCellEl = document.getElementById(`note-${rowIndex}-${firstMeasureIndex}-0`);
+            const lastCellIndex = Math.max(0, (row[lastMeasureIndex]?.length || 1) - 1);
+            const lastCellEl = document.getElementById(`note-${rowIndex}-${lastMeasureIndex}-${lastCellIndex}`);
+            const rowLeft = ((firstCellEl?.getBoundingClientRect().left ?? cellRect.left) - pageRect.left) / scale;
+            const rowRight = ((lastCellEl?.getBoundingClientRect().right ?? cellRect.right) - pageRect.left) / scale;
+            const d = isStart
+              ? `M ${noteX} ${y} L ${rowRight} ${y}`
+              : `M ${rowLeft} ${y} L ${noteX} ${y}`;
+            if (!newPagePaths[pageIndex]) newPagePaths[pageIndex] = [];
+            newPagePaths[pageIndex].push({ id: `${sym.id}-${isStart ? 'wrap-out' : 'wrap-in'}`, type: 'kro', d, color, strokeW });
+          };
+          addWrapSegment(startPageIndex, startEl, true);
+          addWrapSegment(endPageIndex, endEl, false);
+        }
+        return;
+      }
+
       if (isKro && sym.start[0] !== sym.end[0]) {
         // กรณีลูกกรอข้ามบรรทัด (ยังคงเหมือนเดิม)
         for (let r = sym.start[0]; r <= sym.end[0]; r++) {
@@ -1078,7 +1117,8 @@ const Sheet = forwardRef((props, ref) => {
             const pageEl = document.getElementById(`page-${pageIndex}`);
             const pRect = pageEl.getBoundingClientRect();
             // หาโค้ดเดิมที่เขียนว่า const sRect = startEl.getBoundingClientRect(); แล้วเปลี่ยนเป็นแบบนี้ครับ 👇
-            let sRect = startEl.getBoundingClientRect();
+            const startCellRect = startEl.getBoundingClientRect();
+            let sRect = startCellRect;
             const startParts = startEl.querySelectorAll('.tme-note-part');
             // ⭐ สั่งให้ลากเส้นออกจากโน้ต "ตัวแรก" ในช่องนั้น
             if (startParts.length > 0) sRect = startParts[0].getBoundingClientRect(); 
@@ -1089,11 +1129,14 @@ const Sheet = forwardRef((props, ref) => {
             if (endParts.length > 0) eRect = endParts[endParts.length - 1].getBoundingClientRect();
 
             const x1 = (sRect.left - pRect.left + (sRect.width / 2)) / scale;
-            const y1 = (sRect.top - pRect.top) / scale + offset; 
+            // Use the cell baseline so Thai tone marks do not change the Kro height.
+            const y1 = (startCellRect.top - pRect.top) / scale + offset;
             const x2 = (eRect.left - pRect.left + (eRect.width / 2)) / scale;
             const y2 = (eRect.top - pRect.top) / scale + offset;
 
-            const d = `M ${x1} ${y1} L ${x2} ${y2}`;
+            // โน้ตไทยมีวรรณยุกต์สูงต่ำต่างกัน จึงใช้ระดับของจุดเริ่ม
+            // เพื่อให้เส้นกรอในแต่ละบรรทัดเป็นแนวนอนเสมอ
+            const d = `M ${x1} ${y1} L ${x2} ${y1}`;
             if (!newPagePaths[pageIndex]) newPagePaths[pageIndex] = [];
             newPagePaths[pageIndex].push({ id: `${sym.id}-${r}`, type: 'kro', d, color, strokeW });
           }
@@ -1107,19 +1150,28 @@ const Sheet = forwardRef((props, ref) => {
           if (pageIndex !== -1) {
             const pageEl = document.getElementById(`page-${pageIndex}`);
             const pRect = pageEl.getBoundingClientRect();
-            const sRect = startEl.getBoundingClientRect();
-            const eRect = endEl.getBoundingClientRect();
+            // A symbol spans the actual notes, not the centre of their cells.
+            // Start from the first note token and finish at the final note token.
+            const startCellRect = startEl.getBoundingClientRect();
+            let sRect = startCellRect;
+            const startParts = startEl.querySelectorAll('.tme-note-part');
+            if (startParts.length > 0) sRect = startParts[0].getBoundingClientRect();
+
+            let eRect = endEl.getBoundingClientRect();
+            const endParts = endEl.querySelectorAll('.tme-note-part');
+            if (endParts.length > 0) eRect = endParts[endParts.length - 1].getBoundingClientRect();
 
             const x1 = (sRect.left - pRect.left + (sRect.width / 2)) / scale;
-            const y1 = (sRect.top - pRect.top) / scale; 
+            const y1 = (sRect.top - pRect.top) / scale;
             const x2 = (eRect.left - pRect.left + (eRect.width / 2)) / scale;
             const y2 = (eRect.top - pRect.top) / scale;
             
             let d = "";
 
             if (isKro) {
-                // วาดเส้นลูกกรอ + Offset
-                d = `M ${x1} ${y1 + offset} L ${x2} ${y2 + offset}`;
+                // กรอเป็นเส้นขีดจากโน้ตต้นทางถึงโน้ตปลายทาง
+                const kroY = (startCellRect.top - pRect.top) / scale + offset;
+                d = `M ${x1} ${kroY} L ${x2} ${kroY}`;
             } else {
                 // วาดเส้นลูกสะบัดโค้ง + Curve + Offset (ให้วาดขึ้นไปด้านบน เลยต้องติดลบ y)
                 const finalY1 = y1 - offset;
@@ -1191,10 +1243,16 @@ const Sheet = forwardRef((props, ref) => {
     else if (selectedCell && (selectedCell[0] !== rIndex || selectedCell[1] !== mIndex || selectedCell[2] !== cIndex)) {
       if (addSymbol) {
          const symType = layoutConfig.activeSymbol || 'sabat'; 
+         const [startRow, startMeasure, startCell] = selectedCell;
+         const startOrder = startRow * 1000000 + startMeasure * 1000 + startCell;
+         const endOrder = rIndex * 1000000 + mIndex * 1000 + cIndex;
          addSymbol(symType, selectedCell, [rIndex, mIndex, cIndex], {
              color: symType === 'kro' ? '#3b82f6' : (layoutConfig.symbolColor || '#1e293b'),
              strokeWidth: layoutConfig.symbolStrokeWidth || 2.5,
-             height: layoutConfig.symbolHeight !== undefined ? layoutConfig.symbolHeight : 20
+             height: layoutConfig.symbolHeight !== undefined ? layoutConfig.symbolHeight : 20,
+             // Selecting a later note then a note near the beginning means
+             // the symbol continues through the end and wraps to the start.
+             wraps: symType === 'kro' && startOrder > endOrder
          });
       }
     }
@@ -1421,7 +1479,7 @@ return (
               {/* SVG Layer for Symbols */}
               {/* ให้พื้นที่คลิกของสัญลักษณ์อยู่เหนือป้ายกำกับที่ลอยทับบรรทัดถัดไปเสมอ */}
               <svg
-                className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none z-40 print:z-30 print:w-full print:max-w-full"
+                className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none z-[150] print:z-30 print:w-full print:max-w-full"
                 viewBox="0 0 793.7008 1122.5197"
                 preserveAspectRatio="none"
               >
@@ -1443,7 +1501,7 @@ return (
                       {isSelected && <path d={p.d} fill="none" stroke="#f59e0b" strokeWidth={p.strokeW + 4} strokeLinecap="round" opacity="0.4" className="pointer-events-none print:hidden" />}
                       <path 
                         d={p.d} fill="none" stroke={isSelected ? '#d97706' : (isKro ? '#3b82f6' : p.color)} 
-                        strokeWidth={p.strokeW} strokeLinecap="round" strokeDasharray={isKro ? "6, 4" : "none"} 
+                        strokeWidth={p.strokeW} strokeLinecap="round" strokeDasharray={isKro ? "8 5" : "none"}
                         className="pointer-events-none drop-shadow-sm transition-all duration-200"
                       />
                     </g>

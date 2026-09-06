@@ -858,7 +858,7 @@ export const MusicProvider = ({ children }) => {
   const availableSections = useMemo(() => {
     const labels = new Set();
     Object.values(sheetEditor.sectionLabels).forEach(arr => {
-      arr.forEach(l => { if (l.text && l.text.trim() !== '') labels.add(l.text.trim()); });
+      arr.forEach(l => { if (l.text && l.text.trim() !== '' && l.position === 'top-left') labels.add(l.text.trim()); });
     });
     return Array.from(labels);
   }, [sheetEditor.sectionLabels]);

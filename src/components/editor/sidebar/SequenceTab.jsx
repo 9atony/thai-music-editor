@@ -80,7 +80,7 @@ const SequenceTab = () => {
     let targetVisualIndex = -1;
     
     for (const [vIdx, labels] of Object.entries(sectionLabels)) {
-      if (labels.some(l => l.text === labelHtml)) {
+      if (labels.some(l => l.text === labelHtml && l.position === 'top-left')) {
         targetVisualIndex = parseInt(vIdx, 10);
         break;
       }

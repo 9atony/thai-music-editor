@@ -269,7 +269,7 @@ const buildSectionMap = (parsedData) => {
     if (shouldSkipSectionRow(rowType)) continue;
 
     const visualIndex = getVisualIndex(r, rowTypes);
-    const labels = (sectionLabels[visualIndex] || []).filter((item) => item?.text?.trim());
+    const labels = (sectionLabels[visualIndex] || []).filter((item) => item?.text?.trim() && item.position === 'top-left');
 
     if (labels.length > 0 && visualIndex !== lastProcessedVisualIndex) {
       if (sections.length > 0) sections[sections.length - 1].endRow = lastValidRow;

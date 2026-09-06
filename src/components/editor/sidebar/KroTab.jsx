@@ -1,17 +1,20 @@
-import React, { useContext } from 'react';
+import React, { useContext, useState } from 'react';
 import { MusicContext } from '../../../contexts/MusicContext';
 
 const KroTab = () => {
-  const { layoutConfig, setLayoutConfig, symbols, updateSymbol, selectedSymbolId } = useContext(MusicContext);
+  const { layoutConfig, setLayoutConfig, symbols, updateSymbol, updateSymbols, selectedSymbolId } = useContext(MusicContext);
 
   const selectedSym = symbols.find(s => s.id === selectedSymbolId && s.type === 'kro');
-  const isGlobal = !selectedSym;
+  const [scope, setScope] = useState('project');
+  const isProjectScope = scope === 'project' || !selectedSym;
+  const kroCount = symbols.filter(symbol => symbol.type === 'kro').length;
 
-  const getValue = (key) => isGlobal ? layoutConfig[`kro${key}`] : (selectedSym[key.toLowerCase()] ?? layoutConfig[`kro${key}`]);
+  const getValue = (key) => isProjectScope ? layoutConfig[`kro${key}`] : (selectedSym[key.toLowerCase()] ?? layoutConfig[`kro${key}`]);
   
   const handleUpdate = (key, value) => {
-    if (isGlobal) {
+    if (isProjectScope) {
       setLayoutConfig(prev => ({ ...prev, [`kro${key}`]: value }));
+      updateSymbols(symbol => symbol.type === 'kro', { [key.toLowerCase()]: value });
     } else {
       updateSymbol(selectedSymbolId, { [key.toLowerCase()]: value });
     }
@@ -47,15 +50,29 @@ const KroTab = () => {
             ตั้งค่าลูกกรอ
           </h3>
           <p className="text-[10px] text-blue-600 mt-0.5 font-semibold">
-            {isGlobal ? 'ค่าเริ่มต้นของทั้งโปรเจกต์' : 'กำลังแก้ไขเส้นที่เลือกอยู่'}
+            {isProjectScope ? `ปรับพร้อมกัน ${kroCount} เส้นในโปรเจกต์` : 'กำลังแก้ไขเส้นที่เลือกอยู่'}
           </p>
         </div>
-        {!isGlobal && (
+        {!isProjectScope && (
            <span className="animate-pulse w-2 h-2 bg-sky-500 rounded-full" title="โหมดแก้ไขเฉพาะจุด"></span>
         )}
       </div>
 
       <div className="tool-tab-body flex-1 overflow-y-auto custom-scrollbar space-y-4">
+        <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-2.5">
+          <p className="mb-2 text-[10px] font-black text-blue-800">ขอบเขตการปรับ</p>
+          <div className="grid grid-cols-2 gap-1 rounded-lg bg-white/80 p-1 shadow-sm">
+            <button type="button" onClick={() => setScope('project')} className={`rounded-md px-2 py-2 text-[10px] font-bold transition-colors ${isProjectScope ? 'bg-blue-500 text-white shadow-sm' : 'text-slate-500 hover:bg-blue-50'}`}>
+              ทั้งโปรเจกต์
+            </button>
+            <button type="button" disabled={!selectedSym} onClick={() => setScope('line')} className={`rounded-md px-2 py-2 text-[10px] font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${!isProjectScope ? 'bg-blue-500 text-white shadow-sm' : 'text-slate-500 hover:bg-blue-50'}`}>
+              เฉพาะเส้นนี้
+            </button>
+          </div>
+          <p className="mt-2 text-[9px] leading-4 text-blue-700">
+            {isProjectScope ? 'ค่าที่ปรับจะใช้กับเส้นกรอทุกเส้น และเส้นใหม่ที่เพิ่มในภายหลัง' : 'เลือกเส้นกรอบนโน้ตก่อน จึงจะปรับเฉพาะเส้นได้'}
+          </p>
+        </div>
         
         {/* --- 1. หมวดการเล่นเสียง --- */}
         <div className="tool-tab-card bg-white p-3 border border-slate-200 shadow-sm">
@@ -114,7 +131,7 @@ const KroTab = () => {
           </h4>
           <div className="space-y-4">
             <div className="flex justify-between items-center">
-              <span className="text-xs text-slate-500 font-bold">สีของเส้นประ</span>
+              <span className="text-xs text-slate-500 font-bold">สีของเส้นขีด</span>
               <input type="color" value={getValue('Color') || '#3b82f6'} onChange={(e) => handleUpdate('Color', e.target.value)} className="w-6 h-6 p-0 border border-slate-300 rounded cursor-pointer" />
             </div>
             
