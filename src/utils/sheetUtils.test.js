@@ -4,6 +4,8 @@ import {
   createEmptyMeasureRow,
   createDefaultRowTypes,
   createDefaultSheetData,
+  getFlattenedCol,
+  hasNathapLeadingLabel,
   normalizeCellToken,
   normalizeNathapRowData,
   shiftNoteString,
@@ -28,6 +30,27 @@ test('creates an eight-measure row with the requested number of beats', () => {
   assert.deepEqual(row[0], ['-', '-', '-', '-']);
 });
 
+test('keeps selection columns aligned after a text measure span', () => {
+  const normalMeasure = ['-', '-', '-', '-'];
+  const rowWithText = [
+    ['มือขวา'],
+    [...normalMeasure],
+    ['@TEXT_SPAN_2', ''],
+    ['@HIDDEN'],
+    [...normalMeasure]
+  ];
+  const normalRow = [
+    ['มือซ้าย'],
+    [...normalMeasure],
+    [...normalMeasure],
+    [...normalMeasure],
+    [...normalMeasure]
+  ];
+
+  assert.equal(getFlattenedCol(rowWithText, 'double-right', 4, 0), 12);
+  assert.equal(getFlattenedCol(normalRow, 'double-left', 4, 0), 12);
+});
+
 test('normalizes empty note input and preserves compact note tokens', () => {
   assert.equal(normalizeCellToken('  '), '-');
   assert.equal(normalizeCellToken(' ด ร '), 'ดร');
@@ -36,9 +59,16 @@ test('normalizes empty note input and preserves compact note tokens', () => {
 
 test('normalizes a nathap row beneath a double row with its label', () => {
   const row = normalizeNathapRowData([['ฉิ่ง'], ['ฉิ่ง', 'ฉับ']], true);
-  assert.equal(row.length, 9);
+  assert.equal(row.length, 2);
   assert.deepEqual(row[0], ['ฉิ่ง']);
   assert.deepEqual(row[1], ['ฉิ่ง', 'ฉับ']);
+});
+
+test('keeps a short companion row aligned after its leading label', () => {
+  const row = [[''], ['-', '-', '-', '-']];
+
+  assert.equal(hasNathapLeadingLabel(row, 'nathap'), true);
+  assert.equal(getFlattenedCol(row, 'nathap', 1, 0), 0);
 });
 
 test('transposes Thai notes while retaining octave marks', () => {

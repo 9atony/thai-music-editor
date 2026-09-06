@@ -1,5 +1,14 @@
 import { INSTRUMENT_CONFIG } from './instrumentConfig.js';
 
+export const hasNathapLeadingLabel = (row, rType = 'nathap') => (
+  rType === 'nathap'
+  && Array.isArray(row)
+  && (
+    row.length === 9
+    || (Array.isArray(row[0]) && row[0].length === 1 && typeof row[0][0] === 'string')
+  )
+);
+
 export const NATHAP_LABEL_DEFAULT = 'เครื่องประกอบ';
 
 export const getVisualIndex = (rowIndex, rowTypesArray) => {
@@ -15,13 +24,36 @@ export const getVisualIndex = (rowIndex, rowTypesArray) => {
   return vIdx;
 };
 
+export const getLogicalMeasureWidth = (row, rType, measureIndex) => {
+  if (!Array.isArray(row) || !Array.isArray(row[measureIndex])) return 0;
+  const measure = row[measureIndex];
+  const marker = measure[0];
+  if (marker === '@HIDDEN') return 0;
+  if (typeof marker === 'string' && marker.startsWith('@TEXT_SPAN_')) {
+    const span = Math.max(1, parseInt(marker.split('_')[2], 10) || 1);
+    const fallbackCellCount = row.find((candidate, index) => {
+      if (!Array.isArray(candidate)) return false;
+      if ((rType?.startsWith('double') || hasNathapLeadingLabel(row, rType)) && index === 0) return false;
+      const candidateMarker = candidate[0];
+      return candidateMarker !== '@HIDDEN'
+        && !(typeof candidateMarker === 'string' && candidateMarker.startsWith('@TEXT_SPAN_'));
+    })?.length || 4;
+    return span * fallbackCellCount;
+  }
+  return measure.length;
+};
+
 export const getFlattenedCol = (row, rType, targetM, targetC) => {
   if (!row || rType === 'text' || rType === 'page-break') return 0;
   let col = 0;
   for (let m = 0; m < row.length; m++) {
-    if (rType && (rType.startsWith('double') || rType === 'nathap') && m === 0) continue;
-    if (m === targetM) return col + targetC;
-    col += row[m].length;
+    if (rType && (rType.startsWith('double') || hasNathapLeadingLabel(row, rType)) && m === 0) continue;
+    const measureWidth = getLogicalMeasureWidth(row, rType, m);
+    if (m === targetM) {
+      if (measureWidth === 0) return Math.max(0, col - 1);
+      return col + Math.min(Math.max(0, targetC), measureWidth - 1);
+    }
+    col += measureWidth;
   }
   return col;
 };
@@ -47,7 +79,7 @@ export const normalizeNathapRowData = (row, isUnderDouble = false) => {
   const rawMeasures = hasLeadingLabel ? normalizedRow.slice(1) : normalizedRow;
   
   // ⭐ ปลดล็อค: ให้ยึดความยาวตามห้องจริงที่มีอยู่ (ขั้นต่ำคือ 8 ห้อง)
-  const targetLength = Math.max(8, rawMeasures.length);
+  const targetLength = Math.max(1, rawMeasures.length);
   
   const measures = Array.from({ length: targetLength }, (_, index) => {
     const source = rawMeasures[index];

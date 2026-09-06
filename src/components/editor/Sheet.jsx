@@ -1,27 +1,15 @@
 import React, { useContext, forwardRef, useMemo, useEffect, useState, useCallback, useRef } from 'react';
 import { Copy, Plus, Trash2 } from 'lucide-react';
 import { MusicContext } from '../../contexts/MusicContext';
+import { getFlattenedCol, getLogicalMeasureWidth, hasNathapLeadingLabel } from '../../utils/sheetUtils';
 
 // ==========================================
 // 1. Helper Functions (ฟังก์ชันช่วยเหลือ)
 // ==========================================
-const getFlattenedCol = (row, rType, targetM, targetC) => {
-  if (!row || rType === 'text' || rType === 'page-break') return 0; 
-  let col = 0;
-  for (let m = 0; m < row.length; m++) {
-    // ⭐ ข้ามห้องที่ 0 เฉพาะเมื่อบรรทัดนั้นมีความยาว 9 ห้อง (บรรทัดคู่)
-    const isLabel = (rType.startsWith('double') || (rType === 'nathap' && row.length === 9)) && m === 0;
-    if (isLabel) continue;
-    if (m === targetM) return col + targetC;
-    col += row[m].length;
-  }
-  return col;
-};
-
 const getMeasureCountForRowType = (row = [], rType = '') => {
   if (!Array.isArray(row)) return 0;
   // ⭐ หักลบช่องป้ายชื่อออกเฉพาะเมื่อหน้าทับมีความยาว 9 ห้อง
-  if (rType && (rType.startsWith('double') || (rType === 'nathap' && row.length === 9))) {
+  if (rType && (rType.startsWith('double') || hasNathapLeadingLabel(row, rType))) {
     return Math.max(0, row.length - 1);
   }
   return row.length;
@@ -104,6 +92,7 @@ const Sheet = forwardRef((props, ref) => {
   const initialDetailLabelRef = useRef("");
   const initialDetailValueRef = useRef("");
   const staffLabelResizeRef = useRef(null);
+  const pendingTextMeasureSelectionRef = useRef(null);
 
   const handleAddHeaderDetail = () => {
     if (isReadOnly || !addDetail) return;
@@ -353,6 +342,30 @@ const Sheet = forwardRef((props, ref) => {
     setEditingTokenValue('');
   }, []);
 
+  const RowInsertControl = ({ rowIndex }) => {
+    if (isReadOnly || !addNathapRow) return null;
+
+    return (
+      <div className="group/row-insert print-hidden absolute -bottom-2 left-0 right-0 z-40 flex h-4 items-center">
+        <div className="h-0.5 w-full bg-transparent transition-colors duration-150 group-hover/row-insert:bg-blue-500 group-hover/row-insert:shadow-[0_0_5px_rgba(59,130,246,0.75)]" />
+        <button
+          type="button"
+          title="เพิ่มบรรทัดด้านล่าง"
+          aria-label="เพิ่มบรรทัดด้านล่าง"
+          onMouseDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            addNathapRow([rowIndex, 0, 0]);
+          }}
+          className="absolute -left-2 flex h-4 w-4 items-center justify-center rounded-full border border-blue-500 bg-white text-blue-600 opacity-0 shadow-sm transition-all group-hover/row-insert:opacity-100 hover:scale-110 hover:bg-blue-50 focus:opacity-100 focus:outline-none focus:ring-1 focus:ring-blue-300"
+        >
+          <Plus className="h-2.5 w-2.5" strokeWidth={2.5} aria-hidden="true" />
+        </button>
+      </div>
+    );
+  };
+
   const startTokenEdit = useCallback((r, m, c, note) => {
     if (isReadOnly) return;
     if (isPlaying && stopPlayback) stopPlayback();
@@ -363,11 +376,65 @@ const Sheet = forwardRef((props, ref) => {
     if (setToolbarMode) setToolbarMode('text');
   }, [isReadOnly, isPlaying, stopPlayback, setSelectedCell, setSelectedSymbolId, setToolbarMode]);
 
+  const clearPendingTextMeasureSelection = useCallback(() => {
+    const pending = pendingTextMeasureSelectionRef.current;
+    if (pending?.timerId) window.clearTimeout(pending.timerId);
+    pendingTextMeasureSelectionRef.current = null;
+  }, []);
+
+  const beginTextMeasureSelection = useCallback((event, rowIndex, measureIndex) => {
+    if (isReadOnly || event.button !== 0 || !startSelection) return;
+    clearPendingTextMeasureSelection();
+    if (setSelectionRange) setSelectionRange(null);
+
+    const pending = {
+      rowIndex,
+      measureIndex,
+      startX: event.clientX,
+      startY: event.clientY,
+      activated: false
+    };
+    pendingTextMeasureSelectionRef.current = pending;
+  }, [clearPendingTextMeasureSelection, isReadOnly, setSelectionRange, setToolbarMode, startSelection]);
+
+  const moveTextMeasureSelection = useCallback((event) => {
+    const pending = pendingTextMeasureSelectionRef.current;
+    if (!pending || pending.activated || (event.buttons & 1) === 0) return;
+    const distance = Math.hypot(event.clientX - pending.startX, event.clientY - pending.startY);
+    if (distance < 8) return;
+
+    pending.activated = true;
+    event.preventDefault();
+    window.getSelection()?.removeAllRanges();
+    startSelection(pending.rowIndex, pending.measureIndex, 0);
+    if (setToolbarMode) setToolbarMode('default');
+  }, [setToolbarMode, startSelection]);
+
+  const finishTextMeasureSelection = useCallback((event) => {
+    const pending = pendingTextMeasureSelectionRef.current;
+    const wasActivated = Boolean(pending?.activated);
+    clearPendingTextMeasureSelection();
+    if (wasActivated) {
+      window.getSelection()?.removeAllRanges();
+      if (endSelection) endSelection();
+    } else if (setToolbarMode) {
+      setToolbarMode('text');
+    }
+    event.stopPropagation();
+  }, [clearPendingTextMeasureSelection, endSelection, setToolbarMode]);
+
   // ==========================================
   // 3. Global Event Listeners (Watchdog)
   // ==========================================
   useEffect(() => {
-    const handleMouseUpGlobal = () => {
+    const handleMouseUpGlobal = (event) => {
+      const pending = pendingTextMeasureSelectionRef.current;
+      const pendingEditor = pending && event?.target?.closest?.('[data-text-measure-editor="true"]');
+      if (pendingEditor?.dataset.rowIndex === String(pending.rowIndex)
+        && pendingEditor?.dataset.measureIndex === String(pending.measureIndex)) {
+        return;
+      }
+      clearPendingTextMeasureSelection();
       if (endSelection) endSelection();
     };
     
@@ -416,14 +483,21 @@ const Sheet = forwardRef((props, ref) => {
       }
     };
 
-    window.addEventListener('mouseup', handleMouseUpGlobal);
+    window.addEventListener('mouseup', handleMouseUpGlobal, true);
+    window.addEventListener('pointerup', handleMouseUpGlobal, true);
+    window.addEventListener('pointercancel', handleMouseUpGlobal, true);
+    window.addEventListener('blur', handleMouseUpGlobal);
     // ⭐ ใส่ true เพื่อให้ทำงานแบบ Capture Phase (ดักจับก่อนโดน StopPropagation)
     window.addEventListener('mousedown', handleMouseDownGlobal, true); 
     return () => {
-      window.removeEventListener('mouseup', handleMouseUpGlobal);
+      clearPendingTextMeasureSelection();
+      window.removeEventListener('mouseup', handleMouseUpGlobal, true);
+      window.removeEventListener('pointerup', handleMouseUpGlobal, true);
+      window.removeEventListener('pointercancel', handleMouseUpGlobal, true);
+      window.removeEventListener('blur', handleMouseUpGlobal);
       window.removeEventListener('mousedown', handleMouseDownGlobal, true);
     };
-  }, [endSelection, editingSongName, editingDetailId, editingTokenCell, commitTokenEdit, setSongName, updateDetail]);
+  }, [endSelection, editingSongName, editingDetailId, editingTokenCell, commitTokenEdit, setSongName, updateDetail, clearPendingTextMeasureSelection]);
 
   useEffect(() => {
     const handleGlobalKeyDown = (e) => {
@@ -831,7 +905,7 @@ const Sheet = forwardRef((props, ref) => {
     commitChange(newData, newTypes, newLabels, newSymbols, newMargins);
     if (setSelectionRange) setSelectionRange(null);
     const safeRow = Math.max(0, Math.min(newData.length - 1, preferredRow));
-    const firstMeasure = (newTypes[safeRow]?.startsWith('double') || (newTypes[safeRow] === 'nathap' && newData[safeRow]?.length === 9)) ? 1 : 0;
+    const firstMeasure = (newTypes[safeRow]?.startsWith('double') || hasNathapLeadingLabel(newData[safeRow], newTypes[safeRow])) ? 1 : 0;
     setSelectedCell([safeRow, firstMeasure, 0]);
   };
 
@@ -1746,6 +1820,7 @@ return (
                           className="w-full outline-none text-slate-800 cursor-text bg-transparent min-h-[24px]"
                           style={{ fontSize: `${layoutConfig.textFontSize || 16}px`, fontFamily: textFontFamily, lineHeight: layoutConfig.textLineHeight || 1.5 }}
                         />
+                        <RowInsertControl rowIndex={rIndex} />
                       </div>
                     );
                   }
@@ -1780,7 +1855,7 @@ return (
 
                       const isNathapCurrent = actualRType === 'nathap';
                       // ⭐ เช็กว่าบรรทัดหน้าทับนี้ถูกสร้างให้มีความยาว 9 ห้อง (มีช่องซ้ายสุด) หรือไม่ ถ้ามี 8 ห้องห้ามแสดงป้ายกำกับ
-                      const nathapHasLabel = isNathapCurrent && chunkLength === 9;
+                      const nathapHasLabel = isNathapCurrent && hasNathapLeadingLabel(sheetData[actualRIndex], actualRType);
                       const isLabelMeasure = (isDoubleCurrent && localMIdx === 0) || (nathapHasLabel && localMIdx === 0);
                       
                       const isTextMeasure = typeof measure[0] === 'string' && measure[0].startsWith('@TEXT_SPAN_');
@@ -1788,7 +1863,8 @@ return (
                       const textSpanEndMeasure = actualMIndex + spanCount - 1;
                       const selectionStartsBeforeText = selectionRange?.start?.[0] === actualRIndex
                         && selectionRange.start[1] <= actualMIndex;
-                      const textSelectionEdge = selectionStartsBeforeText ? textSpanEndMeasure : actualMIndex;
+                      const textSelectionEndCell = Math.max(0, getLogicalMeasureWidth(sheetData[actualRIndex], actualRType, actualMIndex) - 1);
+                      const textSelectionEdgeCell = selectionStartsBeforeText ? textSelectionEndCell : 0;
                       const selectedRowMin = selectionRange?.start && selectionRange?.end
                         ? Math.min(selectionRange.start[0], selectionRange.end[0])
                         : -1;
@@ -1810,14 +1886,40 @@ return (
                       const colsPerLine = (isDoubleCurrent || nathapHasLabel) ? MAIN_STAFF_MEASURE_COUNT + 1 : MAIN_STAFF_MEASURE_COUNT;
                       const isFirstInLine = localMIdx % colsPerLine === ((isDoubleCurrent || nathapHasLabel) ? 1 : 0);
                       const isLastInLine = (localMIdx + spanCount - 1) % colsPerLine === colsPerLine - 1 || localMIdx === chunkLength - 1;
+                      const canInsertMeasureAtBoundary = !isReadOnly
+                        && !isLabelMeasure
+                        && !isTextMeasure
+                        && (actualRType === 'single' || actualRType === 'double-right');
+                      const linkedGuideHeight = (() => {
+                        if (!canInsertMeasureAtBoundary) return 0;
+
+                        let nextRowIndex = actualRIndex + (actualRType === 'double-right' ? 2 : 1);
+                        let height = actualRType === 'double-right' ? layoutConfig.measureHeight : 0;
+
+                        while (nextRowIndex < rowTypes.length) {
+                          const nextType = rowTypes[nextRowIndex];
+                          if (nextType !== 'nathap' && nextType !== 'annotation') break;
+
+                          const nextMargins = rowMargins[nextRowIndex] || {};
+                          height += (layoutConfig.measureHeight * 0.75)
+                            + (nextMargins.top || 0)
+                            + (nextMargins.bottom || 0);
+                          nextRowIndex++;
+                        }
+
+                        return height;
+                      })();
 
                       return (
                         <div 
                           key={actualMIndex} 
-                          className={`grid bg-white relative h-full w-full overflow-hidden ${isTextMeasureSelected ? 'ring-2 ring-inset ring-sky-500' : ''}`}
-                          onMouseEnter={() => {
-                            if (isTextMeasure && updateSelection) {
-                              updateSelection(actualRIndex, textSelectionEdge, 0);
+                          className={`grid bg-white relative h-full w-full overflow-visible ${isTextMeasureSelected ? 'ring-2 ring-inset ring-sky-500' : ''}`}
+                          onMouseEnter={(event) => {
+                            if (!isTextMeasure) return;
+                            if ((event.buttons & 1) !== 0 && updateSelection) {
+                              updateSelection(actualRIndex, actualMIndex, textSelectionEdgeCell);
+                            } else if (endSelection) {
+                              endSelection();
                             }
                           }}
                           style={{ 
@@ -1836,6 +1938,28 @@ return (
                             backgroundColor: isLabelMeasure ? '#f8fafc' : ((isAnnotationCurrent || isNathapCurrent) ? '#f8fafc' : 'white'),
                           }}
                         >
+                          {canInsertMeasureAtBoundary && (
+                            <div
+                              className="group/measure-insert print-hidden absolute -right-2 -top-2 z-40 w-4"
+                              style={{ bottom: linkedGuideHeight > 0 ? `-${linkedGuideHeight}px` : 0 }}
+                            >
+                              <div className="absolute right-[7px] top-2 bottom-0 w-0.5 bg-transparent transition-colors duration-150 group-hover/measure-insert:bg-sky-500 group-hover/measure-insert:shadow-[0_0_5px_rgba(14,165,233,0.8)]" />
+                              <button
+                                type="button"
+                                title="แทรกห้องด้านหลังตำแหน่งนี้"
+                                aria-label="แทรกห้องด้านหลังตำแหน่งนี้"
+                                onMouseDown={(event) => event.stopPropagation()}
+                                onClick={(event) => {
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  if (addMeasure) addMeasure([actualRIndex, actualMIndex, 0]);
+                                }}
+                                className="absolute left-0 top-0 flex h-4 w-4 items-center justify-center rounded-full border border-sky-500 bg-white text-sky-600 opacity-0 shadow-sm transition-all group-hover/measure-insert:opacity-100 hover:scale-110 hover:bg-sky-50 focus:opacity-100 focus:outline-none focus:ring-1 focus:ring-sky-300"
+                              >
+                                <Plus className="h-2.5 w-2.5" strokeWidth={2.5} aria-hidden="true" />
+                              </button>
+                            </div>
+                          )}
                           {isLabelMeasure ? (
                             isNathapCurrent ? (
                               <div className="w-full h-full px-2 py-1 bg-white hover:bg-slate-50 transition-colors">
@@ -1893,7 +2017,11 @@ return (
                                     if (!isReadOnly && startRowLabelSelection) startRowLabelSelection(actualRIndex);
                                     else setSelectedCell([actualRIndex, actualMIndex, 0]);
                                   }}
-                                  onMouseEnter={() => { if (!isReadOnly && updateRowLabelSelection) updateRowLabelSelection(actualRIndex); }}
+                                  onMouseEnter={(event) => {
+                                    if (isReadOnly) return;
+                                    if ((event.buttons & 1) !== 0 && updateRowLabelSelection) updateRowLabelSelection(actualRIndex);
+                                    else if (endSelection) endSelection();
+                                  }}
                                   onKeyDown={(event) => {
                                     event.stopPropagation();
                                     if (event.key === 'Enter') event.preventDefault();
@@ -1918,6 +2046,9 @@ return (
                             <div className={`w-full h-full p-1 transition-colors ${isTextMeasureSelected ? 'bg-sky-200' : (isAnnotationCurrent ? 'bg-white hover:bg-slate-50' : 'bg-amber-50/30 hover:bg-amber-100/30')}`}>
                               <div
                                 id={`annotation-${actualRIndex}-${actualMIndex}`}
+                                data-text-measure-editor="true"
+                                data-row-index={actualRIndex}
+                                data-measure-index={actualMIndex}
                                 contentEditable
                                 suppressContentEditableWarning
                                 // ⭐ ปลดล็อกสมบูรณ์แบบ: ใช้ block คู่กับ text-center เพื่อให้ Toolbar สามารถส่งคำสั่ง align-left/right มาทับได้ 100%
@@ -1925,14 +2056,13 @@ return (
                                 style={{ fontFamily: textFontFamily, fontSize: isAnnotationCurrent ? `${(layoutConfig.textFontSize || 16) * 0.85}px` : `${layoutConfig.textFontSize || 16}px` }}
                                 onMouseDown={(e) => { 
                                   e.stopPropagation(); 
-                                  if (!isReadOnly && e.button === 0 && startSelection) {
-                                    startSelection(actualRIndex, actualMIndex, 0);
-                                  }
+                                  beginTextMeasureSelection(e, actualRIndex, actualMIndex);
                                   if (selectedCell[0] !== actualRIndex || selectedCell[1] !== actualMIndex) {
                                       setSelectedCell([actualRIndex, actualMIndex, 0]); 
                                   }
                                 }}
-                                onMouseUp={(e) => { e.stopPropagation(); if (setToolbarMode) setToolbarMode('text'); }}
+                                onMouseMove={moveTextMeasureSelection}
+                                onMouseUp={finishTextMeasureSelection}
                                 onInput={(e) => {
                                   if (sheetData[actualRIndex] && sheetData[actualRIndex][actualMIndex]) {
                                       sheetData[actualRIndex][actualMIndex][1] = e.target.innerHTML;
@@ -1991,8 +2121,13 @@ return (
                                   updateMeasureText(actualRIndex, actualMIndex, e.target.innerHTML);
                                 }}
                                 onKeyDown={(e) => {
-                                    e.stopPropagation(); 
-                                    if (e.key === 'Enter') e.preventDefault(); 
+                                  e.stopPropagation();
+                                  if (e.key === 'Delete') {
+                                    e.preventDefault();
+                                    if (removeRow) removeRow(actualRIndex);
+                                    return;
+                                  }
+                                  if (e.key === 'Enter') e.preventDefault();
                                 }}
                                 // ดึงข้อความออกมาแสดง
                                 ref={(el) => {
@@ -2085,7 +2220,10 @@ return (
                                     if (setToolbarMode) setToolbarMode('default');
                                   }}
                                   onClick={(e) => e.stopPropagation()}
-                                  onMouseEnter={() => updateSelection(actualRIndex, actualMIndex, cIndex)}
+                                  onMouseEnter={(event) => {
+                                    if ((event.buttons & 1) !== 0) updateSelection(actualRIndex, actualMIndex, cIndex);
+                                    else if (endSelection) endSelection();
+                                  }}
                                   onContextMenu={(e) => handleRightClick(e, actualRIndex, actualMIndex, cIndex)}
                                   // ⭐ ปรับสีตัวหนังสือหน้าทับให้อ่อนลงเล็กน้อย (slate-600) ให้ดูแยกกับโน้ตหลักชัดเจน
                                   className={`flex items-center justify-center cursor-crosshair transition-colors duration-75 ease-linear min-h-0 overflow-hidden ${cellBgClass}`}
@@ -2204,7 +2342,7 @@ return (
                       );
                   } else if (rType === 'nathap') {
                       // ⭐ ตรวจสอบว่าหน้าทับนี้เป็นแบบ 9 ห้อง (บรรทัดคู่) หรือ 8 ห้อง (บรรทัดเดี่ยว)
-                      const isUnderDouble = row.length === 9;
+                      const isUnderDouble = hasNathapLeadingLabel(row, rType);
                       
                       if (isUnderDouble) {
                           const totalChunks = Math.max(1, Math.ceil(Math.max(0, row.length - 1) / MAIN_STAFF_MEASURE_COUNT));
@@ -2277,14 +2415,16 @@ return (
                         paddingBottom: `${containerPb}px`, marginTop: `${rMarginTop}px`, marginBottom: `${containerMarginBot}px`,
                         paddingLeft: `calc(1rem + ${rIndent}px)`, paddingRight: '1rem',
                         // ⭐ 2. ปรับ zIndex ให้บรรทัดที่มีป้ายกำกับลอยอยู่เหนือบรรทัดอื่น ป้องกันโดนพื้นหลังบรรทัดล่างบัง
-                        zIndex: (rMarginTop < 0 || rMarginBot < 0) ? 20 : (hasLabels ? 30 : 1) 
+                        zIndex: (isDoubleRight || rType === 'single')
+                          ? 50
+                          : ((rMarginTop < 0 || rMarginBot < 0) ? 20 : (hasLabels ? 30 : 1))
                       }}
                     >     
                       <div className="group/row relative w-full">
                         
                         {(displayRowNumbers[rIndex] !== '' && layoutConfig?.showRowNumber !== false) && (
                           <div 
-                            className={`absolute -left-8 -translate-y-1/2 text-[12px] font-bold print-hidden select-none ${isDoubleRight ? 'top-[24px]' : 'top-1/2'}`} 
+                            className="absolute -left-8 top-1/2 -translate-y-1/2 text-[12px] font-bold print-hidden select-none"
                             style={{ fontFamily: textFontFamily, color: layoutConfig?.rowNumberColor || '#cbd5e1' }}
                           >
                             {displayRowNumbers[rIndex]}
@@ -2309,7 +2449,7 @@ return (
 
                         {canAddInlineStructure && (
                           <>
-                            <div className="print-hidden pointer-events-none absolute -right-2 -top-2 z-50 flex h-5 w-5 translate-x-0.5 items-center justify-center opacity-0 transition-all duration-200 group-hover/row:pointer-events-auto group-hover/row:translate-x-0 group-hover/row:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100">
+                            <div className="hidden">
                               <button
                                 type="button"
                                 title="เพิ่มห้องต่อท้ายบรรทัดนี้"
@@ -2324,14 +2464,15 @@ return (
                               </button>
                             </div>
 
-                            <div className="print-hidden pointer-events-none absolute -bottom-2 -right-2 z-50 flex h-5 w-5 translate-y-0.5 items-center justify-center opacity-0 transition-all duration-200 group-hover/row:pointer-events-auto group-hover/row:translate-y-0 group-hover/row:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100">
+                            <div className="group/row-insert print-hidden absolute -bottom-2 left-0 right-0 z-50 flex h-4 items-center">
+                              <div className="h-0.5 w-full bg-transparent transition-colors duration-150 group-hover/row-insert:bg-blue-500 group-hover/row-insert:shadow-[0_0_5px_rgba(59,130,246,0.75)]" />
                               <button
                                 type="button"
                                 title="เพิ่มบรรทัดร่วมที่เล่นพร้อมกับบรรทัดนี้"
                                 aria-label="เพิ่มบรรทัดร่วมที่เล่นพร้อมกับบรรทัดนี้"
                                 onMouseDown={(event) => event.stopPropagation()}
                                 onClick={handleAddNextRow}
-                                className="flex h-4 w-4 items-center justify-center rounded-full border border-blue-500 bg-white text-blue-600 shadow-sm transition-all hover:scale-105 hover:bg-blue-50 focus:outline-none focus:ring-1 focus:ring-blue-300"
+                                className="absolute -left-2 flex h-4 w-4 items-center justify-center rounded-full border border-blue-500 bg-white text-blue-600 opacity-0 shadow-sm transition-all group-hover/row-insert:opacity-100 hover:scale-110 hover:bg-blue-50 focus:opacity-100 focus:outline-none focus:ring-1 focus:ring-blue-300"
                               >
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-2.5 w-2.5" aria-hidden="true">
                                   <path d="M12 5v14M5 12h14" strokeWidth="2.5" strokeLinecap="round" />
@@ -2340,6 +2481,8 @@ return (
                             </div>
                           </>
                         )}
+
+                        {!canAddInlineStructure && <RowInsertControl rowIndex={rIndex} />}
 
                       </div>
                     </div>

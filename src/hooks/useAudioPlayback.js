@@ -1098,6 +1098,17 @@ export const useAudioPlayback = ({
     return startPlayback();
   };
 
+  const stopMetronomePlayback = () => {
+    if (independentMetronomeIntervalRef.current) {
+      clearInterval(independentMetronomeIntervalRef.current);
+      independentMetronomeIntervalRef.current = null;
+    }
+    runIndependentMetronomeSchedulerRef.current = null;
+    stopScheduledNotesByGroup(INDEPENDENT_METRONOME_GROUP);
+    stopScheduledNotesByGroup(LINKED_METRONOME_GROUP);
+    setMetronomeConfig((current) => current.enabled ? { ...current, enabled: false } : current);
+  };
+
   const jumpToSequence = (targetSeqIdx) => {
     const seq = playbackSequenceRef.current;
     if (!seq || targetSeqIdx < 0 || targetSeqIdx >= seq.length) return;
@@ -1214,6 +1225,6 @@ export const useAudioPlayback = ({
     activeSequenceIdx, activeLoop,
     startPlayback, stopPlayback, togglePlay,
     seek, skipToNext, skipToPrev, jumpToSequence,
-    metronomeConfig, setMetronomeConfig, isPlayingRef
+    metronomeConfig, setMetronomeConfig, stopMetronomePlayback, isPlayingRef
   };
 };

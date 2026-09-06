@@ -5,7 +5,7 @@ import { auth, saveProjectToDB, saveSampleToDB, getUserProfile } from '../utils/
 
 import {
   getFlattenedCol, createDefaultLayoutConfig, createDefaultHeaderDetails,
-  DEFAULT_INSTRUMENT, shiftNoteObject, shiftNoteString, normalizeNathapRowData
+  DEFAULT_INSTRUMENT, shiftNoteObject, shiftNoteString, normalizeNathapRowData, hasNathapLeadingLabel
 } from '../utils/sheetUtils';
 import { useSheetEditor } from '../hooks/useSheetEditor';
 import { useAudioPlayback } from '../hooks/useAudioPlayback';
@@ -16,7 +16,8 @@ export const MusicContext = createContext();
 
 // เก็บเฉพาะค่าที่เป็นของโปรเจกต์ ไม่บันทึกรายการหน้าทับทั้งหมดซึ่งโหลดจากระบบกลาง
 const getMetronomeProjectSettings = (config) => ({
-  enabled: config.enabled === true,
+  // สถานะเปิดเสียงเป็นสถานะชั่วคราวของหน้าปัจจุบัน จึงไม่ให้ติดไปกับโปรเจกต์อื่น
+  enabled: false,
   linked: config.linked !== false,
   masterVolume: config.masterVolume,
   rhythmLayer: config.rhythmLayer || 'all',
@@ -26,15 +27,16 @@ const getMetronomeProjectSettings = (config) => ({
 });
 
 const applyMetronomeProjectSettings = (current, saved) => {
-  if (!saved || typeof saved !== 'object') return current;
-  const hasEnabledInstrument = ['ching', 'klong', 'krub'].some((key) => saved[key]?.active === true);
+  if (!saved || typeof saved !== 'object') {
+    return current.enabled ? { ...current, enabled: false } : current;
+  }
   const mergeInstrument = (key) => ({
     ...current[key],
     ...(saved[key] && typeof saved[key] === 'object' ? saved[key] : {})
   });
   return {
     ...current,
-    ...(typeof saved.enabled === 'boolean' ? { enabled: saved.enabled } : { enabled: hasEnabledInstrument }),
+    enabled: false,
     ...(typeof saved.linked === 'boolean' ? { linked: saved.linked } : {}),
     ...(typeof saved.masterVolume === 'number' ? { masterVolume: saved.masterVolume } : {}),
     ...(typeof saved.rhythmLayer === 'string' ? { rhythmLayer: saved.rhythmLayer } : {}),
@@ -261,7 +263,7 @@ export const MusicProvider = ({ children }) => {
         if (rowType === 'nathap') nathapRows.add(r);
         let currentCol = 0;
         for (let m = 0; m < sheetEditor.sheetData[r].length; m++) {
-          if ((rowType.startsWith('double') || (rowType === 'nathap' && sheetEditor.sheetData[r].length === 9)) && m === 0) continue;
+          if ((rowType.startsWith('double') || hasNathapLeadingLabel(sheetEditor.sheetData[r], rowType)) && m === 0) continue;
           for (let c = 0; c < sheetEditor.sheetData[r][m].length; c++) {
             if (currentCol >= minCol && currentCol <= maxCol) {
               applyInstrumentToCell(r, m, c);
@@ -286,7 +288,7 @@ export const MusicProvider = ({ children }) => {
         const rowType = sheetEditor.rowTypes[r];
         if (rowType === 'nathap') nathapRows.add(r);
         for (let m = 0; m < sheetEditor.sheetData[r].length; m++) {
-          if ((rowType.startsWith('double') || (rowType === 'nathap' && sheetEditor.sheetData[r].length === 9)) && m === 0) continue;
+          if ((rowType.startsWith('double') || hasNathapLeadingLabel(sheetEditor.sheetData[r], rowType)) && m === 0) continue;
           for (let c = 0; c < sheetEditor.sheetData[r][m].length; c++) applyInstrumentToCell(r, m, c);
         }
       });
@@ -298,7 +300,7 @@ export const MusicProvider = ({ children }) => {
     if (nathapRows.size > 0) {
       const newData = sheetEditor.sheetData.map(row => row.map(meas => [...meas]));
       nathapRows.forEach((r) => {
-        if (newData[r].length === 9) newData[r][0][0] = INSTRUMENT_CONFIG[instrumentId].name;
+        if (hasNathapLeadingLabel(newData[r], 'nathap')) newData[r][0][0] = INSTRUMENT_CONFIG[instrumentId].name;
       });
       sheetEditor.commitChange(newData, sheetEditor.rowTypes, sheetEditor.sectionLabels, sheetEditor.symbols, sheetEditor.rowMargins);
     }
@@ -306,6 +308,8 @@ export const MusicProvider = ({ children }) => {
   };
 
   const resetProjectScopedState = ({ keepProjectId = false } = {}) => {
+    audioPlayback.stopMetronomePlayback();
+    audioPlayback.stopPlayback();
     const { defaultSheet, defaultTypes, defaultMargins } = sheetEditor.resetSheetState();
     setLayoutConfig(createDefaultLayoutConfig());
     setHeaderDetails(createDefaultHeaderDetails());
@@ -756,11 +760,11 @@ export const MusicProvider = ({ children }) => {
           else {
              let nextR = r + 1;
              while (nextR < sheet.length && (rTypes[nextR] === 'page-break' || rTypes[nextR] === 'text')) nextR++;
-             if (nextR < sheet.length) { r = nextR; m = (rTypes[r].startsWith('double') || (rTypes[r] === 'nathap' && sheet[r].length === 9)) ? 1 : 0; c = 0; }
+             if (nextR < sheet.length) { r = nextR; m = (rTypes[r].startsWith('double') || hasNathapLeadingLabel(sheet[r], rTypes[r])) ? 1 : 0; c = 0; }
           }
         } else if (e.key === 'ArrowLeft') {
           if (c > 0) c--;
-          else if (m > ((rTypes[r].startsWith('double') || (rTypes[r] === 'nathap' && sheet[r].length === 9)) ? 1 : 0)) { m--; c = sheet[r][m].length - 1; }
+          else if (m > ((rTypes[r].startsWith('double') || hasNathapLeadingLabel(sheet[r], rTypes[r])) ? 1 : 0)) { m--; c = sheet[r][m].length - 1; }
           else {
              let prevR = r - 1;
              while (prevR >= 0 && (rTypes[prevR] === 'page-break' || rTypes[prevR] === 'text')) prevR--;
@@ -772,7 +776,7 @@ export const MusicProvider = ({ children }) => {
           if (nextR < sheet.length) {
              r = nextR;
              if (m >= sheet[r].length) m = sheet[r].length - 1;
-             if ((rTypes[r].startsWith('double') || (rTypes[r] === 'nathap' && sheet[r].length === 9)) && m === 0) m = 1;
+             if ((rTypes[r].startsWith('double') || hasNathapLeadingLabel(sheet[r], rTypes[r])) && m === 0) m = 1;
              if (c >= sheet[r][m].length) c = sheet[r][m].length - 1;
           }
         } else if (e.key === 'ArrowUp') {
@@ -781,7 +785,7 @@ export const MusicProvider = ({ children }) => {
           if (prevR >= 0) {
              r = prevR;
              if (m >= sheet[r].length) m = sheet[r].length - 1;
-             if ((rTypes[r].startsWith('double') || (rTypes[r] === 'nathap' && sheet[r].length === 9)) && m === 0) m = 1;
+             if ((rTypes[r].startsWith('double') || hasNathapLeadingLabel(sheet[r], rTypes[r])) && m === 0) m = 1;
              if (c >= sheet[r][m].length) c = sheet[r][m].length - 1;
           }
         }
@@ -805,7 +809,7 @@ export const MusicProvider = ({ children }) => {
           
           for (let r = 0; r < sheet.length; r++) {
             if (rTypes[r] === 'page-break' || rTypes[r] === 'text') continue;
-            const startM = (rTypes[r].startsWith('double') || (rTypes[r] === 'nathap' && sheet[r].length === 9)) ? 1 : 0;
+            const startM = (rTypes[r].startsWith('double') || hasNathapLeadingLabel(sheet[r], rTypes[r])) ? 1 : 0;
             if (!firstCell && sheet[r] && sheet[r].length > startM) firstCell = [r, startM, 0];
             if (sheet[r] && sheet[r].length > 0) {
                const lastM = sheet[r].length - 1;

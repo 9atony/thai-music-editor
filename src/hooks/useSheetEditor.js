@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import {
   getFlattenedCol, normalizeCellToken, splitThaiNoteToken, getIntervalPair,
   shiftNoteString, createDefaultSheetData, createDefaultRowTypes, createDefaultRowMargins,
-  normalizeNathapRowData
+  normalizeNathapRowData, hasNathapLeadingLabel
 } from '../utils/sheetUtils';
 import { INSTRUMENT_CONFIG } from '../utils/instrumentConfig';
 
@@ -119,7 +119,7 @@ export const useSheetEditor = ({
 
   const updateCellToken = (row, meas, cell, token, options = {}) => {
     if (isReadOnlyRef.current) return;
-    if (rowTypes[row] === 'page-break' || rowTypes[row] === 'text' || (rowTypes[row].startsWith('double') && meas === 0) || (rowTypes[row] === 'nathap' && meas === 0 && sheetData[row].length === 9)) return;
+    if (rowTypes[row] === 'page-break' || rowTypes[row] === 'text' || (rowTypes[row].startsWith('double') && meas === 0) || (meas === 0 && hasNathapLeadingLabel(sheetData[row], rowTypes[row]))) return;
 
     const normalizedToken = normalizeCellToken(token);
     const newData = sheetData.map((rowData) => rowData.map((measure) => [...measure]));
@@ -164,22 +164,22 @@ export const useSheetEditor = ({
 
     if (isNext) {
       if (cell < sheetData[row][meas].length - 1) cell += 1;
-      else if (meas < sheetData[row].length - 1) { meas += 1; if (rowTypes[row].startsWith('double') && meas === 0) meas = 1; if (rowTypes[row] === 'nathap' && meas === 0 && sheetData[row].length === 9) meas = 1; cell = 0; }
+      else if (meas < sheetData[row].length - 1) { meas += 1; if ((rowTypes[row].startsWith('double') || hasNathapLeadingLabel(sheetData[row], rowTypes[row])) && meas === 0) meas = 1; cell = 0; }
       else {
         let nextR = row + 1;
         while (nextR < sheetData.length && (rowTypes[nextR] === 'page-break' || rowTypes[nextR] === 'text')) nextR++;
         if (nextR >= sheetData.length) return;
-        row = nextR; meas = (rowTypes[row].startsWith('double') || (rowTypes[row] === 'nathap' && sheetData[row].length === 9)) ? 1 : 0; cell = 0;
+        row = nextR; meas = (rowTypes[row].startsWith('double') || hasNathapLeadingLabel(sheetData[row], rowTypes[row])) ? 1 : 0; cell = 0;
       }
     } else {
       if (cell > 0) cell -= 1;
-      else if (meas > ((rowTypes[row].startsWith('double') || (rowTypes[row] === 'nathap' && sheetData[row].length === 9)) ? 1 : 0)) { meas -= 1; cell = sheetData[row][meas].length - 1; }
+      else if (meas > ((rowTypes[row].startsWith('double') || hasNathapLeadingLabel(sheetData[row], rowTypes[row])) ? 1 : 0)) { meas -= 1; cell = sheetData[row][meas].length - 1; }
       else {
         let prevR = row - 1;
         while (prevR >= 0 && (rowTypes[prevR] === 'page-break' || rowTypes[prevR] === 'text')) prevR--;
         if (prevR < 0) return;
         row = prevR; meas = sheetData[row].length - 1;
-        if ((rowTypes[row].startsWith('double') || (rowTypes[row] === 'nathap' && sheetData[row].length === 9)) && meas === 0) meas = 1;
+        if ((rowTypes[row].startsWith('double') || hasNathapLeadingLabel(sheetData[row], rowTypes[row])) && meas === 0) meas = 1;
         cell = sheetData[row][meas].length - 1;
       }
     }
@@ -194,7 +194,7 @@ export const useSheetEditor = ({
   const appendNoteToCurrentCell = (note, options = {}) => {
     if (isReadOnlyRef.current || !selectedCell) return;
     const [row, meas, cell] = selectedCell;
-    if (rowTypes[row] === 'page-break' || rowTypes[row] === 'text' || (rowTypes[row].startsWith('double') && meas === 0) || (rowTypes[row] === 'nathap' && meas === 0 && sheetData[row].length === 9)) return;
+    if (rowTypes[row] === 'page-break' || rowTypes[row] === 'text' || (rowTypes[row].startsWith('double') && meas === 0) || (meas === 0 && hasNathapLeadingLabel(sheetData[row], rowTypes[row]))) return;
 
     const incomingParts = splitThaiNoteToken(note);
     if (incomingParts.length === 0) return;
@@ -236,7 +236,7 @@ export const useSheetEditor = ({
   const trimCurrentCellToken = () => {
     if (isReadOnlyRef.current || !selectedCell) return;
     const [row, meas, cell] = selectedCell;
-    if (rowTypes[row] === 'page-break' || rowTypes[row] === 'text' || (rowTypes[row].startsWith('double') && meas === 0) || (rowTypes[row] === 'nathap' && meas === 0 && sheetData[row].length === 9)) return;
+    if (rowTypes[row] === 'page-break' || rowTypes[row] === 'text' || (rowTypes[row].startsWith('double') && meas === 0) || (meas === 0 && hasNathapLeadingLabel(sheetData[row], rowTypes[row]))) return;
 
     const currentToken = normalizeCellToken(sheetData[row][meas][cell]);
     if (currentToken === '-') return;
@@ -330,7 +330,7 @@ export const useSheetEditor = ({
 
     setSelectionRange(null);
     const [row, meas, cell] = selectedCell;
-    if (rowTypes[row] === 'page-break' || rowTypes[row] === 'text' || (rowTypes[row].startsWith('double') && meas === 0) || (rowTypes[row] === 'nathap' && meas === 0 && sheetData[row].length === 9)) return;
+    if (rowTypes[row] === 'page-break' || rowTypes[row] === 'text' || (rowTypes[row].startsWith('double') && meas === 0) || (meas === 0 && hasNathapLeadingLabel(sheetData[row], rowTypes[row]))) return;
 
     const firstItem = sheetData[row][meas][0];
     if (typeof firstItem === 'string' && (firstItem.startsWith('@TEXT_SPAN_') || firstItem === '@HIDDEN')) return;
@@ -382,7 +382,7 @@ export const useSheetEditor = ({
       else if (meas < sheetData[row].length - 1) setSelectedCell([row, meas + 1, 0]);
       else {
           let nextR = row + 1; while (nextR < sheetData.length && (rowTypes[nextR] === 'page-break' || rowTypes[nextR] === 'text')) nextR++;
-          if (nextR < sheetData.length) setSelectedCell([nextR, (rowTypes[nextR].startsWith('double') || (rowTypes[nextR] === 'nathap' && sheetData[nextR].length === 9)) ? 1 : 0, 0]);
+          if (nextR < sheetData.length) setSelectedCell([nextR, (rowTypes[nextR].startsWith('double') || hasNathapLeadingLabel(sheetData[nextR], rowTypes[nextR])) ? 1 : 0, 0]);
       }
     }
   };
@@ -592,12 +592,12 @@ export const useSheetEditor = ({
     setSelectionRange(null); 
   };
 
-  const addRow = (insertAtTop = null, targetCell = null) => {
+  const addRow = (insertAtTop = null, targetCell = null, options = {}) => {
     if (isReadOnlyRef.current) return;
     if (isPlayingRef?.current) stopPlayback(); 
     setSelectionRange(null); 
     
-    const [rIdx, mIdx] = targetCell || selectedCell;
+    const [rIdx, mIdx] = Array.isArray(targetCell) ? targetCell : selectedCell;
     let insertIdx;
     let isFirstHalf = false;
 
@@ -629,9 +629,20 @@ export const useSheetEditor = ({
     });
 
     const newData = [...sheetData], newRowTypes = [...rowTypes], newRowMargins = [...rowMargins];
-    const blankSingleRow = targetCell && rowTypes[rIdx] === 'single'
-      ? sheetData[rIdx].map((measure) => Array(Math.max(1, measure.length)).fill('-'))
-      : Array(8).fill().map(() => Array(4).fill('-'));
+    const requestedMeasureCount = Number.isInteger(options.measureCount) ? Math.max(1, options.measureCount) : null;
+    const sourceSingleMeasures = rowTypes[rIdx] === 'single' ? sheetData[rIdx] : [];
+    const blankSingleRow = requestedMeasureCount
+      ? Array.from({ length: requestedMeasureCount }, (_, index) => {
+          const source = sourceSingleMeasures[Math.min(index, sourceSingleMeasures.length - 1)];
+          const marker = source?.[0];
+          const cellCount = source && marker !== '@HIDDEN' && !(typeof marker === 'string' && marker.startsWith('@TEXT_SPAN_'))
+            ? Math.max(1, source.length)
+            : 4;
+          return Array(cellCount).fill('-');
+        })
+      : targetCell && rowTypes[rIdx] === 'single'
+        ? sheetData[rIdx].map((measure) => Array(Math.max(1, measure.length)).fill('-'))
+        : Array(8).fill().map(() => Array(4).fill('-'));
     newData.splice(insertIdx, 0, blankSingleRow);
     newRowTypes.splice(insertIdx, 0, 'single');
     newRowMargins.splice(insertIdx, 0, { top: 0, bottom: 0, left: 0 }); 
@@ -651,12 +662,12 @@ export const useSheetEditor = ({
     else if (isFirstHalf) setSelectedCell([insertIdx + 1, 0, 0]); 
   };
 
-  const addDoubleRow = (insertAtTop = null, targetCell = null) => {
+  const addDoubleRow = (insertAtTop = null, targetCell = null, options = {}) => {
     if (isReadOnlyRef.current) return;
     if (isPlayingRef?.current) stopPlayback(); 
     setSelectionRange(null); 
     
-    const [rIdx, mIdx] = targetCell || selectedCell;
+    const [rIdx, mIdx] = Array.isArray(targetCell) ? targetCell : selectedCell;
     let insertIdx;
     let isFirstHalf = false;
 
@@ -692,12 +703,31 @@ export const useSheetEditor = ({
       [label],
       ...sheetData[sourceRow].slice(1).map((measure) => Array(Math.max(1, measure.length)).fill('-'))
     ];
-    const blankRightRow = targetCell && rowTypes[sourceRightRow] === 'double-right'
-      ? makeBlankHandRow(sourceRightRow, 'มือขวา')
-      : [['มือขวา'], ...Array(8).fill().map(() => Array(4).fill('-'))];
-    const blankLeftRow = targetCell && rowTypes[sourceRightRow + 1] === 'double-left'
-      ? makeBlankHandRow(sourceRightRow + 1, 'มือซ้าย')
-      : [['มือซ้าย'], ...Array(8).fill().map(() => Array(4).fill('-'))];
+    const requestedMeasureCount = Number.isInteger(options.measureCount) ? Math.max(1, options.measureCount) : null;
+    const makeRequestedHandRow = (sourceRow, label) => {
+      const sourceMeasures = sheetData[sourceRow]?.slice(1) || [];
+      return [
+        [label],
+        ...Array.from({ length: requestedMeasureCount }, (_, index) => {
+          const source = sourceMeasures[Math.min(index, sourceMeasures.length - 1)];
+          const marker = source?.[0];
+          const cellCount = source && marker !== '@HIDDEN' && !(typeof marker === 'string' && marker.startsWith('@TEXT_SPAN_'))
+            ? Math.max(1, source.length)
+            : 4;
+          return Array(cellCount).fill('-');
+        })
+      ];
+    };
+    const blankRightRow = requestedMeasureCount
+      ? makeRequestedHandRow(sourceRightRow, 'มือขวา')
+      : targetCell && rowTypes[sourceRightRow] === 'double-right'
+        ? makeBlankHandRow(sourceRightRow, 'มือขวา')
+        : [['มือขวา'], ...Array(8).fill().map(() => Array(4).fill('-'))];
+    const blankLeftRow = requestedMeasureCount
+      ? makeRequestedHandRow(sourceRightRow + 1, 'มือซ้าย')
+      : targetCell && rowTypes[sourceRightRow + 1] === 'double-left'
+        ? makeBlankHandRow(sourceRightRow + 1, 'มือซ้าย')
+        : [['มือซ้าย'], ...Array(8).fill().map(() => Array(4).fill('-'))];
 
     const newData = [...sheetData], newRowTypes = [...rowTypes], newRowMargins = [...rowMargins];
     newData.splice(insertIdx, 0, blankRightRow, blankLeftRow);
@@ -845,12 +875,16 @@ export const useSheetEditor = ({
     let insertIdx;
 
     let parentRIdx = rIdx;
-    while (parentRIdx >= 0 && (rowTypes[parentRIdx] === 'annotation' || rowTypes[parentRIdx] === 'nathap')) {
+    while (parentRIdx >= 0 && (rowTypes[parentRIdx] === 'annotation' || rowTypes[parentRIdx] === 'nathap' || rowTypes[parentRIdx] === 'text')) {
       parentRIdx--;
     }
     const isUnderDouble = parentRIdx >= 0 && rowTypes[parentRIdx]?.startsWith('double');
 
-    if (rowTypes[rIdx] === 'page-break') {
+    if (Array.isArray(targetCell)) {
+      insertIdx = rowTypes[rIdx] === 'double-right' && rowTypes[rIdx + 1] === 'double-left'
+        ? rIdx + 2
+        : rIdx + 1;
+    } else if (rowTypes[rIdx] === 'page-break') {
       insertIdx = rIdx + 1;
     } else {
       insertIdx = parentRIdx + 1;
@@ -859,12 +893,20 @@ export const useSheetEditor = ({
     }
 
     const newData = [...sheetData], newRowTypes = [...rowTypes], newRowMargins = [...rowMargins];
-    
-    if (isUnderDouble) {
-      newData.splice(insertIdx, 0, [[''], ...Array(8).fill().map(() => Array(4).fill('-'))]); 
-    } else {
-      newData.splice(insertIdx, 0, Array(8).fill().map(() => Array(4).fill('-'))); 
-    }
+    const sourceParentRow = rowTypes[parentRIdx] === 'double-left' ? parentRIdx - 1 : parentRIdx;
+    const sourceMeasures = isUnderDouble
+      ? (sheetData[sourceParentRow]?.slice(1) || [])
+      : (sheetData[sourceParentRow] || []);
+    const blankMeasures = sourceMeasures.map((measure) => {
+      const marker = measure?.[0];
+      const cellCount = marker !== '@HIDDEN' && !(typeof marker === 'string' && marker.startsWith('@TEXT_SPAN_'))
+        ? Math.max(1, measure.length)
+        : 4;
+      return Array(cellCount).fill('-');
+    });
+
+    if (isUnderDouble) newData.splice(insertIdx, 0, [[''], ...blankMeasures]);
+    else newData.splice(insertIdx, 0, blankMeasures);
     
     newRowTypes.splice(insertIdx, 0, 'nathap'); 
     newRowMargins.splice(insertIdx, 0, { top: 0, bottom: 0, left: 0 }); 
@@ -925,7 +967,7 @@ export const useSheetEditor = ({
 
     commitChange(newData, newRowTypes, newSectionLabels, newSymbols, newRowMargins, createRemovedRowIndexMap(startIndex, deleteCount));
     let nextRow = startIndex >= newData.length ? newData.length - 1 : startIndex;
-    setSelectedCell([nextRow, (newRowTypes[nextRow].startsWith('double') || (newRowTypes[nextRow] === 'nathap' && newData[nextRow].length === 9)) ? 1 : 0, 0]);
+    setSelectedCell([nextRow, (newRowTypes[nextRow].startsWith('double') || hasNathapLeadingLabel(newData[nextRow], newRowTypes[nextRow])) ? 1 : 0, 0]);
   };
 
   const removeMeasure = () => {
@@ -987,7 +1029,7 @@ export const useSheetEditor = ({
     } else {
       setSelectionRange(null); 
       const [rowIdx, measIdx] = selectedCell;
-      if (rowTypes[rowIdx] === 'page-break' || rowTypes[rowIdx] === 'text' || (rowTypes[rowIdx].startsWith('double') && measIdx === 0) || (rowTypes[rowIdx] === 'nathap' && measIdx === 0 && sheetData[rowIdx].length === 9)) return; 
+      if (rowTypes[rowIdx] === 'page-break' || rowTypes[rowIdx] === 'text' || (rowTypes[rowIdx].startsWith('double') && measIdx === 0) || (measIdx === 0 && hasNathapLeadingLabel(sheetData[rowIdx], rowTypes[rowIdx]))) return;
       
       if (sheetData[rowIdx].length > (rowTypes[rowIdx].startsWith('double') ? 2 : 1)) {
         if (rowTypes[rowIdx] === 'single' || rowTypes[rowIdx] === 'nathap') newData[rowIdx].splice(measIdx, 1);
@@ -1004,7 +1046,7 @@ export const useSheetEditor = ({
     if (isReadOnlyRef.current) return;
     setSelectionRange(null); 
     const [rowIdx, measIdx, cellIdx] = selectedCell;
-    if (rowTypes[rowIdx] === 'page-break' || rowTypes[rowIdx] === 'text' || (rowTypes[rowIdx].startsWith('double') && measIdx === 0) || (rowTypes[rowIdx] === 'nathap' && measIdx === 0 && sheetData[rowIdx].length === 9)) return; 
+    if (rowTypes[rowIdx] === 'page-break' || rowTypes[rowIdx] === 'text' || (rowTypes[rowIdx].startsWith('double') && measIdx === 0) || (measIdx === 0 && hasNathapLeadingLabel(sheetData[rowIdx], rowTypes[rowIdx]))) return;
     const newData = [...sheetData]; newData[rowIdx][measIdx].splice(cellIdx + 1, 0, '-');
     commitChange(newData);
   };
@@ -1013,7 +1055,7 @@ export const useSheetEditor = ({
     if (isReadOnlyRef.current) return;
     setSelectionRange(null); 
     const [rowIdx, measIdx, cellIdx] = selectedCell;
-    if (rowTypes[rowIdx] === 'page-break' || rowTypes[rowIdx] === 'text' || (rowTypes[rowIdx].startsWith('double') && measIdx === 0) || (rowTypes[rowIdx] === 'nathap' && measIdx === 0 && sheetData[rowIdx].length === 9)) return; 
+    if (rowTypes[rowIdx] === 'page-break' || rowTypes[rowIdx] === 'text' || (rowTypes[rowIdx].startsWith('double') && measIdx === 0) || (measIdx === 0 && hasNathapLeadingLabel(sheetData[rowIdx], rowTypes[rowIdx]))) return;
     if (sheetData[rowIdx][measIdx].length > 1) {
       const newData = [...sheetData]; newData[rowIdx][measIdx].splice(cellIdx, 1);
       commitChange(newData);
@@ -1024,12 +1066,46 @@ export const useSheetEditor = ({
   const addMeasure = (targetCell = null) => {
     if (isReadOnlyRef.current) return;
     setSelectionRange(null); 
-    const [rowIdx, measIdx] = targetCell || selectedCell;
+    const isInlineAdd = Array.isArray(targetCell);
+    const [rowIdx, measIdx] = isInlineAdd ? targetCell : selectedCell;
     if (rowTypes[rowIdx] === 'page-break' || rowTypes[rowIdx] === 'text') return;
+    const rowType = rowTypes[rowIdx];
+    let parentRowIdx = rowIdx;
+    while (parentRowIdx >= 0 && ['annotation', 'nathap', 'text'].includes(rowTypes[parentRowIdx])) parentRowIdx--;
+    if (rowTypes[parentRowIdx] === 'double-left') parentRowIdx--;
+    if (parentRowIdx < 0 || !sheetData[parentRowIdx]) return;
+
+    const parentType = rowTypes[parentRowIdx];
+    const isParentDouble = parentType === 'double-right';
+    const measureCount = isParentDouble
+      ? Math.max(0, (sheetData[parentRowIdx]?.length || 1) - 1)
+      : (sheetData[parentRowIdx]?.length || 0);
+    const isLastMeasure = measIdx === (sheetData[parentRowIdx]?.length || 1) - 1;
+
+    if (isInlineAdd && isLastMeasure && measureCount >= 8) {
+      if (isParentDouble) addDoubleRow(false, [parentRowIdx, measIdx, 0], { measureCount: 1 });
+      else if (parentType === 'single') addRow(false, [parentRowIdx, measIdx, 0], { measureCount: 1 });
+      return;
+    }
+
     const newData = [...sheetData];
-    if (rowTypes[rowIdx] === 'single' || rowTypes[rowIdx] === 'nathap') newData[rowIdx].splice(measIdx + 1, 0, Array(4).fill('-'));
-    else if (rowTypes[rowIdx] === 'double-right') { newData[rowIdx].splice(measIdx + 1, 0, Array(4).fill('-')); newData[rowIdx + 1].splice(measIdx + 1, 0, Array(4).fill('-')); }
-    else if (rowTypes[rowIdx] === 'double-left') { newData[rowIdx].splice(measIdx + 1, 0, Array(4).fill('-')); newData[rowIdx - 1].splice(measIdx + 1, 0, Array(4).fill('-')); }
+    const insertMeasure = (targetRow, insertIndex) => {
+      if (!Array.isArray(newData[targetRow])) return;
+      newData[targetRow].splice(insertIndex, 0, Array(4).fill('-'));
+    };
+    const insertIndex = measIdx + 1;
+
+    insertMeasure(parentRowIdx, insertIndex);
+    if (isParentDouble) insertMeasure(parentRowIdx + 1, insertIndex);
+
+    const firstRelatedRow = parentRowIdx + (isParentDouble ? 2 : 1);
+    for (let relatedRowIdx = firstRelatedRow; relatedRowIdx < rowTypes.length; relatedRowIdx++) {
+      const relatedType = rowTypes[relatedRowIdx];
+      if (relatedType === 'page-break' || relatedType === 'single' || relatedType === 'double-right' || relatedType === 'double-left') break;
+      if (relatedType !== 'nathap') continue;
+      insertMeasure(relatedRowIdx, insertIndex);
+    }
+
     commitChange(newData);
   };
 
@@ -1052,7 +1128,7 @@ export const useSheetEditor = ({
     }
 
     if (rowTypes[targetR] === 'page-break' || rowTypes[targetR] === 'text') return;
-    if ((rowTypes[targetR].startsWith('double') || (rowTypes[targetR] === 'nathap' && sheetData[targetR].length === 9)) && minM === 0) return;
+    if ((rowTypes[targetR].startsWith('double') || hasNathapLeadingLabel(sheetData[targetR], rowTypes[targetR])) && minM === 0) return;
 
     let expanded = true;
     while (expanded) {

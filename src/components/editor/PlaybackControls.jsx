@@ -1,5 +1,6 @@
 import React, { useContext, useState, useRef, useEffect } from 'react';
 import { MusicContext } from '../../contexts/MusicContext';
+import { getFlattenedCol } from '../../utils/sheetUtils';
 
 const FONT_OPTIONS = [
   { value: "'TH Sarabun New', sans-serif", label: 'TH Sarabun New' },
@@ -10,17 +11,6 @@ const FONT_OPTIONS = [
   { value: "'Mitr', sans-serif", label: 'Mitr' },
   { value: "'Mali', cursive", label: 'Mali' },
 ];
-
-const getFlattenedCol = (row, rType, targetM, targetC) => {
-  if (!row || rType === 'text' || rType === 'page-break') return 0;
-  let col = 0;
-  for (let m = 0; m < row.length; m++) {
-    if (rType && rType.startsWith('double') && m === 0) continue;
-    if (m === targetM) return col + targetC;
-    col += row[m].length;
-  }
-  return col;
-};
 
 const PlaybackControls = () => {
   const {
