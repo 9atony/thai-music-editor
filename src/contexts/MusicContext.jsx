@@ -120,8 +120,44 @@ export const MusicProvider = ({ children }) => {
     return () => unsubscribe();
   }, []);
 
-  const onPreviewToken = (token, volume) => {
-     playNote(currentInstrumentRef.current.id, token, volume);
+  const onPreviewToken = (token, volume, instrumentId = null) => {
+     playNote(instrumentId || currentInstrumentRef.current.id, token, volume);
+  };
+
+  const remapCustomStylesForRows = (rowIndexMap, styleCopies = []) => {
+    setLayoutConfig((current) => {
+      const currentStyles = current.customStyles || {};
+      const remappedStyles = {};
+      let changed = false;
+
+      Object.entries(currentStyles).forEach(([key, style]) => {
+        const [rowPart, ...rest] = key.split('_');
+        const nextRow = rowIndexMap.get(Number(rowPart));
+        if (nextRow === undefined) {
+          changed = true;
+          return;
+        }
+        const nextKey = `${nextRow}_${rest.join('_')}`;
+        remappedStyles[nextKey] = style;
+        if (nextKey !== key) changed = true;
+      });
+
+      styleCopies.forEach(({ sourceRow, targetRow }) => {
+        Object.entries(currentStyles).forEach(([key, style]) => {
+          const [rowPart, ...rest] = key.split('_');
+          if (Number(rowPart) !== sourceRow) return;
+          const typographyStyle = Object.fromEntries(
+            Object.entries(style).filter(([styleKey]) => ['fontSize', 'noteFontFamily', 'isBold', 'isItalic'].includes(styleKey))
+          );
+          if (Object.keys(typographyStyle).length === 0) return;
+          const targetKey = `${targetRow}_${rest.join('_')}`;
+          remappedStyles[targetKey] = { ...(remappedStyles[targetKey] || {}), ...typographyStyle };
+          changed = true;
+        });
+      });
+
+      return changed ? { ...current, customStyles: remappedStyles } : current;
+    });
   };
 
   const sheetEditor = useSheetEditor({
@@ -130,7 +166,8 @@ export const MusicProvider = ({ children }) => {
     intervalModeRef,
     isReduceModeRef,
     layoutConfigRef,
-    onPreviewToken
+    onPreviewToken,
+    onRowIndexMap: remapCustomStylesForRows
   });
 
   const sheetDataRef = useRef(sheetEditor.sheetData);
@@ -189,77 +226,83 @@ export const MusicProvider = ({ children }) => {
 
   const changeInstrument = (instrumentId) => {
     if (isReadOnlyRef.current) return;
-    
-    let isBlockSelection = false;
-    if (sheetEditor.selectionRange && sheetEditor.selectionRange.start && sheetEditor.selectionRange.end) {
-      const { start: [sr, sm, sc], end: [er, em, ec] } = sheetEditor.selectionRange;
-      if (sr !== er || sm !== em || sc !== ec) isBlockSelection = true;
-    }
-    
-    if (isBlockSelection) {
-      const { start: [sr, sm, sc], end: [er, em, ec] } = sheetEditor.selectionRange;
+    if (!INSTRUMENT_CONFIG[instrumentId]) return;
+
+    intervalModeRef.current = 'off';
+    setIntervalMode('off');
+
+    const selection = sheetEditor.selectionRange?.start && sheetEditor.selectionRange?.end && !sheetEditor.selectionRange.labelOnly
+      ? sheetEditor.selectionRange
+      : null;
+    const activeCell = sheetEditor.selectedCellRef.current || sheetEditor.selectedCell;
+    if (!selection && !activeCell) return;
+
+    const newCustomStyles = { ...(layoutConfig.customStyles || {}) };
+    const nathapRows = new Set();
+    let hasChanges = false;
+
+    const applyInstrumentToCell = (r, m, c) => {
+      if (!sheetEditor.sheetData[r]?.[m] || c >= sheetEditor.sheetData[r][m].length) return;
+      const cellKey = `${r}_${m}_${c}`;
+      newCustomStyles[cellKey] = { ...(newCustomStyles[cellKey] || {}), instrumentId };
+      hasChanges = true;
+    };
+
+    if (selection) {
+      const { start: [sr, sm, sc], end: [er, em, ec] } = selection;
       const minR = Math.min(sr, er), maxR = Math.max(sr, er);
       const startCol = getFlattenedCol(sheetEditor.sheetData[sr], sheetEditor.rowTypes[sr], sm, sc);
       const endCol = getFlattenedCol(sheetEditor.sheetData[er], sheetEditor.rowTypes[er], em, ec);
       const minCol = Math.min(startCol, endCol), maxCol = Math.max(startCol, endCol);
 
-      const newLayoutConfig = { ...layoutConfig };
-      const newCustomStyles = { ...(newLayoutConfig.customStyles || {}) };
-      let hasChanges = false;
-
       for (let r = minR; r <= maxR; r++) {
-        if (sheetEditor.rowTypes[r] === 'page-break' || sheetEditor.rowTypes[r] === 'text') continue;
+        const rowType = sheetEditor.rowTypes[r];
+        if (!rowType || rowType === 'page-break' || rowType === 'text' || rowType === 'annotation') continue;
+        if (rowType === 'nathap') nathapRows.add(r);
         let currentCol = 0;
         for (let m = 0; m < sheetEditor.sheetData[r].length; m++) {
-          if (sheetEditor.rowTypes[r].startsWith('double') && m === 0) continue;
+          if ((rowType.startsWith('double') || (rowType === 'nathap' && sheetEditor.sheetData[r].length === 9)) && m === 0) continue;
           for (let c = 0; c < sheetEditor.sheetData[r][m].length; c++) {
             if (currentCol >= minCol && currentCol <= maxCol) {
-              const cellKey = `${r}_${m}_${c}`;
-              newCustomStyles[cellKey] = { ...(newCustomStyles[cellKey] || {}), instrumentId };
-              if (sheetEditor.rowTypes[r] === 'double-right') {
-                 newCustomStyles[`${r+1}_${m}_${c}`] = { ...(newCustomStyles[`${r+1}_${m}_${c}`] || {}), instrumentId };
-              } else if (sheetEditor.rowTypes[r] === 'double-left') {
-                 newCustomStyles[`${r-1}_${m}_${c}`] = { ...(newCustomStyles[`${r-1}_${m}_${c}`] || {}), instrumentId };
-              }
-              hasChanges = true;
+              applyInstrumentToCell(r, m, c);
+              if (rowType === 'double-right') applyInstrumentToCell(r + 1, m, c);
+              else if (rowType === 'double-left') applyInstrumentToCell(r - 1, m, c);
             }
             currentCol++;
           }
         }
       }
-
-      if (hasChanges) {
-        newLayoutConfig.customStyles = newCustomStyles;
-        setLayoutConfig(newLayoutConfig);
-        sheetEditor.commitChange(sheetEditor.sheetData, sheetEditor.rowTypes, sheetEditor.sectionLabels, sheetEditor.symbols, sheetEditor.rowMargins);
-        sheetEditor.setSelectionRange(null); 
-      }
     } else {
-      const activeCell = sheetEditor.selectedCellRef.current || sheetEditor.selectedCell;
-      const [r] = activeCell || [];
-      const isNathapRow = Number.isInteger(r) && sheetEditor.rowTypes[r] === 'nathap';
+      const [activeRow] = activeCell;
+      const activeType = sheetEditor.rowTypes[activeRow];
+      if (!activeType || activeType === 'page-break' || activeType === 'text' || activeType === 'annotation') return;
+      const rowsToUpdate = activeType === 'double-right'
+        ? [activeRow, activeRow + 1]
+        : activeType === 'double-left'
+          ? [activeRow - 1, activeRow]
+          : [activeRow];
 
-      if (isNathapRow) {
-        const newLayoutConfig = { ...layoutConfig };
-        const newCustomStyles = { ...(newLayoutConfig.customStyles || {}) };
-        
-        for (let meas = 0; meas < sheetEditor.sheetData[r].length; meas++) {
-          for (let cell = 0; cell < sheetEditor.sheetData[r][meas].length; cell++) {
-            const cellKey = `${r}_${meas}_${cell}`;
-            newCustomStyles[cellKey] = { ...(newCustomStyles[cellKey] || {}), instrumentId };
-          }
+      rowsToUpdate.forEach((r) => {
+        const rowType = sheetEditor.rowTypes[r];
+        if (rowType === 'nathap') nathapRows.add(r);
+        for (let m = 0; m < sheetEditor.sheetData[r].length; m++) {
+          if ((rowType.startsWith('double') || (rowType === 'nathap' && sheetEditor.sheetData[r].length === 9)) && m === 0) continue;
+          for (let c = 0; c < sheetEditor.sheetData[r][m].length; c++) applyInstrumentToCell(r, m, c);
         }
-        newLayoutConfig.customStyles = newCustomStyles;
-        setLayoutConfig(newLayoutConfig);
-
-        const newData = sheetEditor.sheetData.map(row => row.map(meas => [...meas]));
-        if (newData[r].length === 9) { 
-          newData[r][0][0] = INSTRUMENT_CONFIG[instrumentId]?.name || 'เครื่องประกอบ';
-        }
-        sheetEditor.commitChange(newData, sheetEditor.rowTypes, sheetEditor.sectionLabels, sheetEditor.symbols, sheetEditor.rowMargins);
-      }
-      setCurrentInstrument(INSTRUMENT_CONFIG[instrumentId]);
+      });
     }
+
+    if (!hasChanges) return;
+    setLayoutConfig((current) => ({ ...current, customStyles: newCustomStyles }));
+
+    if (nathapRows.size > 0) {
+      const newData = sheetEditor.sheetData.map(row => row.map(meas => [...meas]));
+      nathapRows.forEach((r) => {
+        if (newData[r].length === 9) newData[r][0][0] = INSTRUMENT_CONFIG[instrumentId].name;
+      });
+      sheetEditor.commitChange(newData, sheetEditor.rowTypes, sheetEditor.sectionLabels, sheetEditor.symbols, sheetEditor.rowMargins);
+    }
+    sheetEditor.setSelectionRange(null);
   };
 
   const resetProjectScopedState = ({ keepProjectId = false } = {}) => {
@@ -632,6 +675,31 @@ export const MusicProvider = ({ children }) => {
 
       const tag = e.target?.tagName;
       const isEditable = e.target?.isContentEditable || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+      const rowLabelEditor = e.target?.closest?.('[data-row-label-editor="true"]');
+
+      if ((e.ctrlKey || e.metaKey) && e.code === 'KeyA' && rowLabelEditor) {
+        e.preventDefault();
+        e.stopPropagation();
+        isCtrlCombination = true;
+
+        const labelRows = sheetEditor.rowTypes
+          .map((type, rowIndex) => type?.startsWith('double') ? rowIndex : -1)
+          .filter((rowIndex) => rowIndex >= 0);
+
+        if (labelRows.length > 0) {
+          const firstLabel = [labelRows[0], 0, 0];
+          const lastLabel = [labelRows[labelRows.length - 1], 0, 0];
+          window.getSelection()?.removeAllRanges();
+          actionsRef.current.setSelectionRange({
+            start: firstLabel,
+            end: lastLabel,
+            includeRowLabels: true,
+            labelOnly: true
+          });
+          actionsRef.current.setSelectedCell(lastLabel);
+        }
+        return;
+      }
       
       if (e.code === 'Space') {
         if (!isEditable) {
@@ -746,7 +814,7 @@ export const MusicProvider = ({ children }) => {
             }
           }
           if (firstCell && lastCell) {
-             actionsRef.current.setSelectionRange({ start: firstCell, end: lastCell });
+             actionsRef.current.setSelectionRange({ start: firstCell, end: lastCell, includeRowLabels: false });
              actionsRef.current.setSelectedCell(lastCell); 
           }
         }
@@ -758,11 +826,11 @@ export const MusicProvider = ({ children }) => {
 
       const tag = e.target?.tagName;
       const isEditable = e.target?.isContentEditable || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+      if (e.key === 'Control') isCtrlCombination = false;
       if (isEditable) return; 
       if (e.code === 'ControlRight') {
         if (!isReadOnlyRef.current && !isCtrlCombination && sheetEditor.selectedCellRef.current) actionsRef.current.inputNote('-');
       }
-      if (e.key === 'Control') isCtrlCombination = false;
     };
     
     window.addEventListener('keydown', handleKeyDown, true);

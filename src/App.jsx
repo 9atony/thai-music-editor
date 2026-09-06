@@ -29,13 +29,14 @@ import { doc, updateDoc } from 'firebase/firestore';
 import { db } from './utils/firebase';
 
 const VIEW_SESSION_KEY = 'thaiMusicEditorCurrentView';
+const VIEW_PERSISTED_KEY = 'thaiMusicEditorLastView';
 const PREVIOUS_VIEW_SESSION_KEY = 'thaiMusicEditorPreviousView';
 const EDITOR_MODE_SESSION_KEY = 'thaiMusicEditorEditorMode';
 const ACTIVE_TOOL_SESSION_KEY = 'thaiMusicEditorActiveTool';
 const validViews = new Set(['home', 'my-projects', 'templates', 'samples', 'tools', 'settings', 'admin-users', 'editor']);
 
 const getStoredView = (key, fallback) => {
-  const storedView = sessionStorage.getItem(key);
+  const storedView = sessionStorage.getItem(key) || (key === VIEW_SESSION_KEY ? localStorage.getItem(VIEW_PERSISTED_KEY) : null);
   return validViews.has(storedView) ? storedView : fallback;
 };
 
@@ -67,6 +68,7 @@ function App() {
   // Keep the current workspace open after a browser refresh in this tab.
   useEffect(() => {
     sessionStorage.setItem(VIEW_SESSION_KEY, currentView);
+    localStorage.setItem(VIEW_PERSISTED_KEY, currentView);
     sessionStorage.setItem(PREVIOUS_VIEW_SESSION_KEY, previousView);
     sessionStorage.setItem(EDITOR_MODE_SESSION_KEY, editorMode);
   }, [currentView, previousView, editorMode]);
@@ -144,12 +146,7 @@ function App() {
     const handlePopState = () => {
       window.history.pushState(null, null, window.location.href);
 
-      if (currentView === 'editor') {
-        setCurrentView(previousView);
-      } 
-      else if (currentView !== 'home' && currentView !== 'landing') {
-        setCurrentView('home');
-      }
+      if (currentView === 'editor') setCurrentView(previousView);
     };
 
     window.addEventListener('popstate', handlePopState);

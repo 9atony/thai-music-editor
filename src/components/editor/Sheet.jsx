@@ -48,7 +48,6 @@ const hasVisibleHtml = (value) => String(value || '')
 
 const THAI_NOTE_COMBINER_PATTERN = /[ั-๎​]/;
 const MAIN_STAFF_MEASURE_COUNT = 8;
-const STAFF_LABEL_COLUMN_WIDTH = '65px';
 
 const splitThaiNoteToken = (token) => {
   if (!token || token === '-') return [];
@@ -73,10 +72,10 @@ const Sheet = forwardRef((props, ref) => {
     sheetData, selectedCell, setSelectedCell, layoutConfig, setLayoutConfig,
     headerDetails, songName, setSongName, addDetail, removeDetail, updateDetail,
     sectionLabels, updateSectionLabel, rowTypes,
-    startSelection, updateSelection, endSelection, selectionRange, setSelectionRange,
+    startSelection, updateSelection, startRowLabelSelection, updateRowLabelSelection, endSelection, selectionRange, setSelectionRange,
     playbackCursor, isPlaying, symbols = [], addSymbol, removeSymbol,
     selectedSymbolId, setSelectedSymbolId, updateTextRow,
-    removeRow, addTextRow, rowMargins, updateRowMarginsList, commitChange,
+    removeRow, addNathapRow, addMeasure, addTextRow, rowMargins, updateRowMarginsList, commitChange,
     setToolbarMode, stopPlayback, updateCellToken, isReadOnly,
     moveSelectionNext, updateMeasureText,
     isAutoScroll
@@ -104,6 +103,7 @@ const Sheet = forwardRef((props, ref) => {
   const initialSongNameRef = useRef("");
   const initialDetailLabelRef = useRef("");
   const initialDetailValueRef = useRef("");
+  const staffLabelResizeRef = useRef(null);
 
   const handleAddHeaderDetail = () => {
     if (isReadOnly || !addDetail) return;
@@ -257,11 +257,85 @@ const Sheet = forwardRef((props, ref) => {
   }, [requestResponsiveZoom]);
 
   // --- Fonts Setup ---
-  const defaultFontFamily = layoutConfig.fontFamily || "'TH Sarabun New', sans-serif";
+  const defaultFontFamily = layoutConfig.fontFamily || "'Sarabun', sans-serif";
   const noteFontFamily = layoutConfig.noteFontFamily || defaultFontFamily;
   const textFontFamily = layoutConfig.textFontFamily || defaultFontFamily;
   const pageFontFamily = layoutConfig.pageFontFamily || textFontFamily;
   const hasHeaderDetails = headerDetails.some((detail) => hasVisibleHtml(detail.label) || hasVisibleHtml(detail.value));
+  const autoStaffLabelColumnWidth = useMemo(() => {
+    let largestFontSize = Math.max(layoutConfig.fontSize || 16, layoutConfig.rowLabelFontSize || 0);
+    let longestLabel = 0;
+
+    rowTypes.forEach((type, rowIndex) => {
+      if (!type.startsWith('double')) return;
+      const label = String(sheetData[rowIndex]?.[0]?.[0] || '');
+      const customFontSize = layoutConfig.customStyles?.[`${rowIndex}_0_0`]?.fontSize;
+      largestFontSize = Math.max(largestFontSize, customFontSize || 0);
+      longestLabel = Math.max(longestLabel, Array.from(label).length);
+    });
+
+    const width = Math.ceil(largestFontSize * Math.max(3.5, longestLabel * 0.65) + 16);
+    return Math.max(65, Math.min(140, width));
+  }, [layoutConfig.fontSize, layoutConfig.rowLabelFontSize, layoutConfig.customStyles, rowTypes, sheetData]);
+  const savedStaffLabelColumnWidth = Number(layoutConfig.staffLabelColumnWidth);
+  const staffLabelColumnWidth = Number.isFinite(savedStaffLabelColumnWidth) && savedStaffLabelColumnWidth >= 48
+    ? Math.min(220, savedStaffLabelColumnWidth)
+    : autoStaffLabelColumnWidth;
+
+  const startStaffLabelResize = useCallback((event) => {
+    if (isReadOnly) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    staffLabelResizeRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startWidth: staffLabelColumnWidth,
+      previousCursor: document.body.style.cursor,
+      previousUserSelect: document.body.style.userSelect
+    };
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }, [isReadOnly, staffLabelColumnWidth]);
+
+  const moveStaffLabelResize = useCallback((event) => {
+    const resize = staffLabelResizeRef.current;
+    if (!resize || resize.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const zoomScale = Math.max(0.3, zoom / 100);
+    const nextWidth = Math.max(48, Math.min(220, Math.round(resize.startWidth + ((event.clientX - resize.startX) / zoomScale))));
+    setLayoutConfig((current) => current.staffLabelColumnWidth === nextWidth
+      ? current
+      : { ...current, staffLabelColumnWidth: nextWidth });
+  }, [setLayoutConfig, zoom]);
+
+  const endStaffLabelResize = useCallback((event) => {
+    const resize = staffLabelResizeRef.current;
+    if (!resize || resize.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    document.body.style.cursor = resize.previousCursor;
+    document.body.style.userSelect = resize.previousUserSelect;
+    staffLabelResizeRef.current = null;
+  }, []);
+
+  const resetStaffLabelWidth = useCallback((event) => {
+    if (isReadOnly) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setLayoutConfig((current) => ({ ...current, staffLabelColumnWidth: null }));
+  }, [isReadOnly, setLayoutConfig]);
+
+  useEffect(() => () => {
+    const resize = staffLabelResizeRef.current;
+    if (!resize) return;
+    document.body.style.cursor = resize.previousCursor;
+    document.body.style.userSelect = resize.previousUserSelect;
+  }, []);
 
   const commitTokenEdit = useCallback(() => {
     if (!editingTokenCell || !updateCellToken) return;
@@ -1029,11 +1103,8 @@ const Sheet = forwardRef((props, ref) => {
 
     const tokenParts = splitThaiNoteToken(note);
     const isGroupedToken = tokenParts.length > 1;
-    const groupedFontScale = tokenParts.length === 2
-      ? 0.72
-      : tokenParts.length === 3
-        ? 0.58
-        : Math.max(0.34, 0.52 - ((tokenParts.length - 4) * 0.045));
+    // รักษาขนาดโน้ตให้ตรงกับขนาดหลักของโปรเจกต์เสมอ และลดลงเฉพาะเมื่อ
+    // ความกว้างของช่องไม่พอจริง ๆ ไม่ให้ช่องที่มีโน้ต 2-3 ตัวเล็กกว่าช่องอื่นโดยไม่จำเป็น
     const groupedFitWidth = Math.max(11, 92 / tokenParts.length);
 
     return (
@@ -1046,7 +1117,7 @@ const Sheet = forwardRef((props, ref) => {
             className="inline-flex w-full min-w-0 items-center justify-evenly overflow-visible whitespace-nowrap"
             style={{
               gap: 0,
-              fontSize: `min(${groupedFontScale}em, ${groupedFitWidth}cqi)`,
+              fontSize: `min(1em, ${groupedFitWidth}cqi)`,
               lineHeight: 1.12
             }}
           >
@@ -1253,7 +1324,7 @@ return (
               {/* SVG Layer for Symbols */}
               {/* ให้พื้นที่คลิกของสัญลักษณ์อยู่เหนือป้ายกำกับที่ลอยทับบรรทัดถัดไปเสมอ */}
               <svg
-                className="absolute top-0 left-0 w-full h-full pointer-events-none z-40 print:z-30 print:w-full print:max-w-full"
+                className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none z-40 print:z-30 print:w-full print:max-w-full"
                 viewBox="0 0 793.7008 1122.5197"
                 preserveAspectRatio="none"
               >
@@ -1264,8 +1335,13 @@ return (
                     <g key={p.id}>
                       <path 
                         d={p.d} fill="none" stroke="transparent" strokeWidth="20" 
+                        data-editor-symbol-hit-area="true"
                         className="pointer-events-auto cursor-pointer print:pointer-events-none"
-                        onMouseDown={(e) => { e.stopPropagation(); if (setSelectedSymbolId) setSelectedSymbolId(p.id); }}
+                        onMouseDown={(e) => {
+                          e.stopPropagation();
+                          if (setSelectedSymbolId) setSelectedSymbolId(p.id);
+                          window.dispatchEvent(new CustomEvent('tme-open-symbol-panel', { detail: { type: p.type } }));
+                        }}
                       />
                       {isSelected && <path d={p.d} fill="none" stroke="#f59e0b" strokeWidth={p.strokeW + 4} strokeLinecap="round" opacity="0.4" className="pointer-events-none print:hidden" />}
                       <path 
@@ -1709,6 +1785,27 @@ return (
                       
                       const isTextMeasure = typeof measure[0] === 'string' && measure[0].startsWith('@TEXT_SPAN_');
                       const spanCount = isTextMeasure ? parseInt(measure[0].split('_')[2], 10) || 1 : 1;
+                      const textSpanEndMeasure = actualMIndex + spanCount - 1;
+                      const selectionStartsBeforeText = selectionRange?.start?.[0] === actualRIndex
+                        && selectionRange.start[1] <= actualMIndex;
+                      const textSelectionEdge = selectionStartsBeforeText ? textSpanEndMeasure : actualMIndex;
+                      const selectedRowMin = selectionRange?.start && selectionRange?.end
+                        ? Math.min(selectionRange.start[0], selectionRange.end[0])
+                        : -1;
+                      const selectedRowMax = selectionRange?.start && selectionRange?.end
+                        ? Math.max(selectionRange.start[0], selectionRange.end[0])
+                        : -1;
+                      const selectedMeasureMin = selectionRange?.start && selectionRange?.end
+                        ? Math.min(selectionRange.start[1], selectionRange.end[1])
+                        : -1;
+                      const selectedMeasureMax = selectionRange?.start && selectionRange?.end
+                        ? Math.max(selectionRange.start[1], selectionRange.end[1])
+                        : -1;
+                      const isTextMeasureSelected = isTextMeasure
+                        && actualRIndex >= selectedRowMin
+                        && actualRIndex <= selectedRowMax
+                        && actualMIndex <= selectedMeasureMax
+                        && textSpanEndMeasure >= selectedMeasureMin;
 
                       const colsPerLine = (isDoubleCurrent || nathapHasLabel) ? MAIN_STAFF_MEASURE_COUNT + 1 : MAIN_STAFF_MEASURE_COUNT;
                       const isFirstInLine = localMIdx % colsPerLine === ((isDoubleCurrent || nathapHasLabel) ? 1 : 0);
@@ -1717,7 +1814,12 @@ return (
                       return (
                         <div 
                           key={actualMIndex} 
-                          className="grid bg-white relative h-full w-full overflow-hidden" 
+                          className={`grid bg-white relative h-full w-full overflow-hidden ${isTextMeasureSelected ? 'ring-2 ring-inset ring-sky-500' : ''}`}
+                          onMouseEnter={() => {
+                            if (isTextMeasure && updateSelection) {
+                              updateSelection(actualRIndex, textSelectionEdge, 0);
+                            }
+                          }}
                           style={{ 
                             gridColumn: `span ${spanCount}`, 
                             gridTemplateColumns: isLabelMeasure ? '1fr' : (isTextMeasure || isAnnotationCurrent ? '1fr' : `repeat(${measure.length}, minmax(0, 1fr))`),
@@ -1768,13 +1870,52 @@ return (
                                   placeholder="พิมพ์ข้อความ..."
                                 />
                               </div>
-                            ) : (
-                              <div className="flex items-center justify-center w-full h-full text-[13px] font-bold text-slate-700 tracking-wide select-none" style={{ fontFamily: noteFontFamily }}>
-                                {measure[0]}
-                              </div>
-                            )
+                            ) : (() => {
+                              const labelCustomStyle = layoutConfig.customStyles?.[`${actualRIndex}_0_0`] || {};
+                              const isLabelSelected = selectionRange?.labelOnly
+                                && actualMIndex === 0
+                                && actualRIndex >= Math.min(selectionRange.start[0], selectionRange.end[0])
+                                && actualRIndex <= Math.max(selectionRange.start[0], selectionRange.end[0]);
+                              return (
+                                <div
+                                  contentEditable={!isReadOnly}
+                                  suppressContentEditableWarning
+                                  data-row-label-editor="true"
+                                  className={`flex h-full w-full items-center justify-center px-1 text-center tracking-wide text-slate-700 outline-none ${(labelCustomStyle.isBold ?? layoutConfig.isBold) ? 'font-bold' : 'font-normal'} ${(labelCustomStyle.isItalic ?? layoutConfig.isItalic) ? 'italic' : ''} ${isLabelSelected ? 'bg-sky-200 ring-2 ring-inset ring-sky-500' : ''} ${isReadOnly ? 'cursor-default' : 'cursor-text hover:bg-slate-100'}`}
+                                  style={{
+                                    fontFamily: labelCustomStyle.noteFontFamily || layoutConfig.rowLabelFontFamily || noteFontFamily,
+                                    fontSize: `${labelCustomStyle.fontSize ?? layoutConfig.rowLabelFontSize ?? (layoutConfig.fontSize || 16)}px`
+                                  }}
+                                  onMouseDown={(event) => {
+                                    event.stopPropagation();
+                                    if (setSelectedSymbolId) setSelectedSymbolId(null);
+                                    if (setToolbarMode) setToolbarMode('default');
+                                    if (!isReadOnly && startRowLabelSelection) startRowLabelSelection(actualRIndex);
+                                    else setSelectedCell([actualRIndex, actualMIndex, 0]);
+                                  }}
+                                  onMouseEnter={() => { if (!isReadOnly && updateRowLabelSelection) updateRowLabelSelection(actualRIndex); }}
+                                  onKeyDown={(event) => {
+                                    event.stopPropagation();
+                                    if (event.key === 'Enter') event.preventDefault();
+                                  }}
+                                  onBlur={(event) => {
+                                    const plainText = event.currentTarget.textContent || '';
+                                    event.currentTarget.textContent = plainText;
+                                    updateMeasureText(actualRIndex, actualMIndex, plainText);
+                                  }}
+                                  ref={(element) => {
+                                    const labelText = String(measure[0] || '');
+                                    const hasInlineFormatting = element?.childElementCount > 0;
+                                    if (element && document.activeElement !== element && (element.textContent !== labelText || hasInlineFormatting)) {
+                                      element.textContent = labelText;
+                                    }
+                                  }}
+                                  aria-label="แก้ไขชื่อแถว"
+                                />
+                              );
+                            })()
                           ) : isTextMeasure ? (
-                            <div className={`w-full h-full p-1 transition-colors ${isAnnotationCurrent ? 'bg-white hover:bg-slate-50' : 'bg-amber-50/30 hover:bg-amber-100/30'}`}>
+                            <div className={`w-full h-full p-1 transition-colors ${isTextMeasureSelected ? 'bg-sky-200' : (isAnnotationCurrent ? 'bg-white hover:bg-slate-50' : 'bg-amber-50/30 hover:bg-amber-100/30')}`}>
                               <div
                                 id={`annotation-${actualRIndex}-${actualMIndex}`}
                                 contentEditable
@@ -1784,6 +1925,9 @@ return (
                                 style={{ fontFamily: textFontFamily, fontSize: isAnnotationCurrent ? `${(layoutConfig.textFontSize || 16) * 0.85}px` : `${layoutConfig.textFontSize || 16}px` }}
                                 onMouseDown={(e) => { 
                                   e.stopPropagation(); 
+                                  if (!isReadOnly && e.button === 0 && startSelection) {
+                                    startSelection(actualRIndex, actualMIndex, 0);
+                                  }
                                   if (selectedCell[0] !== actualRIndex || selectedCell[1] !== actualMIndex) {
                                       setSelectedCell([actualRIndex, actualMIndex, 0]); 
                                   }
@@ -1926,8 +2070,7 @@ return (
                               if (isCursorExact && isInRange && !isPlayingNow) cellBgClass = 'bg-sky-300 ring-2 ring-inset ring-blue-500 z-10 print:bg-transparent print:ring-0';
 
                               const cellCustomStyle = layoutConfig.customStyles?.[`${actualRIndex}_${actualMIndex}_${cIndex}`] || {};
-                              // ⭐ ลดขนาดฟอนต์ของหน้าทับลง 25% ให้ดูเป็นบรรทัดรอง
-                              const baseFontSize = isNathapCurrent ? (layoutConfig.fontSize || 30) * 0.75 : (layoutConfig.fontSize || 30);
+                              const baseFontSize = layoutConfig.fontSize || 16;
                               const cellFontSize = cellCustomStyle.fontSize || baseFontSize;
                               const isEditingToken = editingTokenCell?.r === actualRIndex && editingTokenCell?.m === actualMIndex && editingTokenCell?.c === cIndex;
 
@@ -1945,7 +2088,7 @@ return (
                                   onMouseEnter={() => updateSelection(actualRIndex, actualMIndex, cIndex)}
                                   onContextMenu={(e) => handleRightClick(e, actualRIndex, actualMIndex, cIndex)}
                                   // ⭐ ปรับสีตัวหนังสือหน้าทับให้อ่อนลงเล็กน้อย (slate-600) ให้ดูแยกกับโน้ตหลักชัดเจน
-                                  className={`flex items-center justify-center cursor-crosshair transition-colors duration-75 ease-linear min-h-0 overflow-hidden ${cellBgClass} ${isNathapCurrent ? 'text-slate-600' : ''}`}
+                                  className={`flex items-center justify-center cursor-crosshair transition-colors duration-75 ease-linear min-h-0 overflow-hidden ${cellBgClass}`}
                                   style={{ 
                                     fontSize: `${cellFontSize}px`, fontFamily: cellCustomStyle.noteFontFamily || noteFontFamily,
                                     containerType: 'inline-size',
@@ -1976,7 +2119,7 @@ return (
                                         }
                                       }}
                                       className="w-full h-full bg-white text-center outline-none px-1 text-slate-900"
-                                      style={{ fontSize: `${Math.max(cellFontSize - 2, 18)}px`, fontFamily: cellCustomStyle.noteFontFamily || noteFontFamily }}
+                                      style={{ fontSize: `${cellFontSize}px`, fontFamily: cellCustomStyle.noteFontFamily || noteFontFamily }}
                                       placeholder="-"
                                     />
                                   ) : (
@@ -1985,6 +2128,22 @@ return (
                                 </div>
                               );
                             })
+                          )}
+                          {isLabelMeasure && isDoubleCurrent && !isReadOnly && (
+                            <div
+                              role="separator"
+                              aria-label="ปรับความกว้างช่องชื่อมือซ้ายและมือขวา"
+                              aria-orientation="vertical"
+                              title="ลากเพื่อปรับความกว้าง ดับเบิลคลิกเพื่อคืนค่าอัตโนมัติ"
+                              className="print-hidden group absolute right-0 top-0 z-40 h-full w-2 cursor-col-resize touch-none"
+                              onPointerDown={startStaffLabelResize}
+                              onPointerMove={moveStaffLabelResize}
+                              onPointerUp={endStaffLabelResize}
+                              onPointerCancel={endStaffLabelResize}
+                              onDoubleClick={resetStaffLabelWidth}
+                            >
+                              <span className="pointer-events-none absolute right-0 top-0 h-full w-0.5 bg-transparent transition-colors group-hover:bg-sky-500" />
+                            </div>
                           )}
                         </div>
                       );
@@ -2025,14 +2184,14 @@ return (
                                   return (
                                       <div key={chunkIdx} className="flex flex-col w-full" style={{ marginBottom: chunkIdx < totalChunks - 1 ? layoutConfig.rowGap : 0 }}>
                                           {/* แถวขวา */}
-                                          <div className="grid w-full" style={{ gridTemplateColumns: `${STAFF_LABEL_COLUMN_WIDTH} repeat(${MAIN_STAFF_MEASURE_COUNT}, minmax(0, 1fr))` }}>
+                                          <div className="grid w-full" style={{ gridTemplateColumns: `${staffLabelColumnWidth}px repeat(${MAIN_STAFF_MEASURE_COUNT}, minmax(0, 1fr))` }}>
                                               {rightChunk.map((measure, localMIdx) => {
                                                   const actualMIndex = localMIdx === 0 ? 0 : startM + localMIdx - 1;
                                                   return renderMeasureBlock(measure, actualMIndex, localMIdx, rIndex, 'double-right', rightChunk.length);
                                               })}
                                           </div>
                                           {/* แถวซ้าย (ประกบคู่กันเสมอ) */}
-                                          <div className="grid w-full" style={{ gridTemplateColumns: `${STAFF_LABEL_COLUMN_WIDTH} repeat(${MAIN_STAFF_MEASURE_COUNT}, minmax(0, 1fr))` }}>
+                                          <div className="grid w-full" style={{ gridTemplateColumns: `${staffLabelColumnWidth}px repeat(${MAIN_STAFF_MEASURE_COUNT}, minmax(0, 1fr))` }}>
                                               {leftChunk.map((measure, localMIdx) => {
                                                   const actualMIndex = localMIdx === 0 ? 0 : startM + localMIdx - 1;
                                                   return renderMeasureBlock(measure, actualMIndex, localMIdx, leftRowIndex, 'double-left', leftChunk.length);
@@ -2056,7 +2215,7 @@ return (
                                       const endM = startM + MAIN_STAFF_MEASURE_COUNT;
                                       const chunk = [row[0], ...row.slice(startM, endM)];
                                       return (
-                                          <div key={chunkIdx} className="grid w-full" style={{ gridTemplateColumns: `${STAFF_LABEL_COLUMN_WIDTH} repeat(${MAIN_STAFF_MEASURE_COUNT}, minmax(0, 1fr))`, marginBottom: chunkIdx < totalChunks - 1 ? layoutConfig.rowGap : 0 }}>
+                                          <div key={chunkIdx} className="grid w-full" style={{ gridTemplateColumns: `${staffLabelColumnWidth}px repeat(${MAIN_STAFF_MEASURE_COUNT}, minmax(0, 1fr))`, marginBottom: chunkIdx < totalChunks - 1 ? layoutConfig.rowGap : 0 }}>
                                               {chunk.map((measure, localMIdx) => {
                                                   const actualMIndex = localMIdx === 0 ? 0 : startM + localMIdx - 1;
                                                   return renderMeasureBlock(measure, actualMIndex, localMIdx, rIndex, 'nathap', chunk.length);
@@ -2095,6 +2254,21 @@ return (
                       );
                   }
 
+                  const canAddInlineStructure = !isReadOnly && (isDoubleRight || rType === 'single');
+                  const lastMeasureIndex = Math.max(0, row.length - 1);
+
+                  const handleAddNextRow = (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    if (addNathapRow) addNathapRow([rIndex, lastMeasureIndex, 0]);
+                  };
+
+                  const handleAddMeasureAtEnd = (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    if (addMeasure) addMeasure([rIndex, lastMeasureIndex, 0]);
+                  };
+
                   return (
                     <div 
                       key={`note-${rIndex}-${rType}`} 
@@ -2106,7 +2280,7 @@ return (
                         zIndex: (rMarginTop < 0 || rMarginBot < 0) ? 20 : (hasLabels ? 30 : 1) 
                       }}
                     >     
-                      <div className="relative w-full">
+                      <div className="group/row relative w-full">
                         
                         {(displayRowNumbers[rIndex] !== '' && layoutConfig?.showRowNumber !== false) && (
                           <div 
@@ -2132,6 +2306,40 @@ return (
                         {visualIndex !== null && renderSectionLabels(visualIndex, rType, rIndex)}
 
                         {measuresContent}
+
+                        {canAddInlineStructure && (
+                          <>
+                            <div className="print-hidden pointer-events-none absolute -right-2 -top-2 z-50 flex h-5 w-5 translate-x-0.5 items-center justify-center opacity-0 transition-all duration-200 group-hover/row:pointer-events-auto group-hover/row:translate-x-0 group-hover/row:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100">
+                              <button
+                                type="button"
+                                title="เพิ่มห้องต่อท้ายบรรทัดนี้"
+                                aria-label="เพิ่มห้องต่อท้ายบรรทัดนี้"
+                                onMouseDown={(event) => event.stopPropagation()}
+                                onClick={handleAddMeasureAtEnd}
+                                className="flex h-4 w-4 items-center justify-center rounded-full border border-sky-400 bg-white text-sky-600 shadow-sm transition-colors hover:border-sky-500 hover:bg-sky-50 hover:text-sky-700 focus:outline-none focus:ring-1 focus:ring-sky-300"
+                              >
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-2.5 w-2.5" aria-hidden="true">
+                                  <path d="M12 5v14M5 12h14" strokeWidth="2.5" strokeLinecap="round" />
+                                </svg>
+                              </button>
+                            </div>
+
+                            <div className="print-hidden pointer-events-none absolute -bottom-2 -right-2 z-50 flex h-5 w-5 translate-y-0.5 items-center justify-center opacity-0 transition-all duration-200 group-hover/row:pointer-events-auto group-hover/row:translate-y-0 group-hover/row:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100">
+                              <button
+                                type="button"
+                                title="เพิ่มบรรทัดร่วมที่เล่นพร้อมกับบรรทัดนี้"
+                                aria-label="เพิ่มบรรทัดร่วมที่เล่นพร้อมกับบรรทัดนี้"
+                                onMouseDown={(event) => event.stopPropagation()}
+                                onClick={handleAddNextRow}
+                                className="flex h-4 w-4 items-center justify-center rounded-full border border-blue-500 bg-white text-blue-600 shadow-sm transition-all hover:scale-105 hover:bg-blue-50 focus:outline-none focus:ring-1 focus:ring-blue-300"
+                              >
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-2.5 w-2.5" aria-hidden="true">
+                                  <path d="M12 5v14M5 12h14" strokeWidth="2.5" strokeLinecap="round" />
+                                </svg>
+                              </button>
+                            </div>
+                          </>
+                        )}
 
                       </div>
                     </div>

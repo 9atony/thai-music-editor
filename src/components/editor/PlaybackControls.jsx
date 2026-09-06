@@ -75,8 +75,15 @@ const PlaybackControls = () => {
   };
 
   const handleNoteStyle = (styleKey, value, isToggle = false, step = 0) => {
+    const rowLabelStyleKey = styleKey === 'fontSize'
+      ? 'rowLabelFontSize'
+      : styleKey === 'noteFontFamily'
+        ? 'rowLabelFontFamily'
+        : null;
+
     const hasKlum = selectionRange && selectionRange.start && selectionRange.end &&
-      (selectionRange.start[0] !== selectionRange.end[0] ||
+      (selectionRange.labelOnly ||
+       selectionRange.start[0] !== selectionRange.end[0] ||
        selectionRange.start[1] !== selectionRange.end[1] ||
        selectionRange.start[2] !== selectionRange.end[2]);
 
@@ -90,15 +97,25 @@ const PlaybackControls = () => {
       const maxCol = Math.max(startColVal, endColVal);
 
       let cellsToUpdate = [];
-      for (let r = minR; r <= maxR; r++) {
-        const rowData = sheetData[r];
-        if (!rowData || rowTypes[r] === 'text' || rowTypes[r] === 'page-break') continue;
-        for (let m = 0; m < rowData.length; m++) {
-          if (rowTypes[r].startsWith('double') && m === 0) continue;
-          for (let c = 0; c < rowData[m].length; c++) {
-            const colVal = getFlattenedCol(rowData, rowTypes[r], m, c);
-            if (colVal >= minCol && colVal <= maxCol) {
-              cellsToUpdate.push(`${r}_${m}_${c}`);
+      if (selectionRange.labelOnly) {
+        for (let r = minR; r <= maxR; r++) {
+          if (rowTypes[r]?.startsWith('double')) cellsToUpdate.push(`${r}_0_0`);
+        }
+      } else {
+        for (let r = minR; r <= maxR; r++) {
+          const rowData = sheetData[r];
+          if (!rowData || rowTypes[r] === 'text' || rowTypes[r] === 'page-break') continue;
+          for (let m = 0; m < rowData.length; m++) {
+            const isRowLabel = rowTypes[r].startsWith('double') && m === 0;
+            if (isRowLabel) {
+              if (selectionRange.includeRowLabels) cellsToUpdate.push(`${r}_${m}_0`);
+              continue;
+            }
+            for (let c = 0; c < rowData[m].length; c++) {
+              const colVal = getFlattenedCol(rowData, rowTypes[r], m, c);
+              if (colVal >= minCol && colVal <= maxCol) {
+                cellsToUpdate.push(`${r}_${m}_${c}`);
+              }
             }
           }
         }
@@ -115,19 +132,51 @@ const PlaybackControls = () => {
           const currentStyle = newStyles[key] || {};
           let finalValue = targetValue;
           if (step !== 0) {
-             const currentVal = currentStyle[styleKey] !== undefined ? currentStyle[styleKey] : (layoutConfig[styleKey] || 20);
+             const defaultValue = selectionRange.labelOnly && rowLabelStyleKey
+               ? (layoutConfig[rowLabelStyleKey] ?? layoutConfig[styleKey] ?? 16)
+               : (layoutConfig[styleKey] || 16);
+             const currentVal = currentStyle[styleKey] !== undefined ? currentStyle[styleKey] : defaultValue;
              finalValue = currentVal + step;
           }
           newStyles[key] = { ...currentStyle, [styleKey]: finalValue };
         });
-        setLayoutConfig({ ...layoutConfig, customStyles: newStyles });
+        const shouldSyncRowLabels = selectionRange.includeRowLabels && !selectionRange.labelOnly && rowLabelStyleKey;
+        const rowLabelValue = step !== 0 ? (layoutConfig[rowLabelStyleKey] ?? layoutConfig[styleKey] ?? 16) + step : targetValue;
+        setLayoutConfig((current) => ({
+          ...current,
+          customStyles: newStyles,
+          ...(shouldSyncRowLabels ? { [rowLabelStyleKey]: rowLabelValue } : {})
+        }));
       }
     } else {
+      const isProjectTypographyChange = styleKey === 'fontSize' || styleKey === 'noteFontFamily';
+      if (isProjectTypographyChange) {
+        setLayoutConfig((current) => {
+          let nextValue = value;
+          if (step !== 0) nextValue = (current[styleKey] || 16) + step;
+          if (styleKey === 'fontSize' && (nextValue < 10 || nextValue > 150)) return current;
+
+          const cleanedStyles = Object.fromEntries(
+            Object.entries(current.customStyles || {}).map(([key, style]) => {
+              const { [styleKey]: _removedStyle, ...remainingStyle } = style;
+              return [key, remainingStyle];
+            })
+          );
+          return {
+            ...current,
+            [styleKey]: nextValue,
+            ...(rowLabelStyleKey ? { [rowLabelStyleKey]: nextValue } : {}),
+            customStyles: cleanedStyles
+          };
+        });
+        return;
+      }
+
       if (isToggle) {
         handleLayoutChange(styleKey, !layoutConfig[styleKey]);
       } else if (step !== 0) {
         // ⭐ แก้ไข fallback เป็น 20 (เดิม 40)
-        const newVal = (layoutConfig[styleKey] || 20) + step;
+        const newVal = (layoutConfig[styleKey] || 16) + step;
         if (newVal >= 10 && newVal <= 150) handleLayoutChange(styleKey, newVal);
       } else {
         handleLayoutChange(styleKey, value);
@@ -144,6 +193,10 @@ const PlaybackControls = () => {
         const isInsideEditor = element && element.closest && element.closest('[contenteditable="true"]');
 
         if (isInsideEditor) {
+          if (isInsideEditor.dataset.rowLabelEditor === 'true') {
+            savedSelection.current = null;
+            return;
+          }
           savedSelection.current = selection.getRangeAt(0).cloneRange();
           const computedStyle = window.getComputedStyle(element);
           if (computedStyle && computedStyle.fontSize) {
@@ -190,7 +243,8 @@ const PlaybackControls = () => {
   const getActiveEditor = () => {
     if (!savedSelection.current) return null;
     let node = savedSelection.current.commonAncestorContainer;
-    return node.nodeType === 3 ? node.parentElement.closest('[contenteditable="true"]') : node.closest('[contenteditable="true"]');
+    const editor = node.nodeType === 3 ? node.parentElement.closest('[contenteditable="true"]') : node.closest('[contenteditable="true"]');
+    return editor?.dataset.rowLabelEditor === 'true' ? null : editor;
   };
 
   const handleUniversalFontSizeChange = (val, step = 0) => {
@@ -258,7 +312,14 @@ const PlaybackControls = () => {
     syncFormatToState();
   };
 
-  const defaultFontFamily = layoutConfig.fontFamily || "'TH Sarabun New', sans-serif";
+  const defaultFontFamily = layoutConfig.fontFamily || "'Sarabun', sans-serif";
+  const selectedRowLabelStyle = selectionRange?.labelOnly
+    ? layoutConfig.customStyles?.[`${selectionRange.start[0]}_0_0`] || {}
+    : null;
+  const selectedFontFamily = selectedRowLabelStyle?.noteFontFamily
+    || (selectionRange?.labelOnly ? layoutConfig.rowLabelFontFamily : null)
+    || layoutConfig.noteFontFamily
+    || defaultFontFamily;
 
   const renderModeContent = () => {
     switch(toolbarMode) {
@@ -320,7 +381,7 @@ const PlaybackControls = () => {
               
               <div className="flex items-center gap-2">
                 <select 
-                  value={layoutConfig.noteFontFamily || defaultFontFamily} 
+                  value={selectedFontFamily}
                   onChange={(e) => {
                     const hasTextSelection = savedSelection.current && savedSelection.current.toString().length > 0;
                     if (toolbarMode === 'text' || (hasTextSelection && getActiveEditor())) {
@@ -341,9 +402,11 @@ const PlaybackControls = () => {
                   type="number" min="10" max="150" 
                   value={toolbarMode === 'text' || (savedSelection.current && savedSelection.current.toString().length > 0 && getActiveEditor()) 
                     ? textFontSize 
-                    : (selectedCell && layoutConfig.customStyles?.[`${selectedCell[0]}_${selectedCell[1]}_${selectedCell[2]}`]?.fontSize 
-                        ? layoutConfig.customStyles[`${selectedCell[0]}_${selectedCell[1]}_${selectedCell[2]}`].fontSize 
-                        : (layoutConfig.fontSize || 20))} 
+                    : (selectionRange?.labelOnly
+                        ? (selectedRowLabelStyle?.fontSize ?? layoutConfig.rowLabelFontSize ?? layoutConfig.fontSize ?? 16)
+                        : (selectedCell && layoutConfig.customStyles?.[`${selectedCell[0]}_${selectedCell[1]}_${selectedCell[2]}`]?.fontSize
+                        ? layoutConfig.customStyles[`${selectedCell[0]}_${selectedCell[1]}_${selectedCell[2]}`].fontSize
+                        : (layoutConfig.fontSize || 16)))}
                   onChange={(e) => handleUniversalFontSizeChange(parseInt(e.target.value) || 16)} 
                   className="w-10 text-center text-sm font-bold text-slate-700 bg-slate-50 border-none focus:ring-0 p-0 h-full" 
                 />

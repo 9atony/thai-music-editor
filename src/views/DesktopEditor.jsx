@@ -66,7 +66,7 @@ function DesktopEditor({ onBack }) {
         <EditorSidebar />
 
         {/* พื้นที่หลัก */}
-        <main className="flex-1 flex flex-col bg-[#f0f4f8] overflow-hidden relative">
+        <main className="relative z-0 isolate flex flex-1 flex-col overflow-hidden bg-[#f0f4f8]">
           <div className="flex-1 overflow-hidden p-0 flex flex-col items-center">
             <Sheet ref={componentRef} /> 
           </div>

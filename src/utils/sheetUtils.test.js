@@ -2,11 +2,25 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   createEmptyMeasureRow,
+  createDefaultRowTypes,
+  createDefaultSheetData,
   normalizeCellToken,
   normalizeNathapRowData,
   shiftNoteString,
   splitThaiNoteToken,
 } from './sheetUtils.js';
+
+test('creates four default right-hand and left-hand staff pairs', () => {
+  const sheetData = createDefaultSheetData();
+  const rowTypes = createDefaultRowTypes();
+
+  assert.equal(sheetData.length, 8);
+  assert.deepEqual(rowTypes, Array.from({ length: 4 }, () => ['double-right', 'double-left']).flat());
+  assert.deepEqual(sheetData[0][0], ['มือขวา']);
+  assert.deepEqual(sheetData[1][0], ['มือซ้าย']);
+  assert.equal(sheetData[0].length, 9);
+  assert.deepEqual(sheetData[0][1], ['-', '-', '-', '-']);
+});
 
 test('creates an eight-measure row with the requested number of beats', () => {
   const row = createEmptyMeasureRow(8, 4);

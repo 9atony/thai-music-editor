@@ -1,4 +1,4 @@
-import React, { useContext } from 'react';
+import React, { useContext, useState } from 'react';
 import { MusicContext } from '../../../contexts/MusicContext';
 
 const SabatTab = () => {
@@ -6,17 +6,20 @@ const SabatTab = () => {
     layoutConfig, 
     setLayoutConfig, 
     symbols, 
-    updateSymbol, 
+    updateSymbol,
+    updateSymbols,
     selectedSymbolId 
   } = useContext(MusicContext);
 
   // หาสัญลักษณ์สะบัดที่กำลังคลิกอยู่ (ถ้าไม่มี = ตั้งค่าเริ่มต้นของทั้งหน้า)
   const selectedSym = symbols.find(s => s.id === selectedSymbolId && s.type === 'sabat');
-  const isGlobal = !selectedSym;
+  const [scope, setScope] = useState('project');
+  const isProjectScope = scope === 'project' || !selectedSym;
+  const sabatCount = symbols.filter(symbol => symbol.type === 'sabat').length;
 
   const getValue = (key) => {
     const lowerKey = key.toLowerCase();
-    if (isGlobal) {
+    if (isProjectScope) {
       return layoutConfig[`sabat${key}`]; 
     }
     return selectedSym[lowerKey] !== undefined ? selectedSym[lowerKey] : layoutConfig[`sabat${key}`];
@@ -24,8 +27,9 @@ const SabatTab = () => {
   
   const handleUpdate = (key, value) => {
     const normalizedKey = key.toLowerCase();
-    if (isGlobal) {
+    if (isProjectScope) {
       setLayoutConfig(prev => ({ ...prev, [`sabat${key}`]: value }));
+      updateSymbols(symbol => symbol.type === 'sabat', { [normalizedKey]: value });
     } else {
       updateSymbol(selectedSymbolId, { [normalizedKey]: value });
     }
@@ -41,15 +45,38 @@ const SabatTab = () => {
             ตั้งค่าลูกสะบัด (กราฟิก)
           </h3>
           <p className="text-[10px] text-amber-600 mt-1 font-semibold">
-            {isGlobal ? 'ค่าเริ่มต้นของทั้งโปรเจกต์' : 'กำลังแก้ไขเส้นที่เลือกอยู่'}
+            {isProjectScope ? `ปรับพร้อมกัน ${sabatCount} เส้นในโปรเจกต์` : 'กำลังแก้ไขเฉพาะเส้นที่เลือกอยู่'}
           </p>
         </div>
-        {!isGlobal && (
+        {!isProjectScope && (
            <span className="animate-pulse w-2 h-2 bg-orange-500 rounded-full shadow-sm" title="โหมดแก้ไขเฉพาะจุด"></span>
         )}
       </div>
 
       <div className="tool-tab-body flex-1 overflow-y-auto custom-scrollbar space-y-4">
+        <div className="rounded-xl border border-amber-100 bg-amber-50/70 p-2.5">
+          <p className="mb-2 text-[10px] font-black text-amber-800">ขอบเขตการปรับ</p>
+          <div className="grid grid-cols-2 gap-1 rounded-lg bg-white/80 p-1 shadow-sm">
+            <button
+              type="button"
+              onClick={() => setScope('project')}
+              className={`rounded-md px-2 py-2 text-[10px] font-bold transition-colors ${isProjectScope ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-500 hover:bg-amber-50'}`}
+            >
+              ทั้งโปรเจกต์
+            </button>
+            <button
+              type="button"
+              disabled={!selectedSym}
+              onClick={() => setScope('line')}
+              className={`rounded-md px-2 py-2 text-[10px] font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${!isProjectScope ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-500 hover:bg-amber-50'}`}
+            >
+              เฉพาะเส้นนี้
+            </button>
+          </div>
+          <p className="mt-2 text-[9px] leading-4 text-amber-700">
+            {isProjectScope ? 'ค่าที่ปรับจะใช้กับลูกสะบัดทุกเส้น และเส้นใหม่ที่เพิ่มในภายหลัง' : 'เลือกเส้นลูกสะบัดบนโน้ตก่อน จึงจะปรับเฉพาะเส้นได้'}
+          </p>
+        </div>
         
         {/* --- หมวดรูปลักษณ์เส้น --- */}
         <div className="tool-tab-card bg-white p-4 border border-slate-200 shadow-sm">

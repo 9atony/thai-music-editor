@@ -186,11 +186,19 @@ export const shiftNoteString = (noteStr, steps) => {
 
 export const DEFAULT_INSTRUMENT = INSTRUMENT_CONFIG["khong-wong-yai"] || INSTRUMENT_CONFIG["ranat-ek"] || Object.values(INSTRUMENT_CONFIG)[0];
 
-export const createDefaultSheetData = () => Array(4).fill().map(() => Array(8).fill().map(() => Array(4).fill('-')));
+const createDefaultHandRow = (label) => [[label], ...createEmptyMeasureRow()];
 
-export const createDefaultRowTypes = () => Array(4).fill('single');
+export const createDefaultSheetData = () => Array.from({ length: 4 }, () => [
+  createDefaultHandRow('มือขวา'),
+  createDefaultHandRow('มือซ้าย')
+]).flat();
 
-export const createDefaultRowMargins = (length = 4) => Array.from({ length }, () => ({ top: 0, bottom: 0, left: 0 }));
+export const createDefaultRowTypes = () => Array.from({ length: 4 }, () => [
+  'double-right',
+  'double-left'
+]).flat();
+
+export const createDefaultRowMargins = (length = createDefaultRowTypes().length) => Array.from({ length }, () => ({ top: 0, bottom: 0, left: 0 }));
 
 export const createDefaultHeaderDetails = () => ([
   { id: 1, label: "อัตราจังหวะ", value: "๒ ชั้น" },
@@ -200,7 +208,12 @@ export const createDefaultHeaderDetails = () => ([
 ]);
 
 export const createDefaultLayoutConfig = () => ({
-  fontSize: 20, isBold: false, isItalic: false, measureHeight: 48,
+  fontSize: 16,
+  noteFontFamily: "'Sarabun', sans-serif",
+  rowLabelFontSize: 16,
+  rowLabelFontFamily: "'Sarabun', sans-serif",
+  isBold: false, isItalic: false, measureHeight: 48,
+  staffLabelColumnWidth: null,
   rowGap: 20, songNameSize: 48, authorSize: 16, detailsAlign: 'between',
   borderWidth: 2, innerBorderWidth: 0, borderColor: '#1e293b', borderRadius: 0,
   bpm: 80, volume: 100,

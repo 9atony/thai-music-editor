@@ -14,14 +14,15 @@ export const useSheetEditor = ({
   layoutConfigRef,
   isPlayingRef,
   stopPlayback,
-  onPreviewToken
+  onPreviewToken,
+  onRowIndexMap
 }) => {
   const [sheetData, setSheetData] = useState(createDefaultSheetData);
   const [rowTypes, setRowTypes] = useState(createDefaultRowTypes);
   const [rowMargins, setRowMargins] = useState(() => createDefaultRowMargins());
   const [sectionLabels, setSectionLabels] = useState({});
   const [symbols, setSymbols] = useState([]);
-  const [selectedCell, setSelectedCell] = useState([0, 0, 0]);
+  const [selectedCell, setSelectedCell] = useState([0, 1, 0]);
   const [selectionRange, setSelectionRange] = useState(null);
 
   const [isDragging, setIsDragging] = useState(false);
@@ -33,6 +34,10 @@ export const useSheetEditor = ({
   const selectedCellRef = useRef(selectedCell);
   useEffect(() => { selectedCellRef.current = selectedCell; }, [selectedCell]);
 
+  const getCellInstrumentId = (row, meas, cell) => (
+    layoutConfigRef.current.customStyles?.[`${row}_${meas}_${cell}`]?.instrumentId || null
+  );
+
   const resetSheetState = () => {
     const defaultSheet = createDefaultSheetData();
     const defaultTypes = createDefaultRowTypes();
@@ -43,7 +48,7 @@ export const useSheetEditor = ({
     setRowMargins(defaultMargins);
     setSectionLabels({});
     setSymbols([]);
-    setSelectedCell([0, 0, 0]);
+    setSelectedCell([0, 1, 0]);
     setSelectionRange(null);
     setHistory([]);
     setHistoryIndex(-1);
@@ -51,12 +56,23 @@ export const useSheetEditor = ({
     return { defaultSheet, defaultTypes, defaultMargins };
   };
 
-  const commitChange = (newSheetData, newRowTypes, newSectionLabels, newSymbols, newRowMargins) => {
+  const createInsertedRowIndexMap = (insertIndex, count) => new Map(
+    sheetData.map((_, rowIndex) => [rowIndex, rowIndex < insertIndex ? rowIndex : rowIndex + count])
+  );
+  const createRemovedRowIndexMap = (removeIndex, count) => new Map(
+    sheetData.flatMap((_, rowIndex) => {
+      if (rowIndex >= removeIndex && rowIndex < removeIndex + count) return [];
+      return [[rowIndex, rowIndex < removeIndex ? rowIndex : rowIndex - count]];
+    })
+  );
+
+  const commitChange = (newSheetData, newRowTypes, newSectionLabels, newSymbols, newRowMargins, rowIndexMap = null, styleCopies = []) => {
     setSheetData(newSheetData);
     if (newRowTypes) setRowTypes(newRowTypes);
     if (newSectionLabels) setSectionLabels(newSectionLabels);
     if (newSymbols) setSymbols(newSymbols);
     if (newRowMargins) setRowMargins(newRowMargins);
+    if (rowIndexMap) onRowIndexMap?.(rowIndexMap, styleCopies);
     
     const snapshot = {
       sheetData: newSheetData.map(row => row.map(meas => [...meas])),
@@ -137,7 +153,7 @@ export const useSheetEditor = ({
     setSelectionRange(null);
     if (options.keepSelection !== false) setSelectedCell([row, meas, cell]);
     if (options.preview !== false && normalizedToken !== '-' && onPreviewToken) {
-      onPreviewToken(normalizedToken, options.volume ?? (layoutConfigRef.current.volume ?? 100));
+      onPreviewToken(normalizedToken, options.volume ?? (layoutConfigRef.current.volume ?? 100), getCellInstrumentId(row, meas, cell));
     }
   };
 
@@ -212,7 +228,7 @@ export const useSheetEditor = ({
     setSelectionRange(null);
     if (options.keepSelection !== false) setSelectedCell([row, meas, cell]);
     if (options.preview !== false && mergedToken !== '-' && onPreviewToken) {
-      onPreviewToken(mergedToken, options.volume ?? (layoutConfigRef.current.volume ?? 100));
+      onPreviewToken(mergedToken, options.volume ?? (layoutConfigRef.current.volume ?? 100), getCellInstrumentId(row, meas, cell));
     }
     if (options.moveNext) setTimeout(() => moveSelectionToAdjacentCell('next'), 0);
   };
@@ -304,7 +320,10 @@ export const useSheetEditor = ({
             }
           }
         }
-        if (normalizedToken !== '-' && onPreviewToken) onPreviewToken(normalizedToken, layoutConfigRef.current.volume ?? 100);
+        if (normalizedToken !== '-' && onPreviewToken) {
+          const [previewRow, previewMeasure, previewCell] = selectedCell;
+          onPreviewToken(normalizedToken, layoutConfigRef.current.volume ?? 100, getCellInstrumentId(previewRow, previewMeasure, previewCell));
+        }
         commitChange(newData); setSelectionRange(null);
         return;
     }
@@ -355,7 +374,9 @@ export const useSheetEditor = ({
           newData[row][meas][cell] = normalizedToken;
       }
 
-      if (normalizedToken !== '-' && onPreviewToken) onPreviewToken(normalizedToken, layoutConfigRef.current.volume ?? 100);
+      if (normalizedToken !== '-' && onPreviewToken) {
+        onPreviewToken(normalizedToken, layoutConfigRef.current.volume ?? 100, getCellInstrumentId(row, meas, cell));
+      }
       commitChange(newData);
       if (cell < sheetData[row][meas].length - 1) setSelectedCell([row, meas, cell + 1]);
       else if (meas < sheetData[row].length - 1) setSelectedCell([row, meas + 1, 0]);
@@ -368,6 +389,16 @@ export const useSheetEditor = ({
 
   const startSelection = (r, m, c) => { setIsDragging(true); setDragStart([r, m, c]); setSelectionRange({ start: [r, m, c], end: [r, m, c] }); setSelectedCell([r, m, c]); };
   const updateSelection = (r, m, c) => { if (isDragging && dragStart) setSelectionRange({ start: dragStart, end: [r, m, c] }); };
+  const startRowLabelSelection = (r) => {
+    setIsDragging(true);
+    setDragStart([r, 0, 0]);
+    setSelectionRange({ start: [r, 0, 0], end: [r, 0, 0], includeRowLabels: true, labelOnly: true });
+    setSelectedCell([r, 0, 0]);
+  };
+  const updateRowLabelSelection = (r) => {
+    if (!isDragging || !dragStart) return;
+    setSelectionRange({ start: [dragStart[0], 0, 0], end: [r, 0, 0], includeRowLabels: true, labelOnly: true });
+  };
   const endSelection = () => { setIsDragging(false); setDragStart(null); };
 
   const copySelection = async () => {
@@ -561,12 +592,12 @@ export const useSheetEditor = ({
     setSelectionRange(null); 
   };
 
-  const addRow = (insertAtTop = null) => { 
+  const addRow = (insertAtTop = null, targetCell = null) => {
     if (isReadOnlyRef.current) return;
     if (isPlayingRef?.current) stopPlayback(); 
     setSelectionRange(null); 
     
-    const [rIdx, mIdx] = selectedCell;
+    const [rIdx, mIdx] = targetCell || selectedCell;
     let insertIdx;
     let isFirstHalf = false;
 
@@ -598,7 +629,10 @@ export const useSheetEditor = ({
     });
 
     const newData = [...sheetData], newRowTypes = [...rowTypes], newRowMargins = [...rowMargins];
-    newData.splice(insertIdx, 0, Array(8).fill().map(() => Array(4).fill('-')));
+    const blankSingleRow = targetCell && rowTypes[rIdx] === 'single'
+      ? sheetData[rIdx].map((measure) => Array(Math.max(1, measure.length)).fill('-'))
+      : Array(8).fill().map(() => Array(4).fill('-'));
+    newData.splice(insertIdx, 0, blankSingleRow);
     newRowTypes.splice(insertIdx, 0, 'single');
     newRowMargins.splice(insertIdx, 0, { top: 0, bottom: 0, left: 0 }); 
 
@@ -608,18 +642,21 @@ export const useSheetEditor = ({
       end: [sym.end[0] >= insertIdx ? sym.end[0] + 1 : sym.end[0], sym.end[1], sym.end[2]]
     }));
 
-    commitChange(newData, newRowTypes, newSectionLabels, newSymbols, newRowMargins);
+    const styleCopies = targetCell && rowTypes[rIdx] === 'single'
+      ? [{ sourceRow: rIdx, targetRow: insertIdx }]
+      : [];
+    commitChange(newData, newRowTypes, newSectionLabels, newSymbols, newRowMargins, createInsertedRowIndexMap(insertIdx, 1), styleCopies);
     
     if (rowTypes[rIdx] === 'page-break') setSelectedCell([insertIdx, 0, 0]);
     else if (isFirstHalf) setSelectedCell([insertIdx + 1, 0, 0]); 
   };
 
-  const addDoubleRow = (insertAtTop = null) => {
+  const addDoubleRow = (insertAtTop = null, targetCell = null) => {
     if (isReadOnlyRef.current) return;
     if (isPlayingRef?.current) stopPlayback(); 
     setSelectionRange(null); 
     
-    const [rIdx, mIdx] = selectedCell;
+    const [rIdx, mIdx] = targetCell || selectedCell;
     let insertIdx;
     let isFirstHalf = false;
 
@@ -650,8 +687,20 @@ export const useSheetEditor = ({
       else newSectionLabels[k + 1] = sectionLabels[k];
     });
 
+    const sourceRightRow = rowTypes[rIdx] === 'double-left' ? rIdx - 1 : rIdx;
+    const makeBlankHandRow = (sourceRow, label) => [
+      [label],
+      ...sheetData[sourceRow].slice(1).map((measure) => Array(Math.max(1, measure.length)).fill('-'))
+    ];
+    const blankRightRow = targetCell && rowTypes[sourceRightRow] === 'double-right'
+      ? makeBlankHandRow(sourceRightRow, 'มือขวา')
+      : [['มือขวา'], ...Array(8).fill().map(() => Array(4).fill('-'))];
+    const blankLeftRow = targetCell && rowTypes[sourceRightRow + 1] === 'double-left'
+      ? makeBlankHandRow(sourceRightRow + 1, 'มือซ้าย')
+      : [['มือซ้าย'], ...Array(8).fill().map(() => Array(4).fill('-'))];
+
     const newData = [...sheetData], newRowTypes = [...rowTypes], newRowMargins = [...rowMargins];
-    newData.splice(insertIdx, 0, [['มือขวา'], ...Array(8).fill().map(() => Array(4).fill('-'))], [['มือซ้าย'], ...Array(8).fill().map(() => Array(4).fill('-'))]);
+    newData.splice(insertIdx, 0, blankRightRow, blankLeftRow);
     newRowTypes.splice(insertIdx, 0, 'double-right', 'double-left');
     newRowMargins.splice(insertIdx, 0, { top: 0, bottom: 0, left: 0 }, { top: 0, bottom: 0, left: 0 }); 
 
@@ -661,7 +710,13 @@ export const useSheetEditor = ({
       end: [sym.end[0] >= insertIdx ? sym.end[0] + 2 : sym.end[0], sym.end[1], sym.end[2]]
     }));
 
-    commitChange(newData, newRowTypes, newSectionLabels, newSymbols, newRowMargins);
+    const styleCopies = targetCell && rowTypes[sourceRightRow] === 'double-right'
+      ? [
+          { sourceRow: sourceRightRow, targetRow: insertIdx },
+          { sourceRow: sourceRightRow + 1, targetRow: insertIdx + 1 }
+        ]
+      : [];
+    commitChange(newData, newRowTypes, newSectionLabels, newSymbols, newRowMargins, createInsertedRowIndexMap(insertIdx, 2), styleCopies);
     
     if (rowTypes[rIdx] === 'page-break') setSelectedCell([insertIdx, 0, 0]);
     else if (isFirstHalf) setSelectedCell([insertIdx + 2, 0, 0]); 
@@ -693,7 +748,7 @@ export const useSheetEditor = ({
       start: [sym.start[0] >= insertIdx ? sym.start[0] + 1 : sym.start[0], sym.start[1], sym.start[2]],
       end: [sym.end[0] >= insertIdx ? sym.end[0] + 1 : sym.end[0], sym.end[1], sym.end[2]]
     }));
-    commitChange(newData, newRowTypes, { ...sectionLabels }, newSymbols, newRowMargins);
+    commitChange(newData, newRowTypes, { ...sectionLabels }, newSymbols, newRowMargins, createInsertedRowIndexMap(insertIdx, 1));
     setSelectedCell([insertIdx, 0, 0]);
   };
 
@@ -730,7 +785,7 @@ export const useSheetEditor = ({
       start: [sym.start[0] >= insertIdx ? sym.start[0] + 1 : sym.start[0], sym.start[1], sym.start[2]],
       end: [sym.end[0] >= insertIdx ? sym.end[0] + 1 : sym.end[0], sym.end[1], sym.end[2]]
     }));
-    commitChange(newData, newRowTypes, { ...sectionLabels }, newSymbols, newRowMargins);
+    commitChange(newData, newRowTypes, { ...sectionLabels }, newSymbols, newRowMargins, createInsertedRowIndexMap(insertIdx, 1));
     setTimeout(() => { setSelectedCell([insertIdx, 0, 0]); }, 10);
   };
 
@@ -777,16 +832,16 @@ export const useSheetEditor = ({
       start: [sym.start[0] >= insertIdx ? sym.start[0] + 1 : sym.start[0], sym.start[1], sym.start[2]],
       end: [sym.end[0] >= insertIdx ? sym.end[0] + 1 : sym.end[0], sym.end[1], sym.end[2]]
     }));
-    commitChange(newData, newRowTypes, { ...sectionLabels }, newSymbols, newRowMargins);
+    commitChange(newData, newRowTypes, { ...sectionLabels }, newSymbols, newRowMargins, createInsertedRowIndexMap(insertIdx, 1));
     setTimeout(() => { setSelectedCell([insertIdx, 0, 0]); }, 10);
   };
 
-  const addNathapRow = (insertAtTop = null) => {
+  const addNathapRow = (targetCell = null) => {
     if (isReadOnlyRef.current) return;
     if (isPlayingRef?.current) stopPlayback(); 
     setSelectionRange(null);
     
-    const [rIdx] = selectedCell;
+    const [rIdx] = Array.isArray(targetCell) ? targetCell : selectedCell;
     let insertIdx;
 
     let parentRIdx = rIdx;
@@ -820,7 +875,7 @@ export const useSheetEditor = ({
       end: [sym.end[0] >= insertIdx ? sym.end[0] + 1 : sym.end[0], sym.end[1], sym.end[2]]
     }));
     
-    commitChange(newData, newRowTypes, { ...sectionLabels }, newSymbols, newRowMargins);
+    commitChange(newData, newRowTypes, { ...sectionLabels }, newSymbols, newRowMargins, createInsertedRowIndexMap(insertIdx, 1));
     setTimeout(() => { setSelectedCell([insertIdx, isUnderDouble ? 1 : 0, 0]); }, 10);
   };
   
@@ -868,7 +923,7 @@ export const useSheetEditor = ({
       }
     });
 
-    commitChange(newData, newRowTypes, newSectionLabels, newSymbols, newRowMargins);
+    commitChange(newData, newRowTypes, newSectionLabels, newSymbols, newRowMargins, createRemovedRowIndexMap(startIndex, deleteCount));
     let nextRow = startIndex >= newData.length ? newData.length - 1 : startIndex;
     setSelectedCell([nextRow, (newRowTypes[nextRow].startsWith('double') || (newRowTypes[nextRow] === 'nathap' && newData[nextRow].length === 9)) ? 1 : 0, 0]);
   };
@@ -966,10 +1021,10 @@ export const useSheetEditor = ({
     }
   };
 
-  const addMeasure = () => {
+  const addMeasure = (targetCell = null) => {
     if (isReadOnlyRef.current) return;
     setSelectionRange(null); 
-    const [rowIdx, measIdx] = selectedCell;
+    const [rowIdx, measIdx] = targetCell || selectedCell;
     if (rowTypes[rowIdx] === 'page-break' || rowTypes[rowIdx] === 'text') return;
     const newData = [...sheetData];
     if (rowTypes[rowIdx] === 'single' || rowTypes[rowIdx] === 'nathap') newData[rowIdx].splice(measIdx + 1, 0, Array(4).fill('-'));
@@ -999,8 +1054,32 @@ export const useSheetEditor = ({
     if (rowTypes[targetR] === 'page-break' || rowTypes[targetR] === 'text') return;
     if ((rowTypes[targetR].startsWith('double') || (rowTypes[targetR] === 'nathap' && sheetData[targetR].length === 9)) && minM === 0) return;
 
+    let expanded = true;
+    while (expanded) {
+      expanded = false;
+      for (let m = 0; m < sheetData[targetR].length; m++) {
+        const marker = sheetData[targetR][m]?.[0];
+        if (typeof marker !== 'string' || !marker.startsWith('@TEXT_SPAN_')) continue;
+        const existingSpan = Math.max(1, parseInt(marker.split('_')[2], 10) || 1);
+        const existingEnd = Math.min(sheetData[targetR].length - 1, m + existingSpan - 1);
+        if (m <= maxM && existingEnd >= minM) {
+          const nextMin = Math.min(minM, m);
+          const nextMax = Math.max(maxM, existingEnd);
+          if (nextMin !== minM || nextMax !== maxM) expanded = true;
+          minM = nextMin;
+          maxM = nextMax;
+        }
+      }
+    }
+
+    const existingText = sheetData[targetR]
+      .slice(minM, maxM + 1)
+      .filter((measure) => typeof measure?.[0] === 'string' && measure[0].startsWith('@TEXT_SPAN_'))
+      .map((measure) => measure[1] || '')
+      .filter((text) => String(text).trim() !== '')
+      .join(' ');
     const span = maxM - minM + 1;
-    newData[targetR][minM] = [`@TEXT_SPAN_${span}`, ''];
+    newData[targetR][minM] = [`@TEXT_SPAN_${span}`, existingText];
     for (let m = minM + 1; m <= maxM; m++) newData[targetR][m] = ['@HIDDEN'];
     
     commitChange(newData);
@@ -1036,6 +1115,11 @@ export const useSheetEditor = ({
   };
   
   const updateSymbol = (id, updates) => { if (isReadOnlyRef.current) return; commitChange(sheetData, rowTypes, sectionLabels, symbols.map(s => s.id === id ? { ...s, ...updates } : s)); };
+
+  const updateSymbols = (matcher, updates) => {
+    if (isReadOnlyRef.current) return;
+    commitChange(sheetData, rowTypes, sectionLabels, symbols.map(symbol => matcher(symbol) ? { ...symbol, ...updates } : symbol));
+  };
   
   const removeSymbol = (id) => { if (isReadOnlyRef.current) return; commitChange(sheetData, rowTypes, sectionLabels, symbols.filter(s => s.id !== id)); };
   
@@ -1064,10 +1148,10 @@ export const useSheetEditor = ({
     history, historyIndex, setHistory, setHistoryIndex, commitChange, undo, redo,
     resetSheetState, updateCellToken, appendNoteToCurrentCell, trimCurrentCellToken,
     inputNote, moveSelectionNext, moveSelectionPrev, moveSelectionToAdjacentCell,
-    startSelection, updateSelection, endSelection, copySelection, pasteSelection, cutSelection,
+    startSelection, updateSelection, startRowLabelSelection, updateRowLabelSelection, endSelection, copySelection, pasteSelection, cutSelection,
     addRow, addDoubleRow, addPageBreak, addTextRow, updateTextRow, addAnnotationRow, addNathapRow, removeRow,
     addMeasure, removeMeasure, addNoteColumn, removeNoteColumn, convertMeasureToText, updateMeasureText,
     addSectionLabel, updateSectionLabel, removeSectionLabel,
-    addSymbol, updateSymbol, removeSymbol, removeSymbolByCell, updateRowMarginsList
+    addSymbol, updateSymbol, updateSymbols, removeSymbol, removeSymbolByCell, updateRowMarginsList
   };
 };

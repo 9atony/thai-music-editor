@@ -1,4 +1,4 @@
-import React, { useState, useContext, useEffect } from 'react';
+import React, { useState, useContext, useEffect, useRef } from 'react';
 import { MusicContext } from '../../../contexts/MusicContext';
 import SequenceTab from './SequenceTab';
 import LabelsTab from './LabelsTab';
@@ -9,8 +9,9 @@ import KroTab from './KroTab';
 import VelocityTab from './VelocityTab'; 
 
 const EditorSidebar = () => {
-  const { selectedSymbolId, symbols } = useContext(MusicContext);
+  const { selectedSymbolId, setSelectedSymbolId, symbols } = useContext(MusicContext);
   const [activeSidePanel, setActiveSidePanel] = useState(null);
+  const sidebarRef = useRef(null);
 
   // เช็กว่ากำลังเลือกสัญลักษณ์อะไรอยู่ เพื่อเปิดแถบให้ตรงกันอัตโนมัติ
   useEffect(() => {
@@ -29,6 +30,43 @@ const EditorSidebar = () => {
     window.addEventListener('tme-open-labels-tab', handleOpenLabels);
     return () => window.removeEventListener('tme-open-labels-tab', handleOpenLabels);
   }, []);
+
+  useEffect(() => {
+    const handleOpenSymbolPanel = (event) => {
+      if (event.detail?.type === 'sabat' || event.detail?.type === 'kro') {
+        setActiveSidePanel(event.detail.type);
+      }
+    };
+    window.addEventListener('tme-open-symbol-panel', handleOpenSymbolPanel);
+    return () => window.removeEventListener('tme-open-symbol-panel', handleOpenSymbolPanel);
+  }, []);
+
+  useEffect(() => {
+    if (!activeSidePanel) return undefined;
+
+    const handleOutsidePointerDown = (event) => {
+      if (sidebarRef.current?.contains(event.target)) return;
+      if (event.target?.closest?.('[data-editor-symbol-hit-area="true"]')) return;
+      setActiveSidePanel(null);
+      if (activeSidePanel === 'sabat' || activeSidePanel === 'kro') {
+        setSelectedSymbolId(null);
+      }
+    };
+    const handleEscape = (event) => {
+      if (event.key !== 'Escape') return;
+      setActiveSidePanel(null);
+      if (activeSidePanel === 'sabat' || activeSidePanel === 'kro') {
+        setSelectedSymbolId(null);
+      }
+    };
+
+    document.addEventListener('pointerdown', handleOutsidePointerDown, true);
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('pointerdown', handleOutsidePointerDown, true);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [activeSidePanel, setSelectedSymbolId]);
 
   const panels = [
     {
@@ -52,7 +90,7 @@ const EditorSidebar = () => {
   ];
 
   return (
-    <div className={`editor-tool-sidebar absolute top-0 left-0 z-40 flex h-full flex-col border-r border-slate-200 bg-slate-50 shadow-[12px_0_32px_rgba(15,23,42,0.12)] transition-transform duration-300 ${activeSidePanel ? 'w-[304px] translate-x-0' : 'w-[304px] -translate-x-full'}`} style={{ fontFamily: 'Prompt, Sarabun, sans-serif' }}>
+    <div ref={sidebarRef} className={`editor-tool-sidebar absolute top-0 left-0 z-[100] flex h-full flex-col border-r border-slate-200 bg-slate-50 shadow-[12px_0_32px_rgba(15,23,42,0.12)] transition-transform duration-300 ${activeSidePanel ? 'w-[304px] translate-x-0' : 'w-[304px] -translate-x-full'}`} style={{ fontFamily: 'Prompt, Sarabun, sans-serif' }}>
       <style>{`
         .editor-tool-sidebar .tool-tab-root { background: #f8fafc; }
         .editor-tool-sidebar .tool-tab-header { min-height: 64px; padding: 14px 16px !important; background: rgba(255,255,255,.96) !important; border-color: #e2e8f0 !important; box-shadow: 0 1px 0 rgba(15,23,42,.03) !important; }
