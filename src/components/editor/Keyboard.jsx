@@ -227,7 +227,7 @@ const Keyboard = () => {
   const iconClass = 'w-4 h-4';
 
   return (
-    <div className={`relative flex flex-col z-[200] w-full font-sans transition-colors duration-300 ${isIntervalActive && !isMinimized ? 'bg-[#fffdf0]' : 'bg-[#eaf4fc]'}`}>
+    <div className={`relative flex flex-col z-[200] w-full font-sans transition-colors duration-300 ${isTempoTrackOpen ? 'bg-white' : isIntervalActive && !isMinimized ? 'bg-[#fffdf0]' : 'bg-[#eaf4fc]'}`}>
       
       <style>
         {`
@@ -517,15 +517,15 @@ const Keyboard = () => {
 
         <TempoTrackPanel />
 
-        <div className="flex items-center justify-end gap-3 px-4 py-1">
+        {!isTempoTrackOpen && <div className="flex items-center justify-end gap-3 px-4 py-1">
         {areNoteKeysVisible && <div className="min-w-0 flex-1 truncate text-[10px] font-semibold text-slate-500">
           คลิกปุ่มโน้ตเพื่อเติมโน้ตเพิ่มในช่องเดียวกัน แล้วกด “จบช่อง” เพื่อเลื่อนไปช่องถัดไป
         </div>}
           <button type="button" onClick={() => setAreNoteKeysVisible(visible => !visible)} aria-expanded={areNoteKeysVisible} aria-controls="note-keyboard-panel" className="shrink-0 rounded-lg border border-slate-200 bg-white px-2.5 py-0.5 text-[11px] font-bold text-slate-600 hover:bg-sky-50">
             {areNoteKeysVisible ? 'ซ่อนแป้นคีย์บอร์ด' : 'แสดงแป้นคีย์บอร์ด'}
           </button>
-        </div>
-        <div id="note-keyboard-panel" hidden={!areNoteKeysVisible}>
+        </div>}
+        <div id="note-keyboard-panel" hidden={isTempoTrackOpen || !areNoteKeysVisible}>
 
 
         <div className="relative z-0 flex w-full overflow-hidden">

@@ -10,12 +10,12 @@ import {
 const MIN_GRAPH_WIDTH = 1000;
 const MEASURE_WIDTH = 72;
 const GRAPH_HEIGHT = 196;
-const PADDING = { left: 72, right: 30, top: 12, bottom: 82 };
+const PADDING = { left: 72, right: 30, top: 12 };
 
 const TempoTrackPanel = () => {
   const {
     isTempoTrackOpen, setIsTempoTrackOpen, layoutConfig, sheetData, rowTypes, sectionLabels,
-    selectedCell, playbackCursor, isPlaying, currentPlaybackBpm, updateTempoTrack, isReadOnly, playbackSequence, activeSequenceIdx, activeLoop, playFromTempoMeasure, togglePlay, playbackProgressRef
+    selectedCell, playbackCursor, isPlaying, currentPlaybackBpm, updateTempoTrack, isReadOnly, playbackSequence, playbackProgressRef
   } = useContext(MusicContext);
   const sourceMeasures = useMemo(() => getPlayableMeasures(sheetData, rowTypes), [sheetData, rowTypes]);
   const measures = useMemo(() => getPlaybackMeasures(sheetData, rowTypes, sectionLabels, playbackSequence), [sheetData, rowTypes, sectionLabels, playbackSequence]);
@@ -35,7 +35,7 @@ const TempoTrackPanel = () => {
   }, [measures, rowTypes, sectionLabels]);
   const normalizedPoints = useMemo(() => normalizeTempoTrack(
     layoutConfig.tempoTrack || [], sheetData, rowTypes, layoutConfig.bpm
-  ), [layoutConfig.tempoTrack, layoutConfig.bpm, sheetData, rowTypes]);
+  ).map(point => ({ ...point, transition: 'linear' })), [layoutConfig.tempoTrack, layoutConfig.bpm, sheetData, rowTypes]);
   const [draftPoints, setDraftPoints] = useState(normalizedPoints);
   const [selectedId, setSelectedId] = useState(null);
   const [selectedOccurrence, setSelectedOccurrence] = useState(0);
@@ -43,10 +43,12 @@ const TempoTrackPanel = () => {
   const [bpmInput, setBpmInput] = useState('80');
   const [containerWidth, setContainerWidth] = useState(MIN_GRAPH_WIDTH);
   const [isFullScreen, setIsFullScreen] = useState(false);
+  const [contextMenu, setContextMenu] = useState(null);
   const [viewportHeight, setViewportHeight] = useState(() => window.innerHeight);
-  const graphHeight = isFullScreen ? Math.max(GRAPH_HEIGHT, viewportHeight - 210) : GRAPH_HEIGHT;
-  const tapTimesRef = useRef([]);
+  const graphHeight = isFullScreen ? Math.max(GRAPH_HEIGHT, viewportHeight - 82) : GRAPH_HEIGHT;
+  const graphBottomPadding = isFullScreen ? 82 : 42;
   const dragPointsRef = useRef(normalizedPoints);
+  const draggingIdRef = useRef(null);
   const graphContainerRef = useRef(null);
   const playheadRef = useRef(null);
   const visiblePoints = draggingId ? draftPoints : normalizedPoints;
@@ -77,9 +79,26 @@ const TempoTrackPanel = () => {
     };
   }, [isFullScreen]);
 
+  useEffect(() => {
+    if (!contextMenu) return undefined;
+    const close = () => setContextMenu(null);
+    const handleKeyDown = event => {
+      if (event.key === 'Escape') close();
+    };
+    window.addEventListener('pointerdown', close);
+    window.addEventListener('resize', close);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('pointerdown', close);
+      window.removeEventListener('resize', close);
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [contextMenu]);
+
   const currentCell = playbackCursor || selectedCell || [measures[0]?.row || 0, measures[0]?.measure || 0, 0];
   const currentPosition = { row: currentCell[0], measure: currentCell[1], cell: currentCell[2] };
-  const currentMeasureIndex = Math.max(0, measures.findIndex(measure => measure.row === currentPosition.row && measure.measure === currentPosition.measure && (!isPlaying || measure.sequenceIndex === undefined || (measure.sequenceIndex === activeSequenceIdx && measure.loop === activeLoop))));
   const displayedBpm = isPlaying
     ? currentPlaybackBpm
     : Math.round(getTempoAtPosition(currentPosition, visiblePoints, layoutConfig.bpm, sheetData, rowTypes));
@@ -133,7 +152,7 @@ const TempoTrackPanel = () => {
   if (!isTempoTrackOpen) return null;
 
   const plotWidth = graphWidth - PADDING.left - PADDING.right;
-  const plotHeight = graphHeight - PADDING.top - PADDING.bottom;
+  const plotHeight = graphHeight - PADDING.top - graphBottomPadding;
   // Keep the scale steady during a drag; expand only for existing higher tempos.
   const graphMaxBpm = Math.min(300, Math.max(150, Math.ceil(Math.max(
     clampTempoBpm(layoutConfig.bpm), ...normalizedPoints.map(point => point.bpm)
@@ -144,9 +163,21 @@ const TempoTrackPanel = () => {
   const yForBpm = (bpm) => PADDING.top + (((graphMaxBpm - clampTempoBpm(bpm)) / (graphMaxBpm - 20)) * plotHeight);
   const indexForX = (x) => Math.min(measures.length - 1, Math.max(0, Math.floor(((x - PADDING.left) / plotWidth) * Math.max(1, measures.length))));
   const bpmForY = (y) => clampTempoBpm(graphMaxBpm - ((Math.min(1, Math.max(0, (y - PADDING.top) / plotHeight))) * (graphMaxBpm - 20)));
+  const positionForX = (x) => {
+    const measureIndex = indexForX(x);
+    const measure = measures[measureIndex];
+    if (!measure) return { measureIndex: 0, cell: 0 };
+    const measureStart = xForIndex(measureIndex);
+    const measureWidth = Math.max(1, xForIndex(measureIndex + 1) - measureStart);
+    const fraction = Math.min(0.999999, Math.max(0, (x - measureStart) / measureWidth));
+    return {
+      measureIndex,
+      cell: Math.min(measure.cellCount - 1, Math.max(0, Math.floor(fraction * measure.cellCount))),
+    };
+  };
 
   const commit = (points) => updateTempoTrack(normalizeTempoTrack(points, sheetData, rowTypes, layoutConfig.bpm));
-  const upsertAt = (measureIndex, bpm, transition = 'step', preferredId = null, source = visiblePoints, cell = 0) => {
+  const upsertAt = (measureIndex, bpm, transition = 'linear', preferredId = null, source = visiblePoints, cell = 0) => {
     const measure = measures[measureIndex];
     if (!measure) return source;
     const position = measureToPosition(measure, cell);
@@ -158,16 +189,6 @@ const TempoTrackPanel = () => {
     return normalizeTempoTrack(next, sheetData, rowTypes, layoutConfig.bpm);
   };
 
-  const addPoint = (measureIndex = currentMeasureIndex, bpm = displayedBpm, cell = currentPosition.cell) => {
-    const next = upsertAt(measureIndex, bpm, 'step', null, visiblePoints, cell);
-    const point = next.find((entry) => entry.position.row === measures[measureIndex]?.row && entry.position.measure === measures[measureIndex]?.measure && entry.position.cell === cell);
-    setDraftPoints(next);
-    setSelectedId(point?.id || null);
-    setSelectedOccurrence(measureIndex);
-    setBpmInput(String(point?.bpm || bpm));
-    commit(next);
-  };
-
   const pointerPosition = (event) => {
     const rect = event.currentTarget.getBoundingClientRect();
     return {
@@ -177,13 +198,27 @@ const TempoTrackPanel = () => {
   };
 
   const handleGraphPointerDown = (event) => {
-    if (isReadOnly || event.target.dataset.tempoPoint === 'true') return;
+    if (event.button !== 0 || isReadOnly || event.target.dataset.tempoPoint === 'true') return;
     const { x, y } = pointerPosition(event);
-    if (y < PADDING.top || y > graphHeight - PADDING.bottom || x < PADDING.left || x > graphWidth - PADDING.right) return;
-    addPoint(indexForX(x), bpmForY(y), 0);
+    if (y < PADDING.top || y > graphHeight - graphBottomPadding || x < PADDING.left || x > graphWidth - PADDING.right) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const { measureIndex, cell } = positionForX(x);
+    const next = upsertAt(measureIndex, bpmForY(y), 'linear', null, visiblePoints, cell);
+    const position = measureToPosition(measures[measureIndex], cell);
+    const point = next.find(entry => entry.position.row === position.row && entry.position.measure === position.measure && entry.position.cell === position.cell);
+    if (!point) return;
+    setDraftPoints(next);
+    dragPointsRef.current = next;
+    draggingIdRef.current = point.id;
+    setDraggingId(point.id);
+    setSelectedId(point.id);
+    setSelectedOccurrence(measureIndex);
+    setBpmInput(String(point.bpm));
   };
 
   const handlePointPointerDown = (event, id, index) => {
+    if (event.button !== 0) return;
     setSelectedOccurrence(index);
     if (isReadOnly) return;
     event.stopPropagation();
@@ -193,25 +228,31 @@ const TempoTrackPanel = () => {
     setBpmInput(String(point?.bpm || layoutConfig.bpm));
     setDraftPoints(visiblePoints);
     dragPointsRef.current = visiblePoints;
+    draggingIdRef.current = id;
     setDraggingId(id);
   };
 
-  const handlePointPointerMove = (event, point) => {
-    if (draggingId !== point.id) return;
-    const svg = event.currentTarget.ownerSVGElement;
-    const rect = svg.getBoundingClientRect();
-    const x = ((event.clientX - rect.left) / rect.width) * graphWidth;
-    const y = ((event.clientY - rect.top) / rect.height) * graphHeight;
-    setSelectedOccurrence(indexForX(x));
+  const handleGraphPointerMove = (event) => {
+    const activeId = draggingIdRef.current;
+    if (!activeId) return;
+    const { x, y } = pointerPosition(event);
+    const { measureIndex, cell } = positionForX(x);
+    setSelectedOccurrence(measureIndex);
     setDraftPoints((current) => {
-      const next = upsertAt(indexForX(x), bpmForY(y), point.transition, point.id, current, point.position.cell);
+      const point = current.find(entry => entry.id === activeId);
+      if (!point) return current;
+      const next = upsertAt(measureIndex, bpmForY(y), point.transition, activeId, current, cell);
       dragPointsRef.current = next;
+      const updatedPoint = next.find(entry => entry.id === activeId);
+      if (updatedPoint) setBpmInput(String(updatedPoint.bpm));
       return next;
     });
   };
 
-  const finishDrag = () => {
-    if (!draggingId) return;
+  const finishDrag = (event) => {
+    if (!draggingIdRef.current) return;
+    if (event?.currentTarget?.hasPointerCapture?.(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    draggingIdRef.current = null;
     setDraggingId(null);
     commit(dragPointsRef.current);
   };
@@ -223,6 +264,50 @@ const TempoTrackPanel = () => {
     commit(next);
   };
 
+  const openPointContextMenu = (event, point, index) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setSelectedId(point.id);
+    setSelectedOccurrence(index);
+    setBpmInput(String(point.bpm));
+    const menuWidth = 176;
+    const menuHeight = 132;
+    setContextMenu({
+      id: point.id,
+      x: Math.max(8, Math.min(event.clientX, window.innerWidth - menuWidth - 8)),
+      y: Math.max(8, Math.min(event.clientY, window.innerHeight - menuHeight - 8)),
+    });
+  };
+
+  const resetContextPoint = () => {
+    if (isReadOnly || !contextMenu?.id) return;
+    const bpm = clampTempoBpm(layoutConfig.bpm);
+    const next = normalizeTempoTrack(visiblePoints.map(point => point.id === contextMenu.id
+      ? { ...point, bpm, transition: 'linear' }
+      : { ...point, transition: 'linear' }), sheetData, rowTypes, layoutConfig.bpm);
+    setDraftPoints(next);
+    setBpmInput(String(bpm));
+    commit(next);
+    setContextMenu(null);
+  };
+
+  const deleteContextPoint = () => {
+    if (isReadOnly || !contextMenu?.id) return;
+    const next = visiblePoints.filter(point => point.id !== contextMenu.id);
+    setSelectedId(null);
+    setDraftPoints(next);
+    commit(next);
+    setContextMenu(null);
+  };
+
+  const clearTempoTrack = () => {
+    if (isReadOnly) return;
+    setSelectedId(null);
+    setDraftPoints([]);
+    commit([]);
+    setContextMenu(null);
+  };
+
   const moveSelected = (measureDelta, bpmDelta) => {
     if (isReadOnly || !selectedPoint) return;
     const nextIndex = Math.min(measures.length - 1, Math.max(0, selectedOccurrence + measureDelta));
@@ -230,15 +315,6 @@ const TempoTrackPanel = () => {
     const next = upsertAt(nextIndex, selectedPoint.bpm + bpmDelta, selectedPoint.transition, selectedPoint.id, visiblePoints, selectedPoint.position.cell);
     setDraftPoints(next);
     commit(next);
-  };
-
-  const handleTap = (event) => {
-    const now = event.timeStamp;
-    tapTimesRef.current = [...tapTimesRef.current.filter((time) => now - time < 3000), now].slice(-5);
-    if (tapTimesRef.current.length < 2) return;
-    const intervals = tapTimesRef.current.slice(1).map((time, index) => time - tapTimesRef.current[index]);
-    const bpm = clampTempoBpm(60000 / (intervals.reduce((sum, value) => sum + value, 0) / intervals.length));
-    addPoint(currentMeasureIndex, bpm);
   };
 
   const graphPoints = measures.flatMap((measure, index) => visiblePoints
@@ -264,51 +340,52 @@ const TempoTrackPanel = () => {
   });
   const panel = (
     <section className={`${isFullScreen ? 'fixed inset-0 z-[10000] overflow-auto p-4' : 'relative z-[130] shrink-0 px-3 py-1.5'} border-b border-orange-200 bg-white shadow-inner`} aria-label="ปรับความเร็วแต่ละช่วง">
-      <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
+      <div className="mb-2 flex flex-wrap items-center gap-2">
         <div className="mr-auto flex items-center gap-2 text-sm font-black text-slate-700">
           <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-orange-100 text-orange-600">⌁</span>
           ปรับความเร็วแต่ละช่วง
         </div>
-        <div className="rounded-lg bg-slate-50 px-2.5 py-1 text-[11px] text-slate-500">ปัจจุบัน <strong className="text-slate-800">{Math.round(displayedBpm)} BPM</strong></div>
-        <button type="button" onClick={togglePlay} title="Spacebar เล่น/หยุด" className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-700">{isPlaying ? 'หยุด' : 'เล่น'} (Space)</button>
-        <button type="button" onClick={handleTap} disabled={isReadOnly} className="rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-bold text-blue-700 disabled:opacity-40">แตะจังหวะ</button>
-        <button type="button" onClick={() => addPoint()} disabled={isReadOnly || !measures.length} className="rounded-lg border border-orange-200 bg-orange-50 px-2.5 py-1 text-[11px] font-bold text-orange-700 disabled:opacity-40">＋ เพิ่มจุด</button>
-        <button type="button" onClick={() => { setSelectedId(null); commit([]); }} disabled={isReadOnly || !visiblePoints.length} className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-bold text-slate-600 disabled:opacity-40">↶ รีเซ็ต</button>
+        <div className="flex min-w-[132px] items-baseline justify-center gap-1 rounded-xl border border-orange-300 bg-gradient-to-br from-orange-50 to-amber-100 px-3 py-1 shadow-sm" aria-live="polite">
+          <strong className="text-xl font-black tabular-nums leading-none text-orange-700">{Math.round(displayedBpm)}</strong>
+          <span className="text-[10px] font-black tracking-wide text-orange-600">BPM</span>
+        </div>
         <button type="button" onClick={() => setIsFullScreen(value => !value)} aria-pressed={isFullScreen} className="rounded-lg border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-bold text-sky-700">{isFullScreen ? 'ออกจากเต็มหน้า' : 'เต็มหน้า'}</button>
         <button type="button" onClick={() => { setIsFullScreen(false); setIsTempoTrackOpen(false); }} className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-bold text-slate-600">⌃ ย่อ</button>
       </div>
-
-      {playbackSequence?.length > 0 && <p className="mb-1 text-[10px] text-slate-500">
-        เรียงตามลำดับการเล่น · {measures.length} ห้องรวมท่อนซ้ำ · ปรับความเร็วห้องเดิมมีผลทุกรอบที่เล่นซ้ำ
-      </p>}
       <div className="relative rounded-xl border border-orange-100 bg-slate-50/60">
         <div ref={graphContainerRef} className="overflow-x-auto rounded-xl">
-          <svg width={graphWidth} height={graphHeight} viewBox={`0 0 ${graphWidth} ${graphHeight}`} className="block touch-none" onPointerDown={handleGraphPointerDown} role="application" aria-label="กราฟกำหนด BPM ตามห้องเพลง">
+          <svg width={graphWidth} height={graphHeight} viewBox={`0 0 ${graphWidth} ${graphHeight}`} className={`block touch-none ${draggingId ? 'cursor-grabbing' : 'cursor-crosshair'}`} onPointerDown={handleGraphPointerDown} onPointerMove={handleGraphPointerMove} onPointerUp={finishDrag} onPointerCancel={finishDrag} role="application" aria-label="กราฟกำหนด BPM ตามห้องเพลง">
             {bpmTicks.map((bpm) => <line key={bpm} x1={PADDING.left} x2={graphWidth - PADDING.right} y1={yForBpm(bpm)} y2={yForBpm(bpm)} stroke="#e2e8f0" />)}
             {measures.map((measure, index) => {
               const startsLine = measure.startsSection || index === 0 || measures[index - 1].lineNumber !== measure.lineNumber;
               return <g key={`${index}-${measure.row}-${measure.measure}`}>
-                <line x1={xForIndex(index)} x2={xForIndex(index)} y1={PADDING.top} y2={graphHeight - PADDING.bottom} stroke={startsLine ? '#94a3b8' : '#e2e8f0'} strokeWidth={startsLine ? 1.5 : 1} />
-                {startsLine && <text x={xForIndex(index) - 20} y={graphHeight - 65} textAnchor="start" fontSize="10" fontWeight="700" fill="#475569">
+                <line x1={xForIndex(index)} x2={xForIndex(index)} y1={PADDING.top} y2={graphHeight - graphBottomPadding} stroke={startsLine ? '#94a3b8' : '#e2e8f0'} strokeWidth={startsLine ? 1.5 : 1} />
+                {startsLine && <text x={xForIndex(index) - 20} y={graphHeight - (isFullScreen ? 65 : 25)} textAnchor="start" fontSize="10" fontWeight="700" fill="#475569">
                   {sectionNames[index] ? `${sectionNames[index]}${measure.loop ? ` (รอบ ${measure.loop})` : ''} · ` : ''}บรรทัด {measure.lineNumber}
                 </text>}
-                <text x={xForIndex(index)} y={graphHeight - 50} textAnchor="middle" fontSize="10" fill="#64748b">ห้อง {measure.number}</text>
-                {[measure.row, ...(rowTypes[measure.row] === 'double-right' ? [measure.row + 1] : [])].map((row, hand) => {
+                <text x={xForIndex(index)} y={graphHeight - (isFullScreen ? 50 : 9)} textAnchor="middle" fontSize="10" fontWeight="600" fill="#64748b">ห้อง {measure.number}</text>
+                {isFullScreen && [measure.row, ...(rowTypes[measure.row] === 'double-right' ? [measure.row + 1] : [])].map((row, hand) => {
                   const notes = sheetData[row]?.[measure.measure] || [];
-                  return <g key={row} role="button" tabIndex={0} aria-label={`เล่นจากห้อง ${measure.number}${measure.loop ? ` รอบ ${measure.loop}` : ''}`} className="cursor-pointer outline-none focus:stroke-blue-500" onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); playFromTempoMeasure(index); }} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); playFromTempoMeasure(index); } }}>
-                    <title>คลิกเพื่อเล่นจากห้องนี้ · Spacebar เล่น/หยุด</title>
+                  return <g key={row} aria-label={`ตัวโน้ตห้อง ${measure.number}${hand ? ' มือซ้าย' : ''}`}>
                     <rect x={xForIndex(index)} y={graphHeight - 40 + hand * 18} width={xForIndex(index + 1) - xForIndex(index)} height="18" fill="white" stroke="#cbd5e1" />
-                    {notes.map((note, cell) => <text key={cell} x={xForIndex(index + (cell + 0.5) / notes.length)} y={graphHeight - 27 + hand * 18} textAnchor="middle" fontSize={notes.length > 4 ? 8 : 11} fill="#334155">{typeof note === 'string' && !note.startsWith('@') ? note : ''}</text>)}
+                    {notes.map((note, cell) => <text key={cell} x={xForIndex(index + (cell + 0.5) / Math.max(1, notes.length))} y={graphHeight - 27 + hand * 18} textAnchor="middle" fontSize={notes.length > 4 ? 8 : 11} fontWeight="600" fill="#334155">{typeof note === 'string' && !note.startsWith('@') ? note : ''}</text>)}
                   </g>;
                 })}
               </g>;
             })}
-            <path d={path} fill="none" stroke="#f97316" strokeWidth="2.5" strokeLinejoin="round" />
-            {isPlaying && <line ref={playheadRef} x1={PADDING.left} x2={PADDING.left} y1={PADDING.top} y2={graphHeight - PADDING.bottom} stroke="#10b981" strokeWidth="2" />}
+            <path d={path} data-tempo-line="true" fill="none" stroke="transparent" strokeWidth="16" strokeLinejoin="round" className="cursor-ns-resize" />
+            <path d={path} fill="none" stroke="#f97316" strokeWidth="2.5" strokeLinejoin="round" pointerEvents="none" />
+            {isPlaying && <line ref={playheadRef} x1={PADDING.left} x2={PADDING.left} y1={PADDING.top} y2={graphHeight - graphBottomPadding} stroke="#10b981" strokeWidth="2" />}
             {graphPoints.map((point) => {
               const index = point.graphIndex;
               const selected = point.id === selectedId && index === selectedOccurrence;
-              return <circle key={`${point.id}-${index}`} data-tempo-point="true" cx={xForIndex(index + point.position.cell / measures[index].cellCount)} cy={yForBpm(point.bpm)} r={selected ? 6 : 4.5} fill="#fff" stroke={selected ? '#2563eb' : '#f97316'} strokeWidth={selected ? 3 : 2.5} tabIndex="0" role="button" aria-label={`ห้อง ${index + 1}, ${point.bpm} BPM`} onFocus={() => { setSelectedOccurrence(index); setSelectedId(point.id); setBpmInput(String(point.bpm)); }} onPointerDown={(event) => handlePointPointerDown(event, point.id, index)} onPointerMove={(event) => handlePointPointerMove(event, point)} onPointerUp={finishDrag} onPointerCancel={finishDrag} onKeyDown={(event) => { if (isReadOnly) return; if (event.key === 'ArrowUp') { event.preventDefault(); moveSelected(0, 1); } else if (event.key === 'ArrowDown') { event.preventDefault(); moveSelected(0, -1); } else if (event.key === 'ArrowLeft') { event.preventDefault(); moveSelected(-1, 0); } else if (event.key === 'ArrowRight') { event.preventDefault(); moveSelected(1, 0); } else if (event.key === 'Delete') { event.preventDefault(); const next = visiblePoints.filter((entry) => entry.id !== point.id); setSelectedId(null); setDraftPoints(next); commit(next); } }} />;
+              const pointX = xForIndex(index + point.position.cell / measures[index].cellCount);
+              const pointY = yForBpm(point.bpm);
+              const labelY = pointY < PADDING.top + 18 ? pointY + 20 : pointY - 10;
+              return <g key={`${point.id}-${index}`}>
+                <text x={pointX} y={labelY} textAnchor="middle" fontSize={selected ? 12 : 11} fontWeight="900" fill={selected ? '#2563eb' : '#334155'} stroke="white" strokeWidth="3" paintOrder="stroke" pointerEvents="none">{point.bpm}</text>
+                <circle data-tempo-point="true" cx={pointX} cy={pointY} r={selected ? 6 : 4.5} fill="#fff" stroke={selected ? '#2563eb' : '#f97316'} strokeWidth={selected ? 3 : 2.5} className="cursor-grab active:cursor-grabbing" tabIndex="0" role="button" aria-label={`ห้อง ${index + 1}, ${point.bpm} BPM`} onFocus={() => { setSelectedOccurrence(index); setSelectedId(point.id); setBpmInput(String(point.bpm)); }} onPointerDown={(event) => handlePointPointerDown(event, point.id, index)} onContextMenu={(event) => openPointContextMenu(event, point, index)} onKeyDown={(event) => { if (isReadOnly) return; if (event.key === 'ArrowUp') { event.preventDefault(); moveSelected(0, 1); } else if (event.key === 'ArrowDown') { event.preventDefault(); moveSelected(0, -1); } else if (event.key === 'ArrowLeft') { event.preventDefault(); moveSelected(-1, 0); } else if (event.key === 'ArrowRight') { event.preventDefault(); moveSelected(1, 0); } else if (event.key === 'Delete') { event.preventDefault(); const next = visiblePoints.filter((entry) => entry.id !== point.id); setSelectedId(null); setDraftPoints(next); commit(next); } }} />
+              </g>;
             })}
           </svg>
         </div>
@@ -327,10 +404,6 @@ const TempoTrackPanel = () => {
             BPM
             <input type="number" min="20" max="300" value={bpmInput} disabled={isReadOnly} onChange={(event) => setBpmInput(event.target.value)} onBlur={() => { const bpm = clampTempoBpm(bpmInput, selectedPoint.bpm); setBpmInput(String(bpm)); updateSelected({ bpm }); }} onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }} className="h-8 w-20 rounded-lg border border-slate-200 bg-white px-2 text-sm font-black outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50 disabled:text-slate-400" aria-label="ค่า BPM ของจุดที่เลือก" />
           </label>
-          <div className="flex rounded-lg border border-slate-200 bg-white p-0.5">
-            <button type="button" disabled={isReadOnly} onClick={() => updateSelected({ transition: 'step' })} className={`rounded-md px-3 py-1.5 text-[10px] font-bold disabled:opacity-40 ${selectedPoint.transition === 'step' ? 'bg-blue-500 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}>เปลี่ยนทันที</button>
-            <button type="button" disabled={isReadOnly} onClick={() => updateSelected({ transition: 'linear' })} className={`rounded-md px-3 py-1.5 text-[10px] font-bold disabled:opacity-40 ${selectedPoint.transition === 'linear' ? 'bg-blue-500 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}>ค่อย ๆ เปลี่ยน</button>
-          </div>
           <div className="ml-auto flex gap-1.5">
             <button type="button" disabled={isReadOnly} onClick={() => { const next = visiblePoints.filter((point) => point.id !== selectedPoint.id); setSelectedId(null); setDraftPoints(next); commit(next); }} className="h-8 rounded-lg border border-rose-200 bg-white px-3 text-[10px] font-bold text-rose-600 hover:bg-rose-50 disabled:opacity-40">ลบจุด</button>
             <button type="button" onClick={() => setSelectedId(null)} className="h-8 rounded-lg border border-blue-200 bg-white px-3 text-[10px] font-bold text-blue-700 hover:bg-blue-50">เสร็จสิ้น</button>
@@ -339,7 +412,22 @@ const TempoTrackPanel = () => {
       )}
     </section>
   );
-  return isFullScreen ? createPortal(panel, document.body) : panel;
+  const pointMenu = contextMenu && createPortal(
+    <div
+      role="menu"
+      aria-label="จัดการจุด BPM"
+      onPointerDown={event => event.stopPropagation()}
+      className="fixed z-[11000] w-44 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-[0_14px_35px_rgba(15,23,42,0.22)]"
+      style={{ left: contextMenu.x, top: contextMenu.y }}
+    >
+      <button type="button" role="menuitem" disabled={isReadOnly} onClick={resetContextPoint} className="block w-full px-4 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40">รีเซ็ตจุด</button>
+      <button type="button" role="menuitem" disabled={isReadOnly} onClick={deleteContextPoint} className="block w-full px-4 py-2 text-left text-xs font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-40">ลบจุด</button>
+      <div className="mx-2 border-t border-slate-200" />
+      <button type="button" role="menuitem" disabled={isReadOnly || !visiblePoints.length} onClick={clearTempoTrack} className="block w-full px-4 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40">ล้างทั้งหมด</button>
+    </div>,
+    document.body
+  );
+  return <>{isFullScreen ? createPortal(panel, document.body) : panel}{pointMenu}</>;
 };
 
 export default TempoTrackPanel;

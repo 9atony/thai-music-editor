@@ -63,9 +63,9 @@ test('uses the project BPM when a song has no tempo points', () => {
   assert.equal(getTempoAtPosition({ row: 0, measure: 1, cell: 2 }, [], 92, sheet, types), 92);
 });
 
-test('step tempo starts exactly at its musical position', () => {
+test('legacy step points are connected continuously in chronological order', () => {
   const points = [{ id: 'a', position: { row: 0, measure: 1, cell: 0 }, bpm: 120, transition: 'step' }];
-  assert.equal(getTempoAtPosition({ row: 0, measure: 0, cell: 3 }, points, 80, sheet, types), 80);
+  assert.equal(getTempoAtPosition({ row: 0, measure: 0, cell: 3 }, points, 80, sheet, types), 110);
   assert.equal(getTempoAtPosition({ row: 0, measure: 1, cell: 0 }, points, 80, sheet, types), 120);
 });
 

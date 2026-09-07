@@ -105,7 +105,9 @@ export const normalizeTempoTrack = (points = [], sheetData = [], rowTypes = [], 
       id: point.id || `tempo-${Date.now()}-${index}`,
       position,
       bpm: clampTempoBpm(point.bpm, baseBpm),
-      transition: point.transition === 'linear' ? 'linear' : 'step',
+      // Tempo automation is one continuous timeline; points are always
+      // connected in chronological order without a per-node transition mode.
+      transition: 'linear',
       beat
     });
   });
@@ -129,7 +131,7 @@ export const getTempoAtBeat = (targetBeat, points = [], baseBpm = 80, measures =
       previous = point;
       continue;
     }
-    if (point.transition !== 'linear' || point.beat <= previous.beat) return previous.bpm;
+    if (point.beat <= previous.beat) return previous.bpm;
     const progress = Math.min(1, Math.max(0, (targetBeat - previous.beat) / (point.beat - previous.beat)));
     return previous.bpm + ((point.bpm - previous.bpm) * progress);
   }
