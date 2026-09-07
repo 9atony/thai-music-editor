@@ -45,8 +45,10 @@ const MyProjects = ({ onNewProject, onOpenArrangerProjects }) => {
           );
           const querySnapshot = await getDocs(q);
           const allProjects = querySnapshot.docs.map(docSnap => ({
+            ...docSnap.data(),
+            // Firestore document ID must always win over a stale/null `id`
+            // that may have been saved inside older project data.
             id: docSnap.id,
-            ...docSnap.data()
           }));
           recordSystemEvent('projectListLoads', { feature: 'projectList', reads: querySnapshot.size });
           setProjects(allProjects);
@@ -309,14 +311,14 @@ const MyProjects = ({ onNewProject, onOpenArrangerProjects }) => {
         <div className="flex items-center justify-between mb-4"><h3 className="text-base font-bold text-slate-800">โปรเจกต์ล่าสุด</h3></div>
         <div className="hidden md:grid md:grid-cols-3 lg:grid-cols-5 gap-4">
           {recentProjects.map((project) => (
-            <button key={`grid-${project.id}`} onClick={() => handleOpenProject(project)} className="bg-white p-3.5 rounded-2xl border-2 border-slate-100 hover:border-sky-400 hover:shadow-xl hover:-translate-y-1 transition-all duration-300 flex flex-col group cursor-pointer relative text-left">
+            <div key={`grid-${project.id}`} role="button" tabIndex={0} onClick={() => handleOpenProject(project)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); handleOpenProject(project); } }} className="bg-white p-3.5 rounded-2xl border-2 border-slate-100 hover:border-sky-400 hover:shadow-xl hover:-translate-y-1 transition-all duration-300 flex flex-col group cursor-pointer relative text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2">
               <div data-project-menu className="absolute top-3 right-3 z-20">
-                <div onClick={(e) => { e.stopPropagation(); setOpenMenuId(openMenuId === project.id ? null : project.id); }} className="text-slate-400 hover:text-slate-700 transition-all p-1 bg-white hover:bg-slate-100 rounded-md shadow-sm border border-slate-100"><svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg></div>
+                <button type="button" aria-label={`จัดการ ${project.name || 'โปรเจกต์'}`} aria-expanded={openMenuId === project.id} onClick={(e) => { e.stopPropagation(); setOpenMenuId(openMenuId === project.id ? null : project.id); }} className="text-slate-400 hover:text-slate-700 transition-all p-1 bg-white hover:bg-slate-100 rounded-md shadow-sm border border-slate-100"><svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg></button>
                 {openMenuId === project.id && (
-                  <div className="absolute right-0 mt-1 w-32 bg-white border border-slate-100 rounded-xl shadow-[0_4px_20px_rgba(0,0,0,0.1)] py-1.5 z-50 animate-fadeIn">
+                  <div role="menu" className="absolute right-0 top-full mt-1 w-32 bg-white border border-slate-100 rounded-xl shadow-[0_4px_20px_rgba(0,0,0,0.1)] py-1.5 z-50 animate-fadeIn">
                     <div onClick={(e) => openRenameModal(e, project)} className="w-full text-left px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer">เปลี่ยนชื่อ</div>
-                    <div onClick={(e) => handleDuplicateProject(e, project)} className="w-full text-left px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer">{duplicatingProjectId === project.id ? 'กำลังทำซ้ำ...' : 'ทำซ้ำ'}</div>
-                    <div onClick={(e) => handleDeleteProject(e, project.id)} className="w-full text-left px-4 py-2 text-sm font-semibold text-red-500 hover:bg-red-50 transition-colors cursor-pointer">{deletingProjectId === project.id ? 'กำลังลบ...' : 'ลบ'}</div>
+                    <div onClick={(e) => handleDuplicateProject(e, project)} className="w-full text-left px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer">{duplicatingProjectId && duplicatingProjectId === project.id ? 'กำลังทำซ้ำ...' : 'ทำซ้ำ'}</div>
+                    <div onClick={(e) => handleDeleteProject(e, project.id)} className="w-full text-left px-4 py-2 text-sm font-semibold text-red-500 hover:bg-red-50 transition-colors cursor-pointer">{deletingProjectId && deletingProjectId === project.id ? 'กำลังลบ...' : 'ลบ'}</div>
                   </div>
                 )}
               </div>
@@ -325,7 +327,7 @@ const MyProjects = ({ onNewProject, onOpenArrangerProjects }) => {
               </div>
               <h4 className="font-bold text-slate-900 text-sm w-full line-clamp-3 break-words mb-1">{project.name || "โปรเจกต์ไม่มีชื่อ"}</h4>
               <p className="text-[11px] text-slate-500 font-medium mb-3">{formatTime(project.updatedAt)}</p>
-            </button>
+            </div>
           ))}
         </div>
         <div className="flex md:hidden overflow-x-auto gap-4 pb-4 snap-x hide-scrollbar -mx-5 px-5">
@@ -336,8 +338,8 @@ const MyProjects = ({ onNewProject, onOpenArrangerProjects }) => {
                 {openMenuId === `h-${project.id}` && (
                   <div className="absolute right-0 mt-1 w-28 bg-white border border-slate-100 rounded-xl shadow-lg py-1.5 z-50">
                     <div onClick={(e) => openRenameModal(e, project)} className="px-3 py-2 text-[11px] font-semibold text-slate-600">เปลี่ยนชื่อ</div>
-                    <div onClick={(e) => handleDuplicateProject(e, project)} className="px-3 py-2 text-[11px] font-semibold text-slate-600">{duplicatingProjectId === project.id ? 'กำลังทำซ้ำ...' : 'ทำซ้ำ'}</div>
-                    <div onClick={(e) => handleDeleteProject(e, project.id)} className="px-3 py-2 text-[11px] font-semibold text-red-500">{deletingProjectId === project.id ? 'กำลังลบ...' : 'ลบ'}</div>
+                    <div onClick={(e) => handleDuplicateProject(e, project)} className="px-3 py-2 text-[11px] font-semibold text-slate-600">{duplicatingProjectId && duplicatingProjectId === project.id ? 'กำลังทำซ้ำ...' : 'ทำซ้ำ'}</div>
+                    <div onClick={(e) => handleDeleteProject(e, project.id)} className="px-3 py-2 text-[11px] font-semibold text-red-500">{deletingProjectId && deletingProjectId === project.id ? 'กำลังลบ...' : 'ลบ'}</div>
                   </div>
                 )}
               </div>
@@ -391,8 +393,8 @@ const MyProjects = ({ onNewProject, onOpenArrangerProjects }) => {
                         {openMenuId === `list-${file.id}` && (
                           <div className="absolute right-0 top-full mt-1 w-32 bg-white border border-slate-100 rounded-xl shadow-[0_4px_20px_rgba(0,0,0,0.1)] py-1.5 z-50 animate-fadeIn">
                             <div onClick={(e) => openRenameModal(e, file)} className="w-full text-left px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer">เปลี่ยนชื่อ</div>
-                            <div onClick={(e) => handleDuplicateProject(e, file)} className="w-full text-left px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer">{duplicatingProjectId === file.id ? 'กำลังทำซ้ำ...' : 'ทำซ้ำ'}</div>
-                            <div onClick={(e) => handleDeleteProject(e, file.id)} className="w-full text-left px-4 py-2 text-sm font-semibold text-red-500 hover:bg-red-50 transition-colors cursor-pointer">{deletingProjectId === file.id ? 'กำลังลบ...' : 'ลบ'}</div>
+                            <div onClick={(e) => handleDuplicateProject(e, file)} className="w-full text-left px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer">{duplicatingProjectId && duplicatingProjectId === file.id ? 'กำลังทำซ้ำ...' : 'ทำซ้ำ'}</div>
+                            <div onClick={(e) => handleDeleteProject(e, file.id)} className="w-full text-left px-4 py-2 text-sm font-semibold text-red-500 hover:bg-red-50 transition-colors cursor-pointer">{deletingProjectId && deletingProjectId === file.id ? 'กำลังลบ...' : 'ลบ'}</div>
                           </div>
                         )}
                       </div>
@@ -420,8 +422,8 @@ const MyProjects = ({ onNewProject, onOpenArrangerProjects }) => {
                  {openMenuId === `mlist-${file.id}` && (
                     <div className="absolute right-0 top-10 mt-1 w-28 bg-white border border-slate-100 rounded-xl shadow-lg py-1.5 z-50">
                       <div onClick={(e) => openRenameModal(e, file)} className="px-3 py-2 text-[11px] font-semibold text-slate-600">เปลี่ยนชื่อ</div>
-                      <div onClick={(e) => handleDuplicateProject(e, file)} className="px-3 py-2 text-[11px] font-semibold text-slate-600">{duplicatingProjectId === file.id ? 'กำลังทำซ้ำ...' : 'ทำซ้ำ'}</div>
-                      <div onClick={(e) => handleDeleteProject(e, file.id)} className="px-3 py-2 text-[11px] font-semibold text-red-500">{deletingProjectId === file.id ? 'กำลังลบ...' : 'ลบ'}</div>
+                      <div onClick={(e) => handleDuplicateProject(e, file)} className="px-3 py-2 text-[11px] font-semibold text-slate-600">{duplicatingProjectId && duplicatingProjectId === file.id ? 'กำลังทำซ้ำ...' : 'ทำซ้ำ'}</div>
+                      <div onClick={(e) => handleDeleteProject(e, file.id)} className="px-3 py-2 text-[11px] font-semibold text-red-500">{deletingProjectId && deletingProjectId === file.id ? 'กำลังลบ...' : 'ลบ'}</div>
                     </div>
                  )}
               </div>

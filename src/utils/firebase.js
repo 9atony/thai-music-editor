@@ -146,8 +146,8 @@ export const fetchRecentProjects = async (uid) => {
     return querySnapshot.docs.map(doc => {
       const data = doc.data();
       return {
-        id: doc.id,
         ...data,
+        id: doc.id,
         sheetData: data.sheetData ? JSON.parse(data.sheetData) : []
       };
     });
@@ -166,8 +166,8 @@ export const fetchAllProjects = async (uid) => {
     return querySnapshot.docs.map(doc => {
       const data = doc.data();
       return {
-        id: doc.id,
         ...data,
+        id: doc.id,
         sheetData: data.sheetData ? JSON.parse(data.sheetData) : []
       };
     });
