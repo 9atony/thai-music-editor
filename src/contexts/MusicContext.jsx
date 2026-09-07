@@ -65,6 +65,7 @@ export const MusicProvider = ({ children }) => {
   const [isLoopAll, setIsLoopAll] = useState(false);
   const [isLoopOne, setIsLoopOne] = useState(false);
   const [selectedSymbolId, setSelectedSymbolId] = useState(null);
+  const [isTempoTrackOpen, setIsTempoTrackOpen] = useState(false);
 
   const [pendingAction, setPendingAction] = useState({ isOpen: false, type: null, payload: null });
   const [isReadOnly, setIsReadOnly] = useState(false);
@@ -97,6 +98,12 @@ export const MusicProvider = ({ children }) => {
   useEffect(() => { isLoopAllRef.current = isLoopAll; }, [isLoopAll]);
   useEffect(() => { isLoopOneRef.current = isLoopOne; }, [isLoopOne]);
 
+  const restoreTempoTrack = (tempoTrack) => {
+    const nextLayout = { ...layoutConfigRef.current, tempoTrack };
+    layoutConfigRef.current = nextLayout;
+    setLayoutConfig(nextLayout);
+  };
+
   // ⭐ ดึงยศ (Role) ทันทีที่มีการล็อคอิน
   useEffect(() => {
     const fetchRole = async () => {
@@ -127,39 +134,50 @@ export const MusicProvider = ({ children }) => {
   };
 
   const remapCustomStylesForRows = (rowIndexMap, styleCopies = []) => {
-    setLayoutConfig((current) => {
-      const currentStyles = current.customStyles || {};
-      const remappedStyles = {};
-      let changed = false;
+    const current = layoutConfigRef.current;
+    const currentStyles = current.customStyles || {};
+    const remappedStyles = {};
+    let changed = false;
 
+    Object.entries(currentStyles).forEach(([key, style]) => {
+      const [rowPart, ...rest] = key.split('_');
+      const nextRow = rowIndexMap.get(Number(rowPart));
+      if (nextRow === undefined) {
+        changed = true;
+        return;
+      }
+      const nextKey = `${nextRow}_${rest.join('_')}`;
+      remappedStyles[nextKey] = style;
+      if (nextKey !== key) changed = true;
+    });
+
+    styleCopies.forEach(({ sourceRow, targetRow }) => {
       Object.entries(currentStyles).forEach(([key, style]) => {
         const [rowPart, ...rest] = key.split('_');
-        const nextRow = rowIndexMap.get(Number(rowPart));
-        if (nextRow === undefined) {
-          changed = true;
-          return;
-        }
-        const nextKey = `${nextRow}_${rest.join('_')}`;
-        remappedStyles[nextKey] = style;
-        if (nextKey !== key) changed = true;
+        if (Number(rowPart) !== sourceRow) return;
+        const typographyStyle = Object.fromEntries(
+          Object.entries(style).filter(([styleKey]) => ['fontSize', 'noteFontFamily', 'isBold', 'isItalic'].includes(styleKey))
+        );
+        if (Object.keys(typographyStyle).length === 0) return;
+        const targetKey = `${targetRow}_${rest.join('_')}`;
+        remappedStyles[targetKey] = { ...(remappedStyles[targetKey] || {}), ...typographyStyle };
+        changed = true;
       });
-
-      styleCopies.forEach(({ sourceRow, targetRow }) => {
-        Object.entries(currentStyles).forEach(([key, style]) => {
-          const [rowPart, ...rest] = key.split('_');
-          if (Number(rowPart) !== sourceRow) return;
-          const typographyStyle = Object.fromEntries(
-            Object.entries(style).filter(([styleKey]) => ['fontSize', 'noteFontFamily', 'isBold', 'isItalic'].includes(styleKey))
-          );
-          if (Object.keys(typographyStyle).length === 0) return;
-          const targetKey = `${targetRow}_${rest.join('_')}`;
-          remappedStyles[targetKey] = { ...(remappedStyles[targetKey] || {}), ...typographyStyle };
-          changed = true;
-        });
-      });
-
-      return changed ? { ...current, customStyles: remappedStyles } : current;
     });
+
+    const remappedTempoTrack = (current.tempoTrack || []).flatMap((point) => {
+      const nextRow = rowIndexMap.get(Number(point.position?.row));
+      if (nextRow === undefined) return [];
+      if (nextRow !== Number(point.position?.row)) changed = true;
+      return [{ ...point, position: { ...point.position, row: nextRow } }];
+    });
+    if (remappedTempoTrack.length !== (current.tempoTrack || []).length) changed = true;
+    if (changed) {
+      const nextLayout = { ...current, customStyles: remappedStyles, tempoTrack: remappedTempoTrack };
+      layoutConfigRef.current = nextLayout;
+      setLayoutConfig(nextLayout);
+    }
+    return remappedTempoTrack;
   };
 
   const sheetEditor = useSheetEditor({
@@ -169,7 +187,8 @@ export const MusicProvider = ({ children }) => {
     isReduceModeRef,
     layoutConfigRef,
     onPreviewToken,
-    onRowIndexMap: remapCustomStylesForRows
+    onRowIndexMap: remapCustomStylesForRows,
+    onLayoutConfigRestore: restoreTempoTrack
   });
 
   const sheetDataRef = useRef(sheetEditor.sheetData);
@@ -197,6 +216,34 @@ export const MusicProvider = ({ children }) => {
     selectedCellRef: sheetEditor.selectedCellRef,
     setSelectedCell: sheetEditor.setSelectedCell
   });
+
+  const updateTempoTrack = (nextTempoTrack) => {
+    if (isReadOnlyRef.current) return;
+    const nextLayout = { ...layoutConfigRef.current, tempoTrack: nextTempoTrack };
+    layoutConfigRef.current = nextLayout;
+    setLayoutConfig(nextLayout);
+    sheetEditor.commitChange(
+      sheetEditor.sheetData,
+      sheetEditor.rowTypes,
+      sheetEditor.sectionLabels,
+      sheetEditor.symbols,
+      sheetEditor.rowMargins,
+      null,
+      [],
+      nextTempoTrack
+    );
+    audioPlayback.refreshTempoPlayback();
+  };
+
+  const undoEditor = () => {
+    sheetEditor.undo();
+    audioPlayback.refreshTempoPlayback();
+  };
+
+  const redoEditor = () => {
+    sheetEditor.redo();
+    audioPlayback.refreshTempoPlayback();
+  };
 
   useEffect(() => {
      // ⭐ แก้ไขการกำหนดค่า Ref ให้ถูกต้อง
@@ -655,7 +702,7 @@ export const MusicProvider = ({ children }) => {
   const actionsRef = useRef({});
   useEffect(() => {
     actionsRef.current = {
-      undo: sheetEditor.undo, redo: sheetEditor.redo, 
+      undo: undoEditor, redo: redoEditor,
       copySelection: sheetEditor.copySelection, pasteSelection: sheetEditor.pasteSelection, cutSelection: sheetEditor.cutSelection, 
       togglePlay: audioPlayback.togglePlay, 
       inputNote: sheetEditor.inputNote, 
@@ -871,6 +918,7 @@ export const MusicProvider = ({ children }) => {
       songName, setSongName: handleSetSongName, 
       projectName, setProjectName,
       layoutConfig, setLayoutConfig, 
+      updateTempoTrack,
       headerDetails, addDetail, removeDetail, updateDetail,
       selectedSymbolId, setSelectedSymbolId,
       intervalMode, setIntervalMode,
@@ -880,10 +928,13 @@ export const MusicProvider = ({ children }) => {
       toolbarMode, setToolbarMode,
       isLoopAll, setIsLoopAll,
       isLoopOne, setIsLoopOne,
+      isTempoTrackOpen, setIsTempoTrackOpen,
       isReadOnly,
       userRole, // ⭐ ปล่อยตัวแปร userRole ให้ Keyboard ใช้งาน
 
       ...sheetEditor,
+      undo: undoEditor,
+      redo: redoEditor,
       canUndo: sheetEditor.historyIndex > 0, 
       canRedo: sheetEditor.historyIndex < sheetEditor.history.length - 1,
       

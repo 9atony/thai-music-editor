@@ -11,6 +11,7 @@ import {
   getVisualIndex, shiftNoteString, getIntervalPair, 
   splitThaiNoteToken, parseCellToken 
 } from '../utils/sheetUtils';
+import { getCellDurationMs, getPlayableMeasures, getTempoAtPosition, positionToBeat } from '../utils/tempoTrack';
 
 const INDEPENDENT_METRONOME_GROUP = 'editor-independent-metronome';
 const LINKED_METRONOME_GROUP = 'editor-linked-metronome';
@@ -43,6 +44,7 @@ export const useAudioPlayback = ({
   const [playbackSequence, setPlaybackSequence] = useState([]);
   const [activeSequenceIdx, setActiveSequenceIdx] = useState(0);
   const [activeLoop, setActiveLoop] = useState(1);
+  const [currentPlaybackBpm, setCurrentPlaybackBpm] = useState(() => Number(layoutConfigRef.current?.bpm) || 80);
 
   const [metronomeConfig, setMetronomeConfig] = useState({
     enabled: false,
@@ -81,6 +83,7 @@ export const useAudioPlayback = ({
   const independentMetronomeIntervalRef = useRef(null);
   const runIndependentMetronomeSchedulerRef = useRef(null);
   const mediaSessionActionsRef = useRef({});
+  const tempoRefreshTimerRef = useRef(null);
 
   useEffect(() => { playbackSequenceRef.current = playbackSequence; }, [playbackSequence]);
   useEffect(() => { metronomeConfigRef.current = metronomeConfig; }, [metronomeConfig]);
@@ -329,6 +332,10 @@ export const useAudioPlayback = ({
     setIsPlaying(false);
     isPlayingRef.current = false;
     pendingPlaybackCursorRef.current = null;
+    if (tempoRefreshTimerRef.current) {
+      clearTimeout(tempoRefreshTimerRef.current);
+      tempoRefreshTimerRef.current = null;
+    }
 
     if (playbackCursorRafRef.current) {
       cancelAnimationFrame(playbackCursorRafRef.current);
@@ -337,6 +344,7 @@ export const useAudioPlayback = ({
 
     playbackCursorRef.current = null;
     setPlaybackCursor(null);
+    setCurrentPlaybackBpm(Number(layoutConfigRef.current.bpm) || 80);
 
     if (playbackTimerRef.current) {
       clearTimeout(playbackTimerRef.current);
@@ -483,6 +491,7 @@ export const useAudioPlayback = ({
 
     let calcTotalMs = 0;
     const currentBpm = layoutConfigRef.current.bpm || 80;
+    const tempoTrack = layoutConfigRef.current.tempoTrack || [];
     playbackSequenceRef.current.forEach(seqItem => {
       const section = sheetSections.find(s => s.label === seqItem.label.trim());
       if (section) {
@@ -493,7 +502,9 @@ export const useAudioPlayback = ({
             if (currentRowTypes[r].startsWith('double') && m === 0) continue;
             if (currentRowTypes[r] === 'nathap' && m === 0) continue;
             const cellCount = currentSheetData[r][m].length;
-            if (cellCount > 0) sectionMs += (15000 / currentBpm) * 4;
+            for (let c = 0; c < cellCount; c++) {
+              sectionMs += getCellDurationMs({ row: r, measure: m, cell: c }, tempoTrack, currentBpm, currentSheetData, currentRowTypes);
+            }
           }
         }
         calcTotalMs += (sectionMs * seqItem.loops);
@@ -505,9 +516,6 @@ export const useAudioPlayback = ({
     setCurrentTime(Math.floor(seekOffsetRef.current));
 
     // ⭐ รีเซ็ตตัวนับจังหวะกลองให้สอดคล้องกับ Timeline ปัจจุบัน
-    const standardMsPerCellInit = 15000 / (layoutConfigRef.current.bpm || 80);
-    globalBeatCountRef.current = Math.round((seekOffsetRef.current * 1000) / standardMsPerCellInit);
-
     playbackStartTimeRef.current = performance.now() - (seekOffsetRef.current * 1000);
     if (uiTimerRef.current) clearInterval(uiTimerRef.current);
     uiTimerRef.current = setInterval(() => {
@@ -547,6 +555,10 @@ export const useAudioPlayback = ({
     if (currentRowTypes[startR] === 'double-left') { startR -= 1; currentCursor[0] = startR; }
     if (currentRowTypes[startR]?.startsWith('double') && currentCursor[1] === 0) currentCursor[1] = 1;
     if (currentRowTypes[startR] === 'nathap' && currentCursor[1] === 0) currentCursor[1] = 1;
+    globalBeatCountRef.current = positionToBeat(
+      { row: currentCursor[0], measure: currentCursor[1], cell: currentCursor[2] },
+      getPlayableMeasures(currentSheetData, currentRowTypes)
+    );
 
     let startSeqIdx = 0;
     const currentMappedSection = sheetSections.find(s => startR >= s.startRow && startR <= s.endRow);
@@ -669,10 +681,16 @@ export const useAudioPlayback = ({
       if (currentRowTypes[r] === 'page-break' || currentRowTypes[r] === 'text' || currentRowTypes[r] === 'annotation' || currentRowTypes[r] === 'nathap') return 0;
 
       const cellCountInMeasure = currentSheetData[r][m].length;
-      const standardMsPerCell = 15000 / (layoutConfigRef.current.bpm || 80);
-      const msPerCell = Math.floor(standardMsPerCell * (4 / cellCountInMeasure));
+      const baseBpm = layoutConfigRef.current.bpm || 80;
+      const activeTempoTrack = layoutConfigRef.current.tempoTrack || [];
+      const cellPosition = { row: r, measure: m, cell: c };
+      const cellBpm = getTempoAtPosition(cellPosition, activeTempoTrack, baseBpm, currentSheetData, currentRowTypes);
+      const msPerCell = Math.floor(getCellDurationMs(cellPosition, activeTempoTrack, baseBpm, currentSheetData, currentRowTypes));
 
-      scheduleUiChange(() => schedulePlaybackCursorUpdate([r, m, c]), cellStartSec);
+      scheduleUiChange(() => {
+        schedulePlaybackCursorUpdate([r, m, c]);
+        setCurrentPlaybackBpm(Math.round(cellBpm));
+      }, cellStartSec);
 
       // ดึงค่าความยาวห้องแบบปลอดภัย
       const safeCellCount = cellCountInMeasure > 0 ? cellCountInMeasure : 4;
@@ -983,7 +1001,9 @@ export const useAudioPlayback = ({
                   if (currentRowTypes[sr].startsWith('double') && sm === 0) continue;
                   if (currentRowTypes[sr] === 'nathap' && sm === 0) continue;
                   const cellCount = currentSheetData[sr][sm].length;
-                  if (cellCount > 0) sectionMs += (15000 / currentBpm) * 4;
+                  for (let sc = 0; sc < cellCount; sc++) {
+                    sectionMs += getCellDurationMs({ row: sr, measure: sm, cell: sc }, layoutConfigRef.current.tempoTrack || [], currentBpm, currentSheetData, currentRowTypes);
+                  }
                 }
               }
               scheduleUiChange(() => {
@@ -1130,14 +1150,12 @@ export const useAudioPlayback = ({
           for (let m = startM; m < currentSheetData[r].length && !foundCell; m++) {
             const cellCount = currentSheetData[r][m].length;
             if (cellCount > 0) {
-              const standardMsPerCell = 15000 / currentBpm;
-              const msPerCell = Math.floor(standardMsPerCell * (4 / cellCount));
               for (let c = 0; c < cellCount; c++) {
                 if (elapsedMs >= targetMs) {
                   foundCell = { r, m, c, seqIdx, loop, elapsedMs };
                   break;
                 }
-                elapsedMs += msPerCell;
+                elapsedMs += getCellDurationMs({ row: r, measure: m, cell: c }, layoutConfigRef.current.tempoTrack || [], currentBpm, currentSheetData, currentRowTypes);
               }
             }
           }
@@ -1149,8 +1167,15 @@ export const useAudioPlayback = ({
     seekOffsetRef.current = foundCell ? foundCell.elapsedMs / 1000 : targetSeconds;
 
     if (foundCell) {
-      const newCursor = [foundCell.r, foundCell.m, 0];
+      const newCursor = [foundCell.r, foundCell.m, foundCell.c];
       setSelectedCell(newCursor); 
+      setCurrentPlaybackBpm(Math.round(getTempoAtPosition(
+        { row: foundCell.r, measure: foundCell.m, cell: foundCell.c },
+        layoutConfigRef.current.tempoTrack || [],
+        currentBpm,
+        currentSheetData,
+        currentRowTypes
+      )));
       activeSequenceIdxRef.current = foundCell.seqIdx;
       activeLoopRef.current = foundCell.loop;
     }
@@ -1169,6 +1194,30 @@ export const useAudioPlayback = ({
       return Promise.resolve();
     }
     return startPlayback();
+  };
+
+  const refreshTempoPlayback = () => {
+    const shouldRestart = isPlayingRef.current || Boolean(tempoRefreshTimerRef.current);
+    if (tempoRefreshTimerRef.current) {
+      clearTimeout(tempoRefreshTimerRef.current);
+      tempoRefreshTimerRef.current = null;
+    }
+    const position = playbackCursorRef.current || selectedCellRef.current;
+    const nextBpm = getTempoAtPosition(
+      { row: position?.[0] || 0, measure: position?.[1] || 0, cell: position?.[2] || 0 },
+      layoutConfigRef.current.tempoTrack || [],
+      layoutConfigRef.current.bpm || 80,
+      sheetDataRef.current,
+      rowTypesRef.current
+    );
+    setCurrentPlaybackBpm(Math.round(nextBpm));
+    if (!shouldRestart) return;
+    if (position) setSelectedCell([...position]);
+    if (isPlayingRef.current) stopPlayback({ preserveSeek: true });
+    tempoRefreshTimerRef.current = setTimeout(() => {
+      tempoRefreshTimerRef.current = null;
+      startPlayback();
+    }, 50);
   };
 
   const stopMetronomePlayback = () => {
@@ -1220,7 +1269,9 @@ export const useAudioPlayback = ({
                 if (currentRowTypes[r].startsWith('double') && m === 0) continue;
                 if (currentRowTypes[r] === 'nathap' && m === 0) continue;
                 const cellCount = currentSheetData[r][m].length;
-                if (cellCount > 0) sectionMs += (15000 / currentBpm) * 4;
+                for (let c = 0; c < cellCount; c++) {
+                  sectionMs += getCellDurationMs({ row: r, measure: m, cell: c }, layoutConfigRef.current.tempoTrack || [], currentBpm, currentSheetData, currentRowTypes);
+                }
             }
         }
         elapsedMs += (sectionMs * seq[i].loops);
@@ -1293,10 +1344,10 @@ export const useAudioPlayback = ({
   }, []);
 
   return {
-    isPlaying, playbackCursor, currentTime, totalTime,
+    isPlaying, playbackCursor, currentTime, totalTime, currentPlaybackBpm,
     playbackSequence, setPlaybackSequence,
     activeSequenceIdx, activeLoop,
-    startPlayback, stopPlayback, togglePlay,
+    startPlayback, stopPlayback, togglePlay, refreshTempoPlayback,
     seek, skipToNext, skipToPrev, jumpToSequence,
     metronomeConfig, setMetronomeConfig, stopMetronomePlayback, isPlayingRef
   };

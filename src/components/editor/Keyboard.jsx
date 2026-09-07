@@ -3,6 +3,7 @@ import { MusicContext } from '../../contexts/MusicContext';
 import { INSTRUMENT_CONFIG } from '../../utils/instrumentConfig'; 
 import { useFeatureAccess } from '../../contexts/FeatureAccessContext';
 import MetronomePanel from './MetronomePanel'; 
+import TempoTrackPanel from './TempoTrackPanel';
 
 const Keyboard = () => {
   const { canAccess } = useFeatureAccess();
@@ -19,6 +20,7 @@ const Keyboard = () => {
     convertMeasureToText,
     addAnnotationRow,
     selectedCell, playbackCursor, isPlaying,
+    isTempoTrackOpen,
     userRole // ⭐ ดึงยศจริงมาจาก Context
   } = useContext(MusicContext);
 
@@ -48,6 +50,7 @@ const Keyboard = () => {
   }
 
   const isPercussion = displayInstrument?.type === 'percussion';
+  const isKeyboardCollapsed = isMinimized && !isTempoTrackOpen;
 
   const getFormattedStr = (eng, thai) => {
     const numMatch = eng.match(/\d+/);
@@ -258,7 +261,7 @@ const Keyboard = () => {
           onClick={() => setIsMinimized(!isMinimized)}
           className="flex items-center gap-1.5 px-4 py-1.5 bg-white border border-slate-200 border-b-0 rounded-t-xl shadow-[0_-4px_10px_-2px_rgba(0,0,0,0.05)] text-xs font-bold text-slate-500 hover:text-sky-600 transition-colors"
         >
-          {isMinimized ? (
+          {isKeyboardCollapsed ? (
             <><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" /></svg> เปิดคีย์บอร์ด</>
           ) : (
             <><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg> ซ่อนคีย์บอร์ด</>
@@ -266,7 +269,7 @@ const Keyboard = () => {
         </button>
       </div>
 
-      <div className={`border-t transition-all duration-500 ease-in-out flex flex-col w-full relative ${isMinimized ? 'max-h-0 opacity-0 border-transparent overflow-hidden' : `opacity-100 overflow-visible ${isIntervalActive ? 'border-amber-200' : 'border-sky-200'}`}`}>
+      <div className={`border-t transition-all duration-500 ease-in-out flex flex-col w-full relative ${isKeyboardCollapsed ? 'max-h-0 opacity-0 border-transparent overflow-hidden' : `opacity-100 overflow-visible ${isIntervalActive ? 'border-amber-200' : 'border-sky-200'}`}`}>
         
         <div className="relative z-[120] w-full overflow-visible border-b border-slate-200/70 bg-[#f8f8fb]/95 p-2 shadow-[0_2px_10px_rgba(0,0,0,0.02)] backdrop-blur-sm flex items-center gap-3">
           
@@ -499,6 +502,8 @@ const Keyboard = () => {
           isExpanded={isMetronomeExpanded} 
           onToggleExpand={() => setIsMetronomeExpanded(!isMetronomeExpanded)} 
         />
+
+        <TempoTrackPanel />
 
         <div className="px-4 pt-2 text-[11px] font-semibold text-slate-500">
           คลิกปุ่มโน้ตเพื่อเติมโน้ตเพิ่มในช่องเดียวกัน แล้วกด “จบช่อง” เพื่อเลื่อนไปช่องถัดไป

@@ -15,7 +15,8 @@ export const useSheetEditor = ({
   isPlayingRef,
   stopPlayback,
   onPreviewToken,
-  onRowIndexMap
+  onRowIndexMap,
+  onLayoutConfigRestore
 }) => {
   const [sheetData, setSheetData] = useState(createDefaultSheetData);
   const [rowTypes, setRowTypes] = useState(createDefaultRowTypes);
@@ -66,20 +67,21 @@ export const useSheetEditor = ({
     })
   );
 
-  const commitChange = (newSheetData, newRowTypes, newSectionLabels, newSymbols, newRowMargins, rowIndexMap = null, styleCopies = []) => {
+  const commitChange = (newSheetData, newRowTypes, newSectionLabels, newSymbols, newRowMargins, rowIndexMap = null, styleCopies = [], tempoTrackSnapshot = layoutConfigRef.current.tempoTrack || []) => {
     setSheetData(newSheetData);
     if (newRowTypes) setRowTypes(newRowTypes);
     if (newSectionLabels) setSectionLabels(newSectionLabels);
     if (newSymbols) setSymbols(newSymbols);
     if (newRowMargins) setRowMargins(newRowMargins);
-    if (rowIndexMap) onRowIndexMap?.(rowIndexMap, styleCopies);
+    const remappedTempoTrack = rowIndexMap ? onRowIndexMap?.(rowIndexMap, styleCopies) : null;
     
     const snapshot = {
       sheetData: newSheetData.map(row => row.map(meas => [...meas])),
       rowTypes: newRowTypes ? [...newRowTypes] : [...rowTypes],
       sectionLabels: newSectionLabels ? JSON.parse(JSON.stringify(newSectionLabels)) : JSON.parse(JSON.stringify(sectionLabels)),
       symbols: newSymbols ? [...newSymbols] : [...symbols],
-      rowMargins: newRowMargins ? JSON.parse(JSON.stringify(newRowMargins)) : JSON.parse(JSON.stringify(rowMargins))
+      rowMargins: newRowMargins ? JSON.parse(JSON.stringify(newRowMargins)) : JSON.parse(JSON.stringify(rowMargins)),
+      tempoTrack: JSON.parse(JSON.stringify(remappedTempoTrack || tempoTrackSnapshot || []))
     };
     
     setHistory(prev => {
@@ -100,6 +102,7 @@ export const useSheetEditor = ({
       setSectionLabels(prev.sectionLabels);
       setSymbols(prev.symbols || []); 
       setRowMargins(prev.rowMargins || Array(prev.sheetData.length).fill({ top: 0, bottom: 0, left: 0 }));
+      onLayoutConfigRestore?.(prev.tempoTrack || []);
       setHistoryIndex(historyIndex - 1);
     }
   };
@@ -113,6 +116,7 @@ export const useSheetEditor = ({
       setSectionLabels(next.sectionLabels);
       setSymbols(next.symbols || []); 
       setRowMargins(next.rowMargins || Array(next.sheetData.length).fill({ top: 0, bottom: 0, left: 0 }));
+      onLayoutConfigRestore?.(next.tempoTrack || []);
       setHistoryIndex(historyIndex + 1);
     }
   };

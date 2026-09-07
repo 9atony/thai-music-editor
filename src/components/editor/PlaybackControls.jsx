@@ -16,6 +16,7 @@ const PlaybackControls = () => {
   const {
     rowTypes, selectedCell, selectionRange, layoutConfig, setLayoutConfig, sheetData, rowMargins, updateRowMarginsList,
     isPlaying, startPlayback, stopPlayback,
+    currentPlaybackBpm, isTempoTrackOpen, setIsTempoTrackOpen,
     symbols, selectedSymbolId, setSelectedSymbolId, updateSymbol, removeSymbol, removeSymbolByCell,
     toolbarMode, setToolbarMode,
     isLoopAll, setIsLoopAll,
@@ -69,7 +70,15 @@ const PlaybackControls = () => {
     if (isEditingMode) {
       updateSymbol(selectedSymbolId, { [symKey]: value });
     } else {
-      setLayoutConfig({ ...layoutConfig, [configKey]: value });
+      setLayoutConfig((current) => {
+        if (configKey !== 'symbolColor') return { ...current, [configKey]: value };
+        const symbolType = current.activeSymbol || 'sabat';
+        return {
+          ...current,
+          symbolColor: value,
+          [symbolType === 'kro' ? 'kroColor' : 'sabatColor']: value
+        };
+      });
     }
   };
   const handleLayoutChange = (key, value) => {
@@ -410,8 +419,19 @@ const PlaybackControls = () => {
 
             <div className="flex items-center gap-2 bg-slate-50 px-2 py-1.5 rounded-lg border border-slate-200 shrink-0">
               <span className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider pl-1">BPM</span>
-              <input type="number" min="20" max="300" data-bpm-input="true" value={bpmInput} onChange={handleBpmChange} onBlur={handleBpmBlur} className="w-12 text-center text-sm font-bold text-slate-700 bg-transparent border-none focus:outline-none focus:ring-0 p-0" />
+              <input type="number" min="20" max="300" data-bpm-input="true" value={isPlaying ? String(Math.round(currentPlaybackBpm || layoutConfig.bpm || 80)) : bpmInput} onChange={handleBpmChange} onBlur={handleBpmBlur} disabled={isPlaying} className="w-12 text-center text-sm font-bold text-slate-700 bg-transparent border-none focus:outline-none focus:ring-0 p-0 disabled:cursor-default" aria-label={isPlaying ? 'BPM ณ ตำแหน่งที่กำลังเล่น' : 'BPM หลักของเพลง'} />
             </div>
+
+            <button
+              type="button"
+              onClick={() => setIsTempoTrackOpen(!isTempoTrackOpen)}
+              title="กำหนด BPM แยกแต่ละช่วง"
+              aria-expanded={isTempoTrackOpen}
+              className={`flex shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-bold shadow-sm transition-colors ${isTempoTrackOpen ? 'border-orange-300 bg-orange-50 text-orange-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}
+            >
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 17l5-6 4 3 7-8M4 20h16" /></svg>
+              <span className="hidden xl:inline">ปรับความเร็ว</span>
+            </button>
             
             <div className="flex items-center gap-2 bg-slate-50 px-2 py-1.5 rounded-lg border border-slate-200 border-r border-slate-200 pr-4 shrink-0">
               <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" /></svg>

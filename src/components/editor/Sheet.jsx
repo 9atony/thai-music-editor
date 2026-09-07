@@ -1093,7 +1093,7 @@ const Sheet = forwardRef((props, ref) => {
               ? `M ${noteX} ${y} L ${rowRight} ${y}`
               : `M ${rowLeft} ${y} L ${noteX} ${y}`;
             if (!newPagePaths[pageIndex]) newPagePaths[pageIndex] = [];
-            newPagePaths[pageIndex].push({ id: `${sym.id}-${isStart ? 'wrap-out' : 'wrap-in'}`, type: 'kro', d, color, strokeW });
+            newPagePaths[pageIndex].push({ id: `${sym.id}-${isStart ? 'wrap-out' : 'wrap-in'}`, symbolId: sym.id, type: 'kro', d, color, strokeW });
           };
           addWrapSegment(startPageIndex, startEl, true);
           addWrapSegment(endPageIndex, endEl, false);
@@ -1138,7 +1138,7 @@ const Sheet = forwardRef((props, ref) => {
             // เพื่อให้เส้นกรอในแต่ละบรรทัดเป็นแนวนอนเสมอ
             const d = `M ${x1} ${y1} L ${x2} ${y1}`;
             if (!newPagePaths[pageIndex]) newPagePaths[pageIndex] = [];
-            newPagePaths[pageIndex].push({ id: `${sym.id}-${r}`, type: 'kro', d, color, strokeW });
+            newPagePaths[pageIndex].push({ id: `${sym.id}-${r}`, symbolId: sym.id, type: 'kro', d, color, strokeW });
           }
         }
       } else {
@@ -1182,7 +1182,7 @@ const Sheet = forwardRef((props, ref) => {
             }
 
             if (!newPagePaths[pageIndex]) newPagePaths[pageIndex] = [];
-            newPagePaths[pageIndex].push({ id: sym.id, type: sym.type, d, color, strokeW });
+            newPagePaths[pageIndex].push({ id: sym.id, symbolId: sym.id, type: sym.type, d, color, strokeW });
           }
         }
       }
@@ -1247,8 +1247,12 @@ const Sheet = forwardRef((props, ref) => {
          const startOrder = startRow * 1000000 + startMeasure * 1000 + startCell;
          const endOrder = rIndex * 1000000 + mIndex * 1000 + cIndex;
          addSymbol(symType, selectedCell, [rIndex, mIndex, cIndex], {
-             color: symType === 'kro' ? '#3b82f6' : (layoutConfig.symbolColor || '#1e293b'),
-             strokeWidth: layoutConfig.symbolStrokeWidth || 2.5,
+             color: symType === 'kro'
+               ? (layoutConfig.kroColor || '#3b82f6')
+               : (layoutConfig.sabatColor || '#1e293b'),
+             strokewidth: symType === 'kro'
+               ? (layoutConfig.kroStrokeWidth || 2.5)
+               : (layoutConfig.sabatStrokeWidth || 2.5),
              height: layoutConfig.symbolHeight !== undefined ? layoutConfig.symbolHeight : 20,
              // Selecting a later note then a note near the beginning means
              // the symbol continues through the end and wraps to the start.
@@ -1484,7 +1488,7 @@ return (
                 preserveAspectRatio="none"
               >
                 {(pageSvgPaths[pIndex] || []).map(p => {
-                  const isSelected = p.id === selectedSymbolId;
+                  const isSelected = p.symbolId === selectedSymbolId;
                   const isKro = p.type === 'kro';
                   return (
                     <g key={p.id}>
@@ -1494,13 +1498,13 @@ return (
                         className="pointer-events-auto cursor-pointer print:pointer-events-none"
                         onMouseDown={(e) => {
                           e.stopPropagation();
-                          if (setSelectedSymbolId) setSelectedSymbolId(p.id);
+                          if (setSelectedSymbolId) setSelectedSymbolId(p.symbolId);
                           window.dispatchEvent(new CustomEvent('tme-open-symbol-panel', { detail: { type: p.type } }));
                         }}
                       />
                       {isSelected && <path d={p.d} fill="none" stroke="#f59e0b" strokeWidth={p.strokeW + 4} strokeLinecap="round" opacity="0.4" className="pointer-events-none print:hidden" />}
                       <path 
-                        d={p.d} fill="none" stroke={isSelected ? '#d97706' : (isKro ? '#3b82f6' : p.color)} 
+                        d={p.d} fill="none" stroke={p.color}
                         strokeWidth={p.strokeW} strokeLinecap="round" strokeDasharray={isKro ? "8 5" : "none"}
                         className="pointer-events-none drop-shadow-sm transition-all duration-200"
                       />
