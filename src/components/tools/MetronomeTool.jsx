@@ -227,10 +227,10 @@ const MetronomeTool = () => {
         <div className="absolute bottom-0 right-[8%] h-80 w-80 rounded-full bg-sky-200/25 blur-3xl" />
       </div>
 
-      <main className="relative mx-auto flex min-h-full w-full max-w-7xl flex-col gap-4 px-3 py-4 sm:px-5 md:px-7 md:py-6">
-        <section className="grid gap-4 xl:grid-cols-[minmax(0,1.18fr)_380px]">
-          <div className="overflow-hidden rounded-[24px] border border-slate-200/90 bg-gradient-to-br from-white via-white to-indigo-50/70 p-4 shadow-xl shadow-slate-200/60 sm:p-6 md:rounded-[28px]">
-            <div className="mb-5 flex items-start justify-between gap-3 border-b border-slate-100 pb-4 sm:mb-7 sm:pb-5">
+      <main className="relative mx-auto flex min-h-full w-full max-w-7xl flex-col gap-3 px-3 py-3 sm:px-5 md:px-7 md:py-4">
+        <section className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_340px]">
+          <div className="overflow-hidden rounded-[22px] border border-slate-200/90 bg-gradient-to-br from-white via-white to-indigo-50/70 p-4 shadow-lg shadow-slate-200/60 md:rounded-[24px] md:p-5">
+            <div className="mb-3 flex items-start justify-between gap-3 border-b border-slate-100 pb-3">
               <div className="flex items-center gap-3">
                 <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 text-white shadow-lg shadow-indigo-500/25">
                   <AudioLines size={24} />
@@ -247,7 +247,7 @@ const MetronomeTool = () => {
             </div>
 
             <div className="flex flex-col items-center">
-              <div className="mb-4 flex h-9 items-center justify-center gap-2 sm:mb-5 sm:h-12">
+              <div className="mb-2 flex h-7 items-center justify-center gap-2">
                 {Array.from({ length: 8 }, (_, index) => (
                   <span
                     key={index}
@@ -256,7 +256,7 @@ const MetronomeTool = () => {
                 ))}
               </div>
 
-              <div className="flex items-center gap-2.5 sm:gap-5">
+              <div className="flex items-center gap-3 sm:gap-4">
                 <button type="button" onClick={() => setBpm(bpm - 1)} className="flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 active:scale-95 sm:h-12 sm:w-12" aria-label="ลดความเร็ว">
                   <Minus size={18} />
                 </button>
@@ -267,7 +267,7 @@ const MetronomeTool = () => {
                     max="300"
                     value={bpm}
                     onChange={(event) => setBpm(event.target.value)}
-                    className="w-32 bg-transparent text-center text-5xl font-black tabular-nums tracking-tighter text-slate-900 outline-none sm:w-40 sm:text-6xl md:w-48 md:text-7xl"
+                    className="w-32 bg-transparent text-center text-5xl font-black tabular-nums tracking-tighter text-slate-900 outline-none sm:w-40 sm:text-6xl"
                     aria-label="ความเร็ว BPM"
                   />
                   <span className="block text-[11px] font-black uppercase tracking-[0.3em] text-indigo-600">BPM</span>
@@ -277,21 +277,21 @@ const MetronomeTool = () => {
                 </button>
               </div>
 
-              <div className="mt-5 w-full max-w-md sm:mt-7">
-                <div className="mb-2 flex justify-between text-[9px] font-bold uppercase tracking-wider text-slate-400"><span>20 BPM</span><span>300 BPM</span></div>
+              <div className="mt-3 w-full max-w-lg">
+                <div className="mb-1 flex justify-between text-[9px] font-bold uppercase tracking-wider text-slate-400"><span>20 BPM</span><span>300 BPM</span></div>
                 <input type="range" min="20" max="300" value={bpm} onChange={(event) => setBpm(event.target.value)} className="h-2 w-full accent-indigo-500" aria-label="ปรับความเร็วเมโทรโนม" />
               </div>
 
-              <div className="mt-5 flex w-full max-w-md items-center gap-2.5 sm:mt-6 sm:gap-3">
+              <div className="mt-3 flex w-full max-w-lg items-center gap-2.5">
                 <button
                   type="button"
                   onClick={togglePlayback}
-                  className={`flex h-14 flex-1 items-center justify-center gap-2 rounded-2xl text-sm font-black shadow-xl transition active:scale-[0.98] sm:h-16 sm:gap-3 sm:text-base ${isRunning ? 'bg-rose-500 text-white shadow-rose-500/20 hover:bg-rose-400' : 'bg-indigo-500 text-white shadow-indigo-500/25 hover:bg-indigo-400'}`}
+                  className={`flex h-12 flex-1 items-center justify-center gap-2 rounded-xl text-sm font-black shadow-lg transition active:scale-[0.98] ${isRunning ? 'bg-rose-500 text-white shadow-rose-500/20 hover:bg-rose-400' : 'bg-indigo-500 text-white shadow-indigo-500/25 hover:bg-indigo-400'}`}
                 >
                   {isRunning ? <Pause size={22} fill="currentColor" /> : <Play size={22} fill="currentColor" />}
                   {isRunning ? 'หยุดจังหวะ' : 'เริ่มเล่น'}
                 </button>
-                <button type="button" onClick={handleTapTempo} className="flex h-14 w-20 flex-col items-center justify-center rounded-2xl border border-slate-200 bg-white font-black text-slate-800 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50 active:scale-[0.98] sm:h-16 sm:w-28">
+                <button type="button" onClick={handleTapTempo} className="flex h-12 w-24 flex-col items-center justify-center rounded-xl border border-slate-200 bg-white font-black text-slate-800 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50 active:scale-[0.98]">
                   <span className="text-sm">TAP</span>
                   <span className="mt-0.5 text-[9px] font-medium text-slate-500">{tapHint}</span>
                 </button>
@@ -299,8 +299,8 @@ const MetronomeTool = () => {
             </div>
           </div>
 
-          <aside className="flex flex-col rounded-[24px] border border-slate-200 bg-white p-4 shadow-xl shadow-slate-200/50 sm:p-5 md:rounded-[28px] md:p-6">
-            <div className="mb-5 flex items-center justify-between">
+          <aside className="flex flex-col rounded-[22px] border border-slate-200 bg-white p-4 shadow-lg shadow-slate-200/50 md:rounded-[24px]">
+            <div className="mb-3 flex items-center justify-between">
               <div>
                 <h2 className="text-base font-black text-slate-900">ตั้งค่าการฝึกซ้อม</h2>
                 <p className="mt-1 text-[11px] font-medium text-slate-500">เลือกความเร็วเริ่มต้นที่เหมาะกับคุณ</p>
@@ -319,7 +319,7 @@ const MetronomeTool = () => {
               ))}
             </div>
 
-            <div className="my-5 h-px bg-slate-200" />
+            <div className="my-4 h-px bg-slate-200" />
 
             <div className="mb-3 flex items-center justify-between">
               <span className="flex items-center gap-2 text-xs font-black text-slate-700"><Volume2 size={15} className="text-indigo-600" />ระดับเสียงรวม</span>
@@ -335,7 +335,7 @@ const MetronomeTool = () => {
               aria-label="ระดับเสียงรวม"
             />
 
-            <div className="mt-5 rounded-2xl border border-indigo-100 bg-indigo-50 p-3.5">
+            <div className="mt-4 rounded-xl border border-indigo-100 bg-indigo-50 p-3">
               <p className="text-[11px] font-semibold leading-5 text-indigo-700">
                 เคล็ดลับ: เริ่มจากความเร็วที่เล่นได้สบาย แล้วเพิ่มครั้งละ 5 BPM เมื่อจังหวะนิ่ง
               </p>
@@ -343,48 +343,48 @@ const MetronomeTool = () => {
           </aside>
         </section>
 
-        <section className="overflow-hidden rounded-[24px] border border-emerald-100 bg-white shadow-xl shadow-emerald-950/5 md:rounded-[28px]">
-          <div className="flex flex-col gap-4 bg-gradient-to-br from-emerald-50 via-white to-teal-50 p-4 sm:p-5 md:flex-row md:items-center md:gap-6 md:p-6">
-            <div className="flex items-start gap-3 md:block md:w-48 md:shrink-0">
+        <section className="overflow-hidden rounded-[22px] border border-emerald-100 bg-white shadow-lg shadow-emerald-950/5 md:rounded-[24px]">
+          <div className="flex flex-col gap-3 bg-gradient-to-br from-emerald-50 via-white to-teal-50 p-4 md:flex-row md:items-center md:gap-4">
+            <div className="flex items-center gap-3 md:w-44 md:shrink-0">
               <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-500 text-white shadow-lg shadow-emerald-500/20"><Timer size={21} /></span>
               <div><p className="text-[9px] font-black uppercase tracking-[0.18em] text-emerald-600">Guided practice</p><h2 className="mt-0.5 text-base font-black text-slate-900">Speed Trainer</h2>
-              <p className="mt-1 text-[11px] font-medium leading-5 text-slate-500">ไล่ความเร็วอัตโนมัติ</p>
-              {isTraining && <span className="mt-2 inline-flex rounded-full bg-emerald-100 px-2.5 py-1 text-[9px] font-black text-emerald-700">กำลังฝึกซ้อม</span>}</div>
+              <p className="mt-0.5 text-[10px] font-medium text-slate-500">ไล่ความเร็วอัตโนมัติ</p>
+              {isTraining && <span className="mt-1 inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-[9px] font-black text-emerald-700">กำลังฝึกซ้อม</span>}</div>
             </div>
 
-            <div className="grid flex-1 grid-cols-3 gap-2 sm:gap-3">
-              <label className="rounded-xl border border-slate-200 bg-white p-2.5 sm:rounded-2xl sm:p-3">
+            <div className="grid flex-1 grid-cols-1 gap-2 min-[480px]:grid-cols-3">
+              <label className="rounded-xl border border-slate-200 bg-white px-3 py-2">
                 <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">เริ่มต้น (BPM)</span>
-                <input type="number" min="20" max="300" value={trainerStartBpm} onChange={(event) => setTrainerStartBpm(clampBpm(event.target.value))} disabled={isTraining} className="mt-1 w-full bg-transparent text-2xl font-black tabular-nums text-slate-900 outline-none disabled:text-slate-400" />
+                <input type="number" min="20" max="300" value={trainerStartBpm} onChange={(event) => setTrainerStartBpm(clampBpm(event.target.value))} disabled={isTraining} className="mt-0.5 w-full bg-transparent text-xl font-black tabular-nums text-slate-900 outline-none disabled:text-slate-400" />
               </label>
-              <label className="rounded-xl border border-slate-200 bg-white p-2.5 sm:rounded-2xl sm:p-3">
+              <label className="rounded-xl border border-slate-200 bg-white px-3 py-2">
                 <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">จบที่ (BPM)</span>
-                <input type="number" min="20" max="300" value={trainerEndBpm} onChange={(event) => setTrainerEndBpm(clampBpm(event.target.value))} disabled={isTraining} className="mt-1 w-full bg-transparent text-2xl font-black tabular-nums text-slate-900 outline-none disabled:text-slate-400" />
+                <input type="number" min="20" max="300" value={trainerEndBpm} onChange={(event) => setTrainerEndBpm(clampBpm(event.target.value))} disabled={isTraining} className="mt-0.5 w-full bg-transparent text-xl font-black tabular-nums text-slate-900 outline-none disabled:text-slate-400" />
               </label>
-              <div className="rounded-xl border border-slate-200 bg-white p-2.5 sm:rounded-2xl sm:p-3">
+              <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
                 <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">ระยะเวลา</span>
                 <div className="mt-1 flex items-center gap-2">
-                  <input type="number" min="1" max={trainerUnit === 'minutes' ? 60 : 3600} value={trainerDuration} onChange={(event) => setTrainerDuration(clampDuration(event.target.value))} disabled={isTraining} className="min-w-0 flex-1 bg-transparent text-2xl font-black tabular-nums text-slate-900 outline-none disabled:text-slate-400" />
+                  <input type="number" min="1" max={trainerUnit === 'minutes' ? 60 : 3600} value={trainerDuration} onChange={(event) => setTrainerDuration(clampDuration(event.target.value))} disabled={isTraining} className="min-w-0 flex-1 bg-transparent text-xl font-black tabular-nums text-slate-900 outline-none disabled:text-slate-400" />
                   <select value={trainerUnit} onChange={(event) => setTrainerUnit(event.target.value)} disabled={isTraining} className="hidden rounded-lg bg-slate-100 px-2 py-1 text-[10px] font-black text-slate-600 outline-none disabled:text-slate-400 sm:block"><option value="minutes">นาที</option><option value="seconds">วินาที</option></select>
                 </div>
                 <select value={trainerUnit} onChange={(event) => setTrainerUnit(event.target.value)} disabled={isTraining} className="mt-1.5 w-full rounded-md bg-slate-100 px-1.5 py-1 text-[9px] font-black text-slate-600 outline-none disabled:text-slate-400 sm:hidden"><option value="minutes">นาที</option><option value="seconds">วินาที</option></select>
               </div>
             </div>
 
-            <div className="flex gap-2 md:w-32 md:flex-col">
-              <button type="button" onClick={isTraining ? stopSpeedTrainer : startSpeedTrainer} className={`flex h-12 flex-1 items-center justify-center gap-2 rounded-xl px-4 text-xs font-black text-white shadow-lg transition active:scale-[0.98] ${isTraining ? 'bg-rose-500 shadow-rose-500/20 hover:bg-rose-400' : 'bg-emerald-500 shadow-emerald-500/20 hover:bg-emerald-400'}`}>
+            <div className="flex gap-2 md:w-28 md:flex-col">
+              <button type="button" onClick={isTraining ? stopSpeedTrainer : startSpeedTrainer} className={`flex h-10 flex-1 items-center justify-center gap-1.5 rounded-xl px-3 text-xs font-black text-white shadow-md transition active:scale-[0.98] ${isTraining ? 'bg-rose-500 shadow-rose-500/20 hover:bg-rose-400' : 'bg-emerald-500 shadow-emerald-500/20 hover:bg-emerald-400'}`}>
                 {isTraining ? <Pause size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" />}{isTraining ? 'หยุด' : 'เริ่มฝึก'}
               </button>
-              <span className="flex h-12 flex-1 items-center justify-center rounded-xl border border-emerald-100 bg-white px-2 text-center text-[10px] font-bold leading-4 text-emerald-700">{getTrainerSeconds() < 60 ? `${getTrainerSeconds()} วินาที` : `${getTrainerSeconds() / 60} นาที`}</span>
+              <span className="flex h-8 flex-1 items-center justify-center rounded-lg border border-emerald-100 bg-white px-2 text-center text-[9px] font-bold text-emerald-700">{getTrainerSeconds() < 60 ? `${getTrainerSeconds()} วินาที` : `${getTrainerSeconds() / 60} นาที`}</span>
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-1.5 border-t border-emerald-100 bg-white px-4 py-3 sm:gap-2 sm:px-5 md:px-6">
+          <div className="flex flex-wrap items-center gap-1.5 border-t border-emerald-100 bg-white px-4 py-2">
             <span className="mr-1 text-[9px] font-black uppercase tracking-wider text-slate-400">พรีเซ็ต</span>
             {speedTrainerPresets.map((preset) => <button key={preset.seconds} type="button" onClick={() => applyTrainerPreset(preset.seconds)} disabled={isTraining} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-[10px] font-black text-slate-600 transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-50">{preset.label}</button>)}
           </div>
         </section>
 
-        <section className="rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm sm:p-5 md:rounded-3xl md:p-6">
+        <section className="rounded-[22px] border border-slate-200 bg-white p-4 shadow-sm md:rounded-[24px]">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-sm font-black text-slate-900">กรองหน้าทับตามชั้นเพลง</h2>
@@ -394,15 +394,14 @@ const MetronomeTool = () => {
               {RHYTHM_LAYER_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
           </div>
-        </section>
 
-        <section className="grid gap-3 md:grid-cols-3">
+          <div className="mt-3 grid gap-3 border-t border-slate-100 pt-3 md:grid-cols-3">
           {instruments.map(({ key, label, description, Icon, iconClass, activeClass, rangeClass }) => {
             const config = metronomeConfig[key];
             const patterns = filterRhythmPatternsByLayer(metronomeConfig.rhythms?.[key], metronomeConfig.rhythmLayer);
             return (
-              <article key={key} className={`rounded-[22px] border bg-white p-4 shadow-sm transition sm:p-5 md:rounded-3xl ${config.active ? 'border-slate-200 hover:border-slate-300 hover:shadow-md' : 'border-slate-200 opacity-55'}`}>
-                <div className="mb-4 flex items-center justify-between">
+              <article key={key} className={`rounded-2xl border bg-slate-50/50 p-4 transition ${config.active ? 'border-slate-200 hover:border-slate-300 hover:bg-white hover:shadow-sm' : 'border-slate-200 opacity-55'}`}>
+                <div className="mb-3 flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <span className={`flex h-11 w-11 items-center justify-center rounded-2xl ${iconClass}`}>{React.createElement(Icon, { size: 20 })}</span>
                     <div>
@@ -416,7 +415,7 @@ const MetronomeTool = () => {
                 </div>
 
                 <label className="mb-1.5 block text-[9px] font-black uppercase tracking-[0.16em] text-slate-500">หน้าทับ</label>
-                <div className="relative mb-5">
+                <div className="relative mb-3">
                   <select value={config.pattern} onChange={(event) => updateInstrument(key, { pattern: event.target.value })} disabled={!config.active || patterns.length === 0} className="h-11 w-full appearance-none rounded-xl border border-slate-200 bg-slate-50 px-3 pr-9 text-xs font-bold text-slate-700 outline-none transition focus:border-indigo-400 disabled:cursor-not-allowed disabled:opacity-50" aria-label={`เลือกหน้าทับ${label}`}>
                     {patterns.length === 0
                       ? <option value="">ไม่พบหน้าทับในชั้นที่เลือก</option>
@@ -433,6 +432,7 @@ const MetronomeTool = () => {
               </article>
             );
           })}
+          </div>
         </section>
       </main>
     </div>
