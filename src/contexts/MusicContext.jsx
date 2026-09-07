@@ -764,7 +764,7 @@ export const MusicProvider = ({ children }) => {
         if (!isEditable) {
           e.preventDefault(); e.stopPropagation();  
           if (document.activeElement && document.activeElement.tagName !== 'BODY') document.activeElement.blur();
-          actionsRef.current.togglePlay(); return;
+          if (!e.repeat) actionsRef.current.togglePlay(); return;
         }
       }
       if (isEditable) return; 

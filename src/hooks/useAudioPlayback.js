@@ -11,7 +11,7 @@ import {
   getVisualIndex, shiftNoteString, getIntervalPair, 
   splitThaiNoteToken, parseCellToken 
 } from '../utils/sheetUtils';
-import { getCellDurationMs, getPlayableMeasures, getTempoAtPosition, positionToBeat } from '../utils/tempoTrack';
+import { getCellDurationMs, getPlayableMeasures, getPlaybackMeasures, getPlaybackMeasureOffsetMs, getTempoAtPosition, positionToBeat } from '../utils/tempoTrack';
 
 const INDEPENDENT_METRONOME_GROUP = 'editor-independent-metronome';
 const LINKED_METRONOME_GROUP = 'editor-linked-metronome';
@@ -39,6 +39,7 @@ export const useAudioPlayback = ({
 }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackCursor, setPlaybackCursor] = useState(null);
+  const playbackProgressRef = useRef(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [totalTime, setTotalTime] = useState(0);
   const [playbackSequence, setPlaybackSequence] = useState([]);
@@ -344,6 +345,7 @@ export const useAudioPlayback = ({
 
     playbackCursorRef.current = null;
     setPlaybackCursor(null);
+    playbackProgressRef.current = null;
     setCurrentPlaybackBpm(Number(layoutConfigRef.current.bpm) || 80);
 
     if (playbackTimerRef.current) {
@@ -688,6 +690,12 @@ export const useAudioPlayback = ({
       const msPerCell = Math.floor(getCellDurationMs(cellPosition, activeTempoTrack, baseBpm, currentSheetData, currentRowTypes));
 
       scheduleUiChange(() => {
+        playbackProgressRef.current = {
+          row: r, measure: m, cell: c,
+          sequenceIndex: schedulerSeqIdx, loop: schedulerLoop,
+          startedAt: performance.now() - Math.max(0, (getAudioCurrentTime() - cellStartSec) * 1000),
+          durationMs: msPerCell
+        };
         schedulePlaybackCursorUpdate([r, m, c]);
         setCurrentPlaybackBpm(Math.round(cellBpm));
       }, cellStartSec);
@@ -1188,6 +1196,27 @@ export const useAudioPlayback = ({
     }
   };
 
+  const playFromTempoMeasure = (measureIndex) => {
+    const sheet = sheetDataRef.current;
+    const types = rowTypesRef.current;
+    const playlist = getPlaybackMeasures(sheet, types, sectionLabelsRef.current, playbackSequenceRef.current);
+    const measure = playlist[measureIndex];
+    if (!measure) return;
+    stopPlayback();
+    const cursor = [measure.row, measure.measure, 0];
+    selectedCellRef.current = cursor;
+    setSelectedCell(cursor);
+    activeSequenceIdxRef.current = measure.sequenceIndex ?? 0;
+    activeLoopRef.current = measure.loop ?? 1;
+    setActiveSequenceIdx(activeSequenceIdxRef.current);
+    setActiveLoop(activeLoopRef.current);
+    seekOffsetRef.current = getPlaybackMeasureOffsetMs(
+      playlist, measureIndex, layoutConfigRef.current.tempoTrack || [],
+      layoutConfigRef.current.bpm || 80, getPlayableMeasures(sheet, types)
+    ) / 1000;
+    return startPlayback();
+  };
+
   const togglePlay = () => {
     if (isPlayingRef.current) {
       stopPlayback();
@@ -1344,11 +1373,11 @@ export const useAudioPlayback = ({
   }, []);
 
   return {
-    isPlaying, playbackCursor, currentTime, totalTime, currentPlaybackBpm,
+    isPlaying, playbackCursor, playbackProgressRef, currentTime, totalTime, currentPlaybackBpm,
     playbackSequence, setPlaybackSequence,
     activeSequenceIdx, activeLoop,
     startPlayback, stopPlayback, togglePlay, refreshTempoPlayback,
-    seek, skipToNext, skipToPrev, jumpToSequence,
+    seek, skipToNext, skipToPrev, jumpToSequence, playFromTempoMeasure,
     metronomeConfig, setMetronomeConfig, stopMetronomePlayback, isPlayingRef
   };
 };

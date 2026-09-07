@@ -1,10 +1,11 @@
+import { expandFourNoteMeasures } from '../utils/expandFourNoteMeasures.js';
 import { useState, useRef, useEffect } from 'react';
 import {
   getFlattenedCol, normalizeCellToken, splitThaiNoteToken, getIntervalPair,
   shiftNoteString, createDefaultSheetData, createDefaultRowTypes, createDefaultRowMargins,
   normalizeNathapRowData, hasNathapLeadingLabel
-} from '../utils/sheetUtils';
-import { INSTRUMENT_CONFIG } from '../utils/instrumentConfig';
+} from '../utils/sheetUtils.js';
+import { INSTRUMENT_CONFIG } from '../utils/instrumentConfig.js';
 
 export const useSheetEditor = ({
   isReadOnlyRef,
@@ -1097,6 +1098,15 @@ export const useSheetEditor = ({
     }
   };
 
+  const expandSelectedMeasures = () => {
+    if (isReadOnlyRef.current || !selectionRange?.start || !selectionRange?.end || selectionRange.labelOnly) return;
+    const newData = expandFourNoteMeasures(sheetData, rowTypes, selectionRange);
+    if (newData === sheetData) return;
+    if (isPlayingRef?.current) stopPlayback?.();
+    commitChange(newData);
+    setSelectionRange(null);
+  };
+
   const addNoteColumn = () => {
     if (isReadOnlyRef.current) return;
     setSelectionRange(null); 
@@ -1281,7 +1291,7 @@ export const useSheetEditor = ({
     inputNote, moveSelectionNext, moveSelectionPrev, moveSelectionToAdjacentCell,
     startSelection, updateSelection, startRowLabelSelection, updateRowLabelSelection, endSelection, copySelection, pasteSelection, cutSelection,
     addRow, addDoubleRow, addPageBreak, addTextRow, updateTextRow, addAnnotationRow, addNathapRow, removeRow,
-    addMeasure, removeMeasure, addNoteColumn, removeNoteColumn, convertMeasureToText, updateMeasureText,
+    addMeasure, removeMeasure, addNoteColumn, removeNoteColumn, expandSelectedMeasures, convertMeasureToText, updateMeasureText,
     addSectionLabel, updateSectionLabel, removeSectionLabel,
     addSymbol, updateSymbol, updateSymbols, removeSymbol, removeSymbolByCell, updateRowMarginsList
   };

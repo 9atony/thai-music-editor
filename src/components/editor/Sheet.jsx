@@ -1422,7 +1422,7 @@ return (
         ref={setSheetScrollContainerRef}
         id="sheet-scroll-container"
         // ⭐ เปลี่ยนกลับเป็น pt-12 pb-32 เพื่อเอาพื้นที่อากาศออก ป้องกัน IDM บั๊ก
-        className="flex overflow-auto pt-12 pb-32 w-full max-w-full custom-scrollbar select-none print:block print:overflow-visible print:p-0 relative"
+        className="flex flex-1 min-h-0 min-w-0 overflow-auto pt-12 pb-32 w-full max-w-full custom-scrollbar select-none print:block print:flex-none print:overflow-visible print:p-0 relative"
         style={{ paddingLeft: `max(1rem, calc(50% - ${105 * (zoom / 100)}mm))`, paddingRight: `max(1rem, calc(50% - ${105 * (zoom / 100)}mm))`, touchAction: 'pan-x pan-y' }}
       >
         <div id="sheet-pages" className="flex gap-12 snap-x h-max print:block" style={{ zoom: `${zoom}%` }}>
@@ -2307,7 +2307,10 @@ return (
 
                               const cellCustomStyle = layoutConfig.customStyles?.[`${actualRIndex}_${actualMIndex}_${cIndex}`] || {};
                               const baseFontSize = layoutConfig.fontSize || 16;
-                              const cellFontSize = cellCustomStyle.fontSize || baseFontSize;
+                              // Eight-slot measures share one size, including cells with older overrides.
+                              const cellFontSize = measure.length === 8
+                                ? baseFontSize / 2
+                                : (cellCustomStyle.fontSize || baseFontSize * Math.min(1, 4 / measure.length));
                               const isEditingToken = editingTokenCell?.r === actualRIndex && editingTokenCell?.m === actualMIndex && editingTokenCell?.c === cIndex;
 
                               return (

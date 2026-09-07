@@ -5,6 +5,28 @@ import { useFeatureAccess } from '../../contexts/FeatureAccessContext';
 import MetronomePanel from './MetronomePanel'; 
 import TempoTrackPanel from './TempoTrackPanel';
 
+const ToolbarSection = ({ children, bodyClass = 'bg-white border border-slate-200', wrapperClass = '' }) => (
+    <div className={`flex shrink-0 items-center justify-center ${wrapperClass}`}>
+      <div className={`flex items-stretch gap-1.5 rounded-2xl p-2 shadow-[0_1px_2px_rgba(15,23,42,0.04)] ${bodyClass}`}>
+        {children}
+      </div>
+    </div>
+  );
+
+  const ToolButton = ({ onClick, disabled, bgClass, icon, label, title, labelClass = '' }) => (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      className={`flex min-w-[50px] h-[40px] shrink-0 flex-col items-center justify-center rounded-xl border transition-all shadow-sm active:scale-[0.98]
+        ${disabled ? 'bg-slate-100 text-slate-300 border-slate-200 cursor-not-allowed opacity-60' : bgClass}`}
+    >
+      <div className="flex h-5 items-center justify-center text-base font-black leading-none">{icon}</div>
+      <span className={`mt-1 text-[10px] font-bold tracking-tight ${labelClass}`}>{label}</span>
+    </button>
+  );
+
+
 const Keyboard = () => {
   const { canAccess } = useFeatureAccess();
   const {
@@ -18,9 +40,9 @@ const Keyboard = () => {
     isAutoScroll, setIsAutoScroll,
     appendNoteToCurrentCell, trimCurrentCellToken, moveSelectionNext, moveSelectionPrev,
     convertMeasureToText,
-    addAnnotationRow,
+    addAnnotationRow, expandSelectedMeasures, selectionRange,
     selectedCell, playbackCursor, isPlaying,
-    isTempoTrackOpen,
+    isTempoTrackOpen, setIsTempoTrackOpen,
     userRole // ⭐ ดึงยศจริงมาจาก Context
   } = useContext(MusicContext);
 
@@ -32,6 +54,7 @@ const Keyboard = () => {
   const visualBurstStateRef = useRef({});
 
   const [isMinimized, setIsMinimized] = useState(false);
+  const [areNoteKeysVisible, setAreNoteKeysVisible] = useState(true);
   const [isInstMenuOpen, setIsInstMenuOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false); 
 
@@ -201,27 +224,6 @@ const Keyboard = () => {
     );
   };
 
-  const ToolbarSection = ({ children, bodyClass = 'bg-white border border-slate-200', wrapperClass = '' }) => (
-    <div className={`flex shrink-0 items-center justify-center ${wrapperClass}`}>
-      <div className={`flex items-stretch gap-1.5 rounded-2xl p-2 shadow-[0_1px_2px_rgba(15,23,42,0.04)] ${bodyClass}`}>
-        {children}
-      </div>
-    </div>
-  );
-
-  const ToolButton = ({ onClick, disabled, bgClass, icon, label, title, labelClass = '' }) => (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      title={title}
-      className={`flex min-w-[50px] h-[40px] shrink-0 flex-col items-center justify-center rounded-xl border transition-all shadow-sm active:scale-[0.98]
-        ${disabled ? 'bg-slate-100 text-slate-300 border-slate-200 cursor-not-allowed opacity-60' : bgClass}`}
-    >
-      <div className="flex h-5 items-center justify-center text-base font-black leading-none">{icon}</div>
-      <span className={`mt-1 text-[10px] font-bold tracking-tight ${labelClass}`}>{label}</span>
-    </button>
-  );
-
   const iconClass = 'w-4 h-4';
 
   return (
@@ -258,7 +260,16 @@ const Keyboard = () => {
 
       <div className="absolute -top-[30px] right-4 sm:right-8 z-[260] flex gap-2">
         <button
-          onClick={() => setIsMinimized(!isMinimized)}
+          type="button"
+          aria-expanded={!isKeyboardCollapsed}
+          onClick={() => {
+            if (isKeyboardCollapsed) {
+              setIsMinimized(false);
+            } else {
+              setIsMinimized(true);
+              setIsTempoTrackOpen(false);
+            }
+          }}
           className="flex items-center gap-1.5 px-4 py-1.5 bg-white border border-slate-200 border-b-0 rounded-t-xl shadow-[0_-4px_10px_-2px_rgba(0,0,0,0.05)] text-xs font-bold text-slate-500 hover:text-sky-600 transition-colors"
         >
           {isKeyboardCollapsed ? (
@@ -483,6 +494,7 @@ const Keyboard = () => {
 
             <ToolbarSection bodyClass="bg-[#f8fafc] border border-slate-200">
               <ToolButton onClick={convertMeasureToText} bgClass="bg-white text-slate-600 border-slate-200 hover:bg-slate-100" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h8m-8 6h16" /></svg>} label="ช่องพิมพ์" title="เปลี่ยนห้องโน้ตให้พิมพ์ข้อความยาวๆ ได้" />
+              <ToolButton onClick={expandSelectedMeasures} disabled={!selectionRange?.start || !selectionRange?.end || selectionRange.labelOnly} bgClass="bg-white text-violet-600 border-violet-200 hover:bg-violet-50" icon={<span className="text-xs font-bold">4→8</span>} label="ขยี้" title="คลุมเลือกห้องโน้ต แล้วกดขยี้เพื่อเพิ่มจาก 4 เป็น 8 ช่องต่อห้อง" />
               <ToolButton onClick={addAnnotationRow} bgClass="bg-white text-amber-600 border-amber-200 hover:bg-amber-50" icon={<svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /></svg>} label="คำอธิบาย" title="เพิ่มบรรทัดสำหรับพิมพ์คำอธิบาย (ไม่มีเส้นคั่นห้อง)" />
             </ToolbarSection>
 
@@ -505,12 +517,19 @@ const Keyboard = () => {
 
         <TempoTrackPanel />
 
-        <div className="px-4 pt-2 text-[11px] font-semibold text-slate-500">
+        <div className="flex items-center justify-end gap-3 px-4 py-1">
+        {areNoteKeysVisible && <div className="min-w-0 flex-1 truncate text-[10px] font-semibold text-slate-500">
           คลิกปุ่มโน้ตเพื่อเติมโน้ตเพิ่มในช่องเดียวกัน แล้วกด “จบช่อง” เพื่อเลื่อนไปช่องถัดไป
+        </div>}
+          <button type="button" onClick={() => setAreNoteKeysVisible(visible => !visible)} aria-expanded={areNoteKeysVisible} aria-controls="note-keyboard-panel" className="shrink-0 rounded-lg border border-slate-200 bg-white px-2.5 py-0.5 text-[11px] font-bold text-slate-600 hover:bg-sky-50">
+            {areNoteKeysVisible ? 'ซ่อนแป้นคีย์บอร์ด' : 'แสดงแป้นคีย์บอร์ด'}
+          </button>
         </div>
+        <div id="note-keyboard-panel" hidden={!areNoteKeysVisible}>
+
 
         <div className="relative z-0 flex w-full overflow-hidden">
-          <div className="flex-1 overflow-x-auto pb-2 pt-2 custom-scrollbar transition-all duration-300">
+          <div className="flex-1 overflow-x-auto pb-1 pt-0 custom-scrollbar transition-all duration-300">
             <div className="flex bg-slate-800 p-1 rounded-xl shadow-inner w-max mx-auto gap-[2px]">
               {displayInstrument.keys.map((kOriginal, i) => {
                 
@@ -556,6 +575,7 @@ const Keyboard = () => {
               })}
             </div>
           </div>
+        </div>
         </div>
       </div>
     </div>
