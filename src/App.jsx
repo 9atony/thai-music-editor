@@ -1,4 +1,4 @@
-import React, { Suspense, useState, useEffect, useContext } from 'react';
+import React, { Suspense, useState, useEffect, useContext, useRef } from 'react';
 import useDevice from './hooks/useDevice';
 import Login from './pages/Login'; 
 import Landing from './pages/Landing';
@@ -17,16 +17,12 @@ const AdminDashboard = React.lazy(() => import('./pages/AdminDashboard'));
 const About = React.lazy(() => import('./pages/About'));
 const Contact = React.lazy(() => import('./pages/Contact'));
 
-import { onAuthStateChanged } from 'firebase/auth';
-// ⭐ นำเข้า getUserProfile จาก firebase.js
-import { auth, getUserProfile } from './utils/firebase'; 
 import { MusicContext } from './contexts/MusicContext'; 
+import { useAuthProfile } from './contexts/AuthProfileContext';
 import { useFeatureAccess } from './contexts/FeatureAccessContext';
 import { primeAudioEngine } from './utils/audioEngine';
 import { recordSystemEvent, setAnalyticsPage, startSystemAnalytics } from './utils/systemAnalytics';
-
-import { doc, updateDoc } from 'firebase/firestore';
-import { db } from './utils/firebase';
+import { markEditorOpenStart } from './utils/devPerformance';
 
 const VIEW_SESSION_KEY = 'thaiMusicEditorCurrentView';
 const VIEW_PERSISTED_KEY = 'thaiMusicEditorLastView';
@@ -41,11 +37,8 @@ const getStoredView = (key, fallback) => {
 };
 
 function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
-  
-  // ⭐ State สำหรับเก็บข้อมูลโปรไฟล์และยศ (Role)
-  const [userProfile, setUserProfile] = useState(null); 
+  const { user, profile: userProfile, isLoading: isCheckingAuth } = useAuthProfile();
+  const isAuthenticated = Boolean(user);
   
  // State สำหรับควบคุมการแสดงหน้า Login เมื่อยังไม่ได้ล็อกอิน
   const [showLogin, setShowLogin] = useState(false);
@@ -56,7 +49,8 @@ function App() {
   const [previousView, setPreviousView] = useState(() => getStoredView(PREVIOUS_VIEW_SESSION_KEY, 'home'));
 
   const { isMobile } = useDevice();
-  const { applyTemplate, loadProjectFromFirebase } = useContext(MusicContext);
+  const { applyTemplate, loadProjectFromFirebase, currentInstrument } = useContext(MusicContext);
+  const currentInstrumentRef = useRef(currentInstrument);
   const [editorMode, setEditorMode] = useState(() => sessionStorage.getItem(EDITOR_MODE_SESSION_KEY) || 'normal');
   const [toolsVisit, setToolsVisit] = useState(0);
   const isAdmin = userProfile?.role === 'admin';
@@ -104,40 +98,13 @@ function App() {
   }, [currentView, isAdmin, userProfile]);
 
   useEffect(() => {
-    if (!isAuthenticated || !auth.currentUser?.uid) return undefined;
-    return startSystemAnalytics(auth.currentUser.uid);
-  }, [isAuthenticated]);
+    if (!user?.uid) return undefined;
+    return startSystemAnalytics(user.uid);
+  }, [user?.uid]);
 
-  // 2. ปรับแก้ส่วน useEffect เดิม เป็นแบบนี้ครับ
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (user) {
-        setIsAuthenticated(true);
-        
-        // ดึงข้อมูลโปรไฟล์จาก Firestore
-        const profileData = await getUserProfile(user.uid);
-        
-        // ⭐ เพิ่มระบบดึงชื่อจาก Gmail มาเซฟลงฐานข้อมูลอัตโนมัติ
-        if (profileData && !profileData.displayName && user.displayName) {
-          try {
-            await updateDoc(doc(db, 'users', user.uid), {
-              displayName: user.displayName // เอาชื่อจาก Google/Gmail มาเซฟทับ
-            });
-            profileData.displayName = user.displayName; // อัปเดตใน State ด้วย
-          } catch (error) {
-            console.error("อัปเดตชื่ออัตโนมัติไม่สำเร็จ:", error);
-          }
-        }
-
-        setUserProfile(profileData);
-      } else {
-        setIsAuthenticated(false);
-        setUserProfile(null); 
-      }
-      setIsCheckingAuth(false);
-    });
-    return () => unsubscribe();
-  }, []);
+    currentInstrumentRef.current = currentInstrument;
+  }, [currentInstrument]);
 
   // ดักจับปุ่ม Back ของเบราว์เซอร์/มือถือ
   useEffect(() => {
@@ -154,6 +121,7 @@ function App() {
   }, [currentView, previousView]);
 
   useEffect(() => {
+    if (currentView !== 'editor') return undefined;
     let armed = true;
     const triggerPrime = () => {
       if (!armed) return;
@@ -161,7 +129,7 @@ function App() {
       window.removeEventListener('pointerdown', triggerPrime);
       window.removeEventListener('touchstart', triggerPrime);
       window.removeEventListener('keydown', triggerPrime);
-      primeAudioEngine().catch(() => {});
+      primeAudioEngine(currentInstrumentRef.current?.id).catch(() => {});
     };
 
     window.addEventListener('pointerdown', triggerPrime, { passive: true });
@@ -174,7 +142,7 @@ function App() {
       window.removeEventListener('touchstart', triggerPrime);
       window.removeEventListener('keydown', triggerPrime);
     };
-  }, []);
+  }, [currentView]);
 
   if (isCheckingAuth) {
     return <div className="min-h-screen bg-slate-50 flex items-center justify-center font-sans text-slate-500 font-medium">กำลังตรวจสอบข้อมูล...</div>;
@@ -192,7 +160,6 @@ function App() {
       return (
         <Login 
           onLoginSuccess={() => {
-            setIsAuthenticated(true);
             setShowLogin(false); 
           }} 
           onBackToLanding={() => setShowLogin(false)} 
@@ -229,6 +196,7 @@ function App() {
 
   const handleOpenEditor = (projectId = null, projectData = null, options = {}) => {
     if (!canAccess('editor', userProfile?.role)) return;
+    markEditorOpenStart({ projectId: projectId || projectData?.id || null });
     if (projectId || projectData) recordSystemEvent('projectOpens', { feature: 'openProject', projectId: projectId || projectData?.id });
     // Sample songs are a listening-only experience for regular users. Admins
     // open the same song in the full editor so they can maintain its content.

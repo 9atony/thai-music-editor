@@ -1,7 +1,10 @@
-import React, { createContext, useState, useMemo, useEffect, useRef } from 'react';
+import React, { createContext, useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { INSTRUMENT_CONFIG } from '../utils/instrumentConfig';
 import { playNote } from '../utils/audioEngine';
-import { auth, saveProjectToDB, saveSampleToDB, getUserProfile } from '../utils/firebase';
+import { auth, saveProjectToDB, saveSampleToDB } from '../utils/firebase';
+import { useAuthProfile } from './AuthProfileContext';
+import { createAutosaveCoordinator } from '../utils/autosaveCoordinator';
+import { countDevEvent, startDevTiming } from '../utils/devPerformance';
 
 import {
   getFlattenedCol, createDefaultLayoutConfig, createDefaultHeaderDetails,
@@ -13,18 +16,6 @@ import { fromThaiMusicXml, toThaiMusicXml } from '../utils/thaiMusicXml';
 import { thaiMusicXmlToMusicXml } from '../utils/musicXmlConverter.js';
 
 export const MusicContext = createContext();
-
-// เก็บเฉพาะค่าที่เป็นของโปรเจกต์ ไม่บันทึกรายการหน้าทับทั้งหมดซึ่งโหลดจากระบบกลาง
-const getMetronomeProjectSettings = (config) => ({
-  // สถานะเปิดเสียงเป็นสถานะชั่วคราวของหน้าปัจจุบัน จึงไม่ให้ติดไปกับโปรเจกต์อื่น
-  enabled: false,
-  linked: config.linked !== false,
-  masterVolume: config.masterVolume,
-  rhythmLayer: config.rhythmLayer || 'all',
-  ching: { active: config.ching.active, pattern: config.ching.pattern, volume: config.ching.volume },
-  klong: { active: config.klong.active, pattern: config.klong.pattern, volume: config.klong.volume },
-  krub: { active: config.krub.active, pattern: config.krub.pattern, volume: config.krub.volume }
-});
 
 const applyMetronomeProjectSettings = (current, saved) => {
   if (!saved || typeof saved !== 'object') {
@@ -47,6 +38,7 @@ const applyMetronomeProjectSettings = (current, saved) => {
 };
 
 export const MusicProvider = ({ children }) => {
+  const { user, profile: userProfile } = useAuthProfile();
   const [currentInstrument, setCurrentInstrument] = useState(DEFAULT_INSTRUMENT);
   const [songName, setSongName] = useState("เพลงลาวดวงเดือน");
   const [projectName, setProjectName] = useState("โปรเจกต์ไม่มีชื่อ");
@@ -54,7 +46,7 @@ export const MusicProvider = ({ children }) => {
   const [sampleId, setSampleId] = useState(null);
   
   // ⭐ เพิ่ม State สำหรับเก็บยศของผู้ใช้
-  const [userRole, setUserRole] = useState("user");
+  const userRole = userProfile?.role || 'user';
 
   const [intervalMode, setIntervalMode] = useState('off');
   const [isReduceMode, setIsReduceMode] = useState(false);
@@ -70,16 +62,88 @@ export const MusicProvider = ({ children }) => {
   const [pendingAction, setPendingAction] = useState({ isOpen: false, type: null, payload: null });
   const [isReadOnly, setIsReadOnly] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [projectLoadEpoch, setProjectLoadEpoch] = useState(0);
   const isImportingRef = useRef(false);
+  const autosaveBaselinePendingRef = useRef(true);
+  const projectSessionRef = useRef(0);
 
   const [layoutConfig, setLayoutConfig] = useState(createDefaultLayoutConfig);
   const [headerDetails, setHeaderDetails] = useState(createDefaultHeaderDetails);
 
   const isReadOnlyRef = useRef(false);
+  const projectIdRef = useRef(projectId);
+  const recoveryTimerRef = useRef(null);
+  const latestRecoverySnapshotRef = useRef(null);
+  const loadFinishTimerRef = useRef(null);
+  const autosaveIdentityRef = useRef({ uid: null, userProfile: null, projectId: null, sampleId: null });
+  const autosaveCoordinatorRef = useRef(null);
   const setReadOnlyMode = (readOnly) => {
     isReadOnlyRef.current = readOnly;
     setIsReadOnly(readOnly);
     if (readOnly) setProjectId(null); 
+  };
+
+  useEffect(() => {
+    const coordinator = createAutosaveCoordinator({
+      delayMs: 2000,
+      save: async (task, revision) => {
+        countDevEvent('project.autosaveRequests', 1, { revision });
+        const finishTiming = startDevTiming('project.autosave', {
+          revision,
+          projectId: task.projectId,
+          sampleId: task.sampleId
+        });
+        try {
+          if (task.sampleId) {
+            await saveSampleToDB(task.sampleId, task.data);
+          } else if (task.uid) {
+            const currentTargetId = task.projectId
+              || (task.session === projectSessionRef.current ? projectIdRef.current : null);
+            const id = await saveProjectToDB(task.uid, currentTargetId, task.data, { userProfile: task.userProfile });
+            if (!currentTargetId && id && task.session === projectSessionRef.current) {
+              projectIdRef.current = id;
+              setProjectId(id);
+            }
+          }
+          finishTiming({ success: true });
+        } catch (error) {
+          finishTiming({ success: false, error: error.message });
+          throw error;
+        }
+      },
+      onError: (error) => {
+        if (error.message === 'STORAGE_LIMIT_EXCEEDED') {
+          isReadOnlyRef.current = true;
+          setIsReadOnly(true);
+          setProjectId(null);
+          setPendingAction({ isOpen: true, type: 'STORAGE_LIMIT', payload: null });
+        } else {
+          console.error('Auto-save failed:', error);
+        }
+      }
+    });
+    autosaveCoordinatorRef.current = coordinator;
+    return () => {
+      coordinator.dispose();
+      autosaveCoordinatorRef.current = null;
+    };
+  }, []);
+
+  const beginProjectLoad = () => {
+    if (loadFinishTimerRef.current) clearTimeout(loadFinishTimerRef.current);
+    projectSessionRef.current += 1;
+    autosaveBaselinePendingRef.current = true;
+    autosaveCoordinatorRef.current?.resetBaseline();
+    isImportingRef.current = true;
+  };
+
+  const finishProjectLoad = () => {
+    if (loadFinishTimerRef.current) clearTimeout(loadFinishTimerRef.current);
+    loadFinishTimerRef.current = setTimeout(() => {
+      isImportingRef.current = false;
+      autosaveBaselinePendingRef.current = true;
+      setProjectLoadEpoch((value) => value + 1);
+    }, 1000);
   };
 
   const layoutConfigRef = useRef(layoutConfig);
@@ -91,6 +155,15 @@ export const MusicProvider = ({ children }) => {
   const isLoopOneRef = useRef(isLoopOne);
 
   useEffect(() => { layoutConfigRef.current = layoutConfig; }, [layoutConfig]);
+  useEffect(() => { projectIdRef.current = projectId; }, [projectId]);
+  useEffect(() => {
+    autosaveIdentityRef.current = {
+      uid: user?.uid || auth.currentUser?.uid || null,
+      userProfile,
+      projectId,
+      sampleId
+    };
+  }, [user?.uid, userProfile, projectId, sampleId]);
   useEffect(() => { currentInstrumentRef.current = currentInstrument; }, [currentInstrument]);
   useEffect(() => { intervalModeRef.current = intervalMode; }, [intervalMode]);
   useEffect(() => { isReduceModeRef.current = isReduceMode; }, [isReduceMode]);
@@ -105,48 +178,31 @@ export const MusicProvider = ({ children }) => {
   };
 
   // ⭐ ดึงยศ (Role) ทันทีที่มีการล็อคอิน
-  useEffect(() => {
-    const fetchRole = async () => {
-      if (auth.currentUser?.uid) {
-        try {
-          const profile = await getUserProfile(auth.currentUser.uid);
-          setUserRole(profile?.role || 'user');
-        } catch (error) {
-          console.error("ดึงข้อมูล Role ไม่สำเร็จ", error);
-        }
-      }
-    };
-    
-    fetchRole();
-    const unsubscribe = auth.onAuthStateChanged((user) => {
-      if (user) {
-        fetchRole();
-      } else {
-        setUserRole("user");
-      }
-    });
-
-    return () => unsubscribe();
-  }, []);
-
   const onPreviewToken = (token, volume, instrumentId = null) => {
      playNote(instrumentId || currentInstrumentRef.current.id, token, volume);
   };
 
-  const remapCustomStylesForRows = (rowIndexMap, styleCopies = []) => {
+  const remapCustomStylesForRows = (rowIndexMap, styleCopies = [], positionMapper = null) => {
     const current = layoutConfigRef.current;
     const currentStyles = current.customStyles || {};
     const remappedStyles = {};
     let changed = false;
 
     Object.entries(currentStyles).forEach(([key, style]) => {
-      const [rowPart, ...rest] = key.split('_');
-      const nextRow = rowIndexMap.get(Number(rowPart));
+      const [rowPart, measurePart, cellPart, ...rest] = key.split('_');
+      const mappedPosition = positionMapper?.({
+        row: Number(rowPart),
+        measure: Number(measurePart),
+        cell: Number(cellPart)
+      });
+      const nextRow = mappedPosition?.row ?? rowIndexMap.get(Number(rowPart));
       if (nextRow === undefined) {
         changed = true;
         return;
       }
-      const nextKey = `${nextRow}_${rest.join('_')}`;
+      const nextMeasure = mappedPosition?.measure ?? measurePart;
+      const nextCell = mappedPosition?.cell ?? cellPart;
+      const nextKey = [nextRow, nextMeasure, nextCell, ...rest].join('_');
       remappedStyles[nextKey] = style;
       if (nextKey !== key) changed = true;
     });
@@ -166,10 +222,16 @@ export const MusicProvider = ({ children }) => {
     });
 
     const remappedTempoTrack = (current.tempoTrack || []).flatMap((point) => {
-      const nextRow = rowIndexMap.get(Number(point.position?.row));
+      const mappedPosition = positionMapper?.(point.position);
+      const nextRow = mappedPosition?.row ?? rowIndexMap.get(Number(point.position?.row));
       if (nextRow === undefined) return [];
-      if (nextRow !== Number(point.position?.row)) changed = true;
-      return [{ ...point, position: { ...point.position, row: nextRow } }];
+      const nextPosition = mappedPosition || { ...point.position, row: nextRow };
+      if (
+        nextPosition.row !== Number(point.position?.row)
+        || nextPosition.measure !== Number(point.position?.measure)
+        || nextPosition.cell !== Number(point.position?.cell)
+      ) changed = true;
+      return [{ ...point, position: nextPosition }];
     });
     if (remappedTempoTrack.length !== (current.tempoTrack || []).length) changed = true;
     if (changed) {
@@ -216,6 +278,33 @@ export const MusicProvider = ({ children }) => {
     selectedCellRef: sheetEditor.selectedCellRef,
     setSelectedCell: sheetEditor.setSelectedCell
   });
+
+  const metronomeConfig = audioPlayback.metronomeConfig;
+  const metronomeProjectSettings = useMemo(
+    () => ({
+      enabled: false,
+      linked: metronomeConfig.linked !== false,
+      masterVolume: metronomeConfig.masterVolume,
+      rhythmLayer: metronomeConfig.rhythmLayer || 'all',
+      ching: { active: metronomeConfig.ching.active, pattern: metronomeConfig.ching.pattern, volume: metronomeConfig.ching.volume },
+      klong: { active: metronomeConfig.klong.active, pattern: metronomeConfig.klong.pattern, volume: metronomeConfig.klong.volume },
+      krub: { active: metronomeConfig.krub.active, pattern: metronomeConfig.krub.pattern, volume: metronomeConfig.krub.volume }
+    }),
+    [
+      metronomeConfig.linked,
+      metronomeConfig.masterVolume,
+      metronomeConfig.rhythmLayer,
+      metronomeConfig.ching.active,
+      metronomeConfig.ching.pattern,
+      metronomeConfig.ching.volume,
+      metronomeConfig.klong.active,
+      metronomeConfig.klong.pattern,
+      metronomeConfig.klong.volume,
+      metronomeConfig.krub.active,
+      metronomeConfig.krub.pattern,
+      metronomeConfig.krub.volume
+    ]
+  );
 
   const updateTempoTrack = (nextTempoTrack) => {
     if (isReadOnlyRef.current) return;
@@ -400,20 +489,20 @@ export const MusicProvider = ({ children }) => {
   };
 
   const performNewProject = () => {
-    isImportingRef.current = true;
+    beginProjectLoad();
     const { defaultSheet, defaultTypes, defaultMargins } = resetProjectScopedState();
     setSongName("เพลงใหม่");
     setProjectName("โปรเจกต์ไม่มีชื่อ");
     localStorage.removeItem('thaiMusicEditorAutoSave');
     sheetEditor.commitChange(defaultSheet, defaultTypes, {}, [], defaultMargins);
-    setTimeout(() => { isImportingRef.current = false; }, 1000);
+    finishProjectLoad();
   };
 
   const performLoadProject = (file) => {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = async (e) => {
-      isImportingRef.current = true;
+      beginProjectLoad();
       try {
         const data = JSON.parse(e.target.result);
         const fileNameWithoutExt = file.name ? file.name.replace(/\.[^/.]+$/, "") : "";
@@ -463,7 +552,7 @@ export const MusicProvider = ({ children }) => {
         console.error("Load project error:", error);
         alert("ไฟล์ไม่ถูกต้อง หรือไฟล์เสียหายครับ!"); 
       } finally {
-        setTimeout(() => { isImportingRef.current = false; }, 1000);
+        finishProjectLoad();
       }
     };
     reader.readAsText(file);
@@ -473,7 +562,7 @@ export const MusicProvider = ({ children }) => {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (event) => {
-      isImportingRef.current = true;
+      beginProjectLoad();
       try {
         const imported = fromThaiMusicXml(event.target?.result || '');
         resetProjectScopedState();
@@ -499,7 +588,7 @@ export const MusicProvider = ({ children }) => {
         console.error('ThaiMusicXML import error:', error);
         alert(error.message || 'ไม่สามารถนำเข้าไฟล์ ThaiMusicXML ได้');
       } finally {
-        setTimeout(() => { isImportingRef.current = false; }, 1000);
+        finishProjectLoad();
       }
     };
     reader.readAsText(file);
@@ -549,7 +638,8 @@ export const MusicProvider = ({ children }) => {
   };
 
   const performLoadProjectFromFirebase = (projectData) => {
-    isImportingRef.current = true;
+    const finishTiming = startDevTiming('project.open', { source: 'firebase', projectId: projectData.id });
+    beginProjectLoad();
     try {
       const parsedFromSource = typeof projectData.sheetData === 'string' ? JSON.parse(projectData.sheetData) : projectData.sheetData;
       const { defaultSheet, defaultTypes, defaultMargins } = resetProjectScopedState({ keepProjectId: true });
@@ -586,11 +676,12 @@ export const MusicProvider = ({ children }) => {
       setIsShowPlayMode(projectData.isShowPlayMode !== undefined ? projectData.isShowPlayMode : false);
 
       sheetEditor.commitChange(migratedSheetData, migrateRowTypes, projectData.sectionLabels || {}, projectData.symbols || [], loadedMargins);
+      finishTiming({ success: true });
     } catch (error) {
       console.error("โหลดโปรเจกต์ไม่สำเร็จ:", error);
       alert("ไม่สามารถโหลดข้อมูลจาก Firebase ได้!");
     } finally {
-      setTimeout(() => { isImportingRef.current = false; }, 1000);
+      finishProjectLoad();
     }
   };
 
@@ -599,7 +690,7 @@ export const MusicProvider = ({ children }) => {
       name: projectName, songName, 
       sheetData: sheetEditor.sheetData, rowTypes: sheetEditor.rowTypes, sectionLabels: sheetEditor.sectionLabels, symbols: sheetEditor.symbols, rowMargins: sheetEditor.rowMargins, 
       layoutConfig, headerDetails, currentInstrument: currentInstrument.id, playbackSequence: audioPlayback.playbackSequence,
-      metronomeSettings: getMetronomeProjectSettings(audioPlayback.metronomeConfig),
+      metronomeSettings: metronomeProjectSettings,
       isLoopAll, isLoopOne, intervalMode, isReduceMode, isShowPlayMode 
     };
     const url = URL.createObjectURL(new Blob([JSON.stringify(projectData, null, 2)], { type: 'application/json' }));
@@ -607,28 +698,48 @@ export const MusicProvider = ({ children }) => {
   };
 
   const autoSaveToFirebase = async (data, currentProjectId) => {
-    const uid = auth.currentUser?.uid;
+    const uid = user?.uid || auth.currentUser?.uid;
     if (!uid) return;
-    try {
-      const id = await saveProjectToDB(uid, currentProjectId, data);
-      if (!currentProjectId && id) setProjectId(id);
-    } catch (err) {
-      if (err.message === "STORAGE_LIMIT_EXCEEDED") {
-        setReadOnlyMode(true); 
-        setPendingAction({ isOpen: true, type: 'STORAGE_LIMIT', payload: null });
-      } else console.error("Auto-save failed:", err);
-    }
+    return autosaveCoordinatorRef.current?.saveNow({
+      uid,
+      userProfile,
+      projectId: currentProjectId,
+      sampleId: null,
+      session: projectSessionRef.current,
+      data
+    });
   };
 
-  const autoSaveSampleToFirebase = async (data, currentSampleId) => {
+  const flushRecoverySnapshot = useCallback(() => {
+    if (recoveryTimerRef.current) clearTimeout(recoveryTimerRef.current);
+    recoveryTimerRef.current = null;
+    if (!latestRecoverySnapshotRef.current) return;
     try {
-      await saveSampleToDB(currentSampleId, data);
-    } catch (err) {
-      console.error('บันทึกเพลงตัวอย่างอัตโนมัติไม่สำเร็จ:', err);
+      localStorage.setItem('thaiMusicEditorAutoSave', JSON.stringify(latestRecoverySnapshotRef.current));
+    } catch (error) {
+      console.error('Unable to write local recovery snapshot:', error);
     }
-  };
+  }, []);
+
+  const scheduleRecoverySnapshot = useCallback((data) => {
+    latestRecoverySnapshotRef.current = data;
+    if (recoveryTimerRef.current) clearTimeout(recoveryTimerRef.current);
+    recoveryTimerRef.current = setTimeout(flushRecoverySnapshot, 350);
+  }, [flushRecoverySnapshot]);
 
   useEffect(() => {
+    const handlePageHide = () => flushRecoverySnapshot();
+    window.addEventListener('pagehide', handlePageHide);
+    return () => {
+      window.removeEventListener('pagehide', handlePageHide);
+      flushRecoverySnapshot();
+      if (loadFinishTimerRef.current) clearTimeout(loadFinishTimerRef.current);
+    };
+  }, [flushRecoverySnapshot]);
+
+  useEffect(() => {
+    autosaveBaselinePendingRef.current = true;
+    autosaveCoordinatorRef.current?.resetBaseline();
     const saved = localStorage.getItem('thaiMusicEditorAutoSave');
     if (saved) {
       try {
@@ -675,29 +786,47 @@ export const MusicProvider = ({ children }) => {
   }, []); 
 
   useEffect(() => {
-    if (!isLoaded || isImportingRef.current || isReadOnly) return; 
-    const isFreshProject = !projectId && sheetEditor.historyIndex <= 0 && projectName === "โปรเจกต์ไม่มีชื่อ" && songName === "เพลงใหม่";
+    if (!isLoaded || isImportingRef.current || isReadOnly) return;
+    const identity = autosaveIdentityRef.current;
+    const isFreshProject = !identity.projectId && sheetEditor.historyIndex <= 0 && projectName === "โปรเจกต์ไม่มีชื่อ" && songName === "เพลงใหม่";
 
     const projectData = { 
-      projectId: projectId, id: projectId, 
+      projectId: identity.projectId, id: identity.projectId,
       name: projectName, songName, 
       sheetData: sheetEditor.sheetData, rowTypes: sheetEditor.rowTypes, sectionLabels: sheetEditor.sectionLabels, symbols: sheetEditor.symbols, rowMargins: sheetEditor.rowMargins,
       layoutConfig, headerDetails, currentInstrument: currentInstrument.id, playbackSequence: audioPlayback.playbackSequence,
-      metronomeSettings: getMetronomeProjectSettings(audioPlayback.metronomeConfig),
+      metronomeSettings: metronomeProjectSettings,
       isLoopAll, isLoopOne, intervalMode, isReduceMode, isShowPlayMode 
     };
     
-    localStorage.setItem('thaiMusicEditorAutoSave', JSON.stringify(projectData));
+    scheduleRecoverySnapshot(projectData);
+
+    if (autosaveBaselinePendingRef.current) {
+      autosaveBaselinePendingRef.current = false;
+      autosaveCoordinatorRef.current?.resetBaseline();
+      return;
+    }
 
     if (!isFreshProject) {
-      const debounceTimer = setTimeout(() => (
-        sampleId
-          ? autoSaveSampleToFirebase(projectData, sampleId)
-          : autoSaveToFirebase(projectData, projectId)
-      ), 2000);
-      return () => clearTimeout(debounceTimer);
+      autosaveCoordinatorRef.current?.markDirty({
+        uid: identity.uid,
+        userProfile: identity.userProfile,
+        projectId: identity.projectId,
+        sampleId: identity.sampleId,
+        session: projectSessionRef.current,
+        data: projectData
+      });
     }
-  }, [isLoaded, projectName, songName, sheetEditor.sheetData, sheetEditor.rowTypes, sheetEditor.sectionLabels, sheetEditor.symbols, layoutConfig, headerDetails, currentInstrument, sheetEditor.rowMargins, audioPlayback.playbackSequence, audioPlayback.metronomeConfig, isLoopAll, isLoopOne, intervalMode, isReduceMode, isShowPlayMode, projectId, sampleId, sheetEditor.historyIndex, isReadOnly]);
+  }, [isLoaded, projectLoadEpoch, projectName, songName, sheetEditor.sheetData, sheetEditor.rowTypes, sheetEditor.sectionLabels, sheetEditor.symbols, layoutConfig, headerDetails, currentInstrument, sheetEditor.rowMargins, audioPlayback.playbackSequence, metronomeProjectSettings, isLoopAll, isLoopOne, intervalMode, isReduceMode, isShowPlayMode, sheetEditor.historyIndex, isReadOnly, scheduleRecoverySnapshot]);
+
+  useEffect(() => {
+    if (!latestRecoverySnapshotRef.current || isImportingRef.current || isReadOnly) return;
+    scheduleRecoverySnapshot({
+      ...latestRecoverySnapshotRef.current,
+      projectId,
+      id: projectId
+    });
+  }, [projectId, isReadOnly, scheduleRecoverySnapshot]);
 
   const actionsRef = useRef({});
   useEffect(() => {
@@ -952,12 +1081,14 @@ export const MusicProvider = ({ children }) => {
       loadProjectFromFirebase: (data, skipWarning, readOnly, nextSampleId = null) => { setReadOnlyMode(readOnly); setSampleId(nextSampleId); checkUnsavedAndPrompt('LOAD_FIREBASE', data, skipWarning || (isReadOnlyRef.current && !readOnly)); },
       newProject: (skipWarning) => { setSampleId(null); checkUnsavedAndPrompt('NEW', null, skipWarning || isReadOnlyRef.current); },
       applyTemplate: (templateData) => {
+        beginProjectLoad();
         setSampleId(null);
         resetProjectScopedState();
         setSongName(templateData.defaultSongName || "เพลงใหม่");
         setProjectName("โปรเจกต์ไม่มีชื่อ");
         setHeaderDetails(templateData.headerDetails || createDefaultHeaderDetails());
         if (templateData.detailsAlign) setLayoutConfig(prev => ({ ...prev, detailsAlign: templateData.detailsAlign }));
+        finishProjectLoad();
       }
     }}>
       
@@ -1006,7 +1137,7 @@ export const MusicProvider = ({ children }) => {
                         name: projectName, songName, sheetData: sheetEditor.sheetData, rowTypes: sheetEditor.rowTypes, sectionLabels: sheetEditor.sectionLabels, 
                         symbols: sheetEditor.symbols, layoutConfig, headerDetails, currentInstrument: currentInstrument.id, 
                         rowMargins: sheetEditor.rowMargins, playbackSequence: audioPlayback.playbackSequence,
-                        metronomeSettings: getMetronomeProjectSettings(audioPlayback.metronomeConfig)
+                        metronomeSettings: metronomeProjectSettings
                       };
                       await autoSaveToFirebase(projectData, projectId);
                       executeAction(pendingAction.type, pendingAction.payload);

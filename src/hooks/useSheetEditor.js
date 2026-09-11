@@ -6,6 +6,7 @@ import {
   normalizeNathapRowData, hasNathapLeadingLabel
 } from '../utils/sheetUtils.js';
 import { INSTRUMENT_CONFIG } from '../utils/instrumentConfig.js';
+import { insertMeasureWithLogicalRowSplit } from '../utils/sheetRowSplit.js';
 
 export const useSheetEditor = ({
   isReadOnlyRef,
@@ -68,13 +69,13 @@ export const useSheetEditor = ({
     })
   );
 
-  const commitChange = (newSheetData, newRowTypes, newSectionLabels, newSymbols, newRowMargins, rowIndexMap = null, styleCopies = [], tempoTrackSnapshot = layoutConfigRef.current.tempoTrack || []) => {
+  const commitChange = (newSheetData, newRowTypes, newSectionLabels, newSymbols, newRowMargins, rowIndexMap = null, styleCopies = [], tempoTrackSnapshot = layoutConfigRef.current.tempoTrack || [], positionMapper = null) => {
     setSheetData(newSheetData);
     if (newRowTypes) setRowTypes(newRowTypes);
     if (newSectionLabels) setSectionLabels(newSectionLabels);
     if (newSymbols) setSymbols(newSymbols);
     if (newRowMargins) setRowMargins(newRowMargins);
-    const remappedTempoTrack = rowIndexMap ? onRowIndexMap?.(rowIndexMap, styleCopies) : null;
+    const remappedTempoTrack = rowIndexMap ? onRowIndexMap?.(rowIndexMap, styleCopies, positionMapper) : null;
     
     const snapshot = {
       sheetData: newSheetData.map(row => row.map(meas => [...meas])),
@@ -1130,48 +1131,29 @@ export const useSheetEditor = ({
 
   const addMeasure = (targetCell = null) => {
     if (isReadOnlyRef.current) return;
-    setSelectionRange(null); 
-    const isInlineAdd = Array.isArray(targetCell);
-    const [rowIdx, measIdx] = isInlineAdd ? targetCell : selectedCell;
-    if (rowTypes[rowIdx] === 'page-break' || rowTypes[rowIdx] === 'text') return;
-    const rowType = rowTypes[rowIdx];
-    let parentRowIdx = rowIdx;
-    while (parentRowIdx >= 0 && ['annotation', 'nathap', 'text'].includes(rowTypes[parentRowIdx])) parentRowIdx--;
-    if (rowTypes[parentRowIdx] === 'double-left') parentRowIdx--;
-    if (parentRowIdx < 0 || !sheetData[parentRowIdx]) return;
+    const result = insertMeasureWithLogicalRowSplit({
+      sheetData,
+      rowTypes,
+      rowMargins,
+      sectionLabels,
+      symbols,
+      targetCell: Array.isArray(targetCell) ? targetCell : selectedCell
+    });
+    if (!result) return;
 
-    const parentType = rowTypes[parentRowIdx];
-    const isParentDouble = parentType === 'double-right';
-    const measureCount = isParentDouble
-      ? Math.max(0, (sheetData[parentRowIdx]?.length || 1) - 1)
-      : (sheetData[parentRowIdx]?.length || 0);
-    const isLastMeasure = measIdx === (sheetData[parentRowIdx]?.length || 1) - 1;
-
-    if (isInlineAdd && isLastMeasure && measureCount >= 8) {
-      if (isParentDouble) addDoubleRow(false, [parentRowIdx, measIdx, 0], { measureCount: 1 });
-      else if (parentType === 'single') addRow(false, [parentRowIdx, measIdx, 0], { measureCount: 1 });
-      return;
-    }
-
-    const newData = [...sheetData];
-    const insertMeasure = (targetRow, insertIndex) => {
-      if (!Array.isArray(newData[targetRow])) return;
-      newData[targetRow].splice(insertIndex, 0, Array(4).fill('-'));
-    };
-    const insertIndex = measIdx + 1;
-
-    insertMeasure(parentRowIdx, insertIndex);
-    if (isParentDouble) insertMeasure(parentRowIdx + 1, insertIndex);
-
-    const firstRelatedRow = parentRowIdx + (isParentDouble ? 2 : 1);
-    for (let relatedRowIdx = firstRelatedRow; relatedRowIdx < rowTypes.length; relatedRowIdx++) {
-      const relatedType = rowTypes[relatedRowIdx];
-      if (relatedType === 'page-break' || relatedType === 'single' || relatedType === 'double-right' || relatedType === 'double-left') break;
-      if (relatedType !== 'nathap') continue;
-      insertMeasure(relatedRowIdx, insertIndex);
-    }
-
-    commitChange(newData);
+    setSelectionRange(null);
+    commitChange(
+      result.sheetData,
+      result.rowTypes,
+      result.sectionLabels,
+      result.symbols,
+      result.rowMargins,
+      result.rowIndexMap,
+      [],
+      layoutConfigRef.current.tempoTrack || [],
+      result.mapPosition
+    );
+    setSelectedCell(result.selectedCell);
   };
 
   const convertMeasureToText = () => {

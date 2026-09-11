@@ -8,6 +8,7 @@ import Keyboard from '../components/editor/Keyboard';
 import Sheet from '../components/editor/Sheet';
 import { MusicContext } from '../contexts/MusicContext'; 
 import EditorSidebar from '../components/editor/sidebar/EditorSidebar';
+import { markEditorUsable } from '../utils/devPerformance';
 
 function DesktopEditor({ onBack }) {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -54,6 +55,8 @@ function DesktopEditor({ onBack }) {
       }
     };
   }, []); 
+
+  useEffect(() => markEditorUsable('desktop'), []);
 
   return (
     <div id="music-editor-root" className="h-screen w-full flex flex-col bg-slate-100 font-sans overflow-hidden">

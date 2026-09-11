@@ -1,26 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import MainSidebar from './MainSidebar'; // ⭐ นำเข้า MainSidebar มาใช้งาน
-import { auth, getUserProfile } from '../../utils/firebase'; 
-import { onAuthStateChanged } from 'firebase/auth';
+import { useAuthProfile } from '../../contexts/AuthProfileContext';
 
 const DesktopLayout = ({ children, currentPage, onPageChange }) => {
-  const [user, setUser] = useState(null);
-  const [userProfile, setUserProfile] = useState(null);
-
-  // ดึงข้อมูลผู้ใช้และยศ (Role) เพื่อส่งต่อให้ MainSidebar
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      setUser(currentUser);
-      
-      if (currentUser) {
-        const profileData = await getUserProfile(currentUser.uid);
-        setUserProfile(profileData);
-      } else {
-        setUserProfile(null);
-      }
-    });
-    return () => unsubscribe();
-  }, []);
+  const { user, profile: userProfile } = useAuthProfile();
 
   return (
     <div 

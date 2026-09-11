@@ -53,11 +53,11 @@ const Settings = ({ userProfile }) => {
   useEffect(() => {
     let active = true;
     if (!auth.currentUser?.uid) return undefined;
-    getUserStorageUsage(auth.currentUser.uid)
+    getUserStorageUsage(auth.currentUser.uid, userProfile)
       .then((result) => { if (active) setStorageInfo(result); })
       .catch(() => { if (active) setStorageError('ไม่สามารถอ่านข้อมูลพื้นที่ใช้งานได้'); });
     return () => { active = false; };
-  }, []);
+  }, [userProfile]);
 
   const storagePercent = useMemo(() => {
     if (!storageInfo || storageInfo.unlimited) return 0;

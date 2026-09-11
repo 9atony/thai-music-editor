@@ -1,23 +1,19 @@
-import React, { useEffect, useState } from 'react';
-import { onAuthStateChanged, signOut } from 'firebase/auth';
+import React, { useState } from 'react';
+import { signOut } from 'firebase/auth';
 import BottomNav from './BottomNav';
 import MobileTopBar from './MobileTopBar';
 import { auth, getUserStorageUsage } from '../../utils/firebase';
 import { APP_METADATA } from '../../config/appMetadata';
+import { useAuthProfile } from '../../contexts/AuthProfileContext';
 
 const APP_VERSION = APP_METADATA.version;
 
 const MobileLayout = ({ children, currentPage, onPageChange, userProfile }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [user, setUser] = useState(null);
+  const { user } = useAuthProfile();
   const [activePanel, setActivePanel] = useState(null);
   const [storageInfo, setStorageInfo] = useState(null);
   const [isStorageLoading, setIsStorageLoading] = useState(false);
-
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, setUser);
-    return unsubscribe;
-  }, []);
 
   const handleLogout = async () => {
     try {
@@ -44,7 +40,7 @@ const MobileLayout = ({ children, currentPage, onPageChange, userProfile }) => {
     if (!uid) return;
     setIsStorageLoading(true);
     try {
-      setStorageInfo(await getUserStorageUsage(uid));
+      setStorageInfo(await getUserStorageUsage(uid, userProfile));
     } catch (error) {
       console.error('Error loading storage usage:', error);
       setStorageInfo({ error: true });

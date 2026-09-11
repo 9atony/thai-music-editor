@@ -8,6 +8,8 @@ import {
 } from 'firebase/firestore'; 
 import { getStorage } from "firebase/storage";
 import { configureSystemAnalytics, recordSystemEvent } from './systemAnalytics';
+import { loadCachedUserProfile, normalizeUserProfile } from './profileCache';
+import { recordFirestoreRead, startDevTiming } from './devPerformance';
 
 // 1. Firebase Config
 const firebaseConfig = {
@@ -67,30 +69,15 @@ export const registerUser = async (email, password, displayName = "") => {
 };
 
 // ⭐ อัปเดตฟังก์ชันดึงโปรไฟล์ ให้เช็กวันหมดอายุและลดระดับอัตโนมัติ
-export const getUserProfile = async (uid) => {
+export const getUserProfile = async (uid, { force = false } = {}) => {
   try {
-    const docRef = doc(db, "users", uid);
-    const docSnap = await getDoc(docRef);
-    
-    if (docSnap.exists()) {
-      const userData = docSnap.data();
-      
-      // ตรวจสอบว่าถ้าเป็น premium แล้วเลยวันหมดอายุหรือยัง
-      if (userData.role === 'premium' && userData.premiumUntil) {
-          const expirationDate = userData.premiumUntil.toDate();
-          if (new Date() > expirationDate) {
-              console.log(`บัญชี Premium ของ ${uid} หมดอายุแล้ว ระบบกำลังลดระดับเป็น user ทั่วไป...`);
-              
-              // สิทธิ์หมดอายุจะแสดงเป็นผู้ใช้ทั่วไปใน client
-              // การแก้ role ในฐานข้อมูลสงวนไว้ให้ Admin ผ่าน Firestore Rules
-              return { ...userData, role: 'user' }; 
-          }
-      }
-      return userData; 
-    } else {
-      console.log("ไม่พบข้อมูลผู้ใช้");
-      return { role: "user" }; 
-    }
+    return await loadCachedUserProfile(uid, async () => {
+      const finishTiming = startDevTiming('profile.load', { uid, source: 'getDoc' });
+      const docSnap = await getDoc(doc(db, "users", uid));
+      recordFirestoreRead('profile', 1);
+      finishTiming({ found: docSnap.exists() });
+      return normalizeUserProfile(docSnap.exists() ? docSnap.data() : { role: 'user' });
+    }, { force });
   } catch (error) {
     console.error("ดึงข้อมูลประวัติไม่สำเร็จ:", error);
     return null;
@@ -139,9 +126,12 @@ export const upgradeUserToPremium = async (uid, months = 1) => {
 
 export const fetchRecentProjects = async (uid) => {
   try {
+    const finishTiming = startDevTiming('projects.recent', { uid });
     const projectsRef = collection(db, `users/${uid}/projects`);
     const q = query(projectsRef, orderBy('updatedAt', 'desc'), limit(5));
     const querySnapshot = await getDocs(q);
+    recordFirestoreRead('recentProjects', querySnapshot.size);
+    finishTiming({ documentCount: querySnapshot.size });
     recordSystemEvent('projectListLoads', { feature: 'projectList', reads: querySnapshot.size });
     return querySnapshot.docs.map(doc => {
       const data = doc.data();
@@ -159,8 +149,11 @@ export const fetchRecentProjects = async (uid) => {
 
 export const fetchAllProjects = async (uid) => {
   try {
+    const finishTiming = startDevTiming('projects.all', { uid });
     const projectsRef = collection(db, `users/${uid}/projects`);
     const querySnapshot = await getDocs(projectsRef);
+    recordFirestoreRead('allProjects', querySnapshot.size);
+    finishTiming({ documentCount: querySnapshot.size });
     
     recordSystemEvent('projectListLoads', { feature: 'projectList', reads: querySnapshot.size });
     return querySnapshot.docs.map(doc => {
@@ -183,13 +176,14 @@ export const logoutUser = () => signOut(auth);
 export const FREE_PROJECT_LIMIT = 10;
 export const PREMIUM_STORAGE_LIMIT_BYTES = 5 * 1024 * 1024;
 
-export const getUserStorageUsage = async (uid) => {
+export const getUserStorageUsage = async (uid, profileOverride = null) => {
   if (!uid) throw new Error('USER_ID_REQUIRED');
 
   const [userProfile, projectsSnapshot] = await Promise.all([
-    getUserProfile(uid),
+    profileOverride ? Promise.resolve(profileOverride) : getUserProfile(uid),
     getDocs(collection(db, `users/${uid}/projects`))
   ]);
+  recordFirestoreRead('storageUsage', projectsSnapshot.size);
   const role = userProfile?.role || 'user';
   let usedBytes = 0;
   projectsSnapshot.forEach((projectDoc) => {
@@ -218,16 +212,21 @@ export const getUserStorageUsage = async (uid) => {
   };
 };
 
-export const saveProjectToDB = async (uid, projectId, projectData) => {
+export const saveProjectToDB = async (uid, projectId, projectData, { userProfile: profileOverride = null } = {}) => {
   try {
-    const userProfile = await getUserProfile(uid);
+    const userProfile = profileOverride || await getUserProfile(uid);
     const role = userProfile?.role || "user"; 
     const isAdmin = role === "admin";
     const isPremium = role === "premium";
 
-    if (!isAdmin) {
+    // Existing free projects only need a write: the count quota is relevant
+    // when creating a document. Premium storage still requires the legacy
+    // full scan until Phase 2 introduces an authoritative aggregate.
+    const requiresQuotaScan = !isAdmin && (isPremium || !projectId);
+    if (requiresQuotaScan) {
       const projectsRef = collection(db, `users/${uid}/projects`);
       const querySnapshot = await getDocs(projectsRef);
+      recordFirestoreRead('autosaveQuota', querySnapshot.size);
       
       let totalBytes = 0;
       let projectCount = 0;

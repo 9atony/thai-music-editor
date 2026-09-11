@@ -1,7 +1,6 @@
 import React, { useRef, useState, useEffect, useContext } from 'react';
-import { auth, db, getUserProfile } from '../utils/firebase'; 
-import { fetchRecentProjects } from '../utils/firebase'; 
-import { addDoc, doc, deleteDoc, updateDoc, serverTimestamp, collection, query, orderBy, getDocs } from 'firebase/firestore';
+import { auth, db, fetchAllProjects, fetchRecentProjects } from '../utils/firebase';
+import { addDoc, doc, deleteDoc, updateDoc, serverTimestamp, collection } from 'firebase/firestore';
 import { MusicContext } from '../contexts/MusicContext';
 import TmeIcon from '../assets/icon.png';
 import { FolderKanban } from 'lucide-react';
@@ -9,7 +8,7 @@ import PageHeader from '../components/layout/PageHeader';
 import ProjectStatusBar from '../components/projects/ProjectStatusBar';
 import { recordSystemEvent } from '../utils/systemAnalytics';
 
-const MyProjects = ({ onNewProject, onOpenArrangerProjects }) => {
+const MyProjects = ({ onNewProject, onOpenArrangerProjects, userProfile }) => {
   const { newProject, loadProjectFromFirebase, loadProject } = useContext(MusicContext);
   const fileInputRef = useRef(null);
   
@@ -19,8 +18,7 @@ const MyProjects = ({ onNewProject, onOpenArrangerProjects }) => {
   const [duplicatingProjectId, setDuplicatingProjectId] = useState(null);
   const [deletingProjectId, setDeletingProjectId] = useState(null);
   
-  // ⭐ State สำหรับเก็บยศของผู้ใช้ (user, premium, admin)
-  const [userRole, setUserRole] = useState("user"); 
+  const userRole = userProfile?.role || 'user';
 
   const [sortOrder, setSortOrder] = useState('latest'); 
   const [isSortMenuOpen, setIsSortMenuOpen] = useState(false);
@@ -36,22 +34,7 @@ const MyProjects = ({ onNewProject, onOpenArrangerProjects }) => {
       const uid = auth.currentUser?.uid;
       if (uid) {
         try {
-          const profile = await getUserProfile(uid);
-          setUserRole(profile?.role || 'user'); // ดึงยศมาเก็บไว้
-
-          const q = query(
-            collection(db, 'users', uid, 'projects'),
-            orderBy('updatedAt', 'desc')
-          );
-          const querySnapshot = await getDocs(q);
-          const allProjects = querySnapshot.docs.map(docSnap => ({
-            ...docSnap.data(),
-            // Firestore document ID must always win over a stale/null `id`
-            // that may have been saved inside older project data.
-            id: docSnap.id,
-          }));
-          recordSystemEvent('projectListLoads', { feature: 'projectList', reads: querySnapshot.size });
-          setProjects(allProjects);
+          setProjects(await fetchAllProjects(uid));
         } catch (error) {
           console.warn('โหลดรายการแบบเรียงเวลาไม่สำเร็จ กำลังใช้รายการสำรอง:', error);
           const data = await fetchRecentProjects(uid);

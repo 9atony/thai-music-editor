@@ -3,41 +3,30 @@ import React, { useContext, forwardRef, useMemo, useEffect, useState, useCallbac
 import { Copy, Plus, Trash2 } from 'lucide-react';
 import { MusicContext } from '../../contexts/MusicContext';
 import { getFlattenedCol, getLogicalMeasureWidth, hasNathapLeadingLabel } from '../../utils/sheetUtils';
+import {
+  areMeasurementsEquivalent,
+  getLogicalElementHeight,
+  getMarginPx,
+  getPageAssignmentKey,
+  MAIN_STAFF_MEASURE_COUNT,
+  paginateSheet,
+  waitForFonts
+} from '../../utils/sheetPagination';
+import { countDevEvent, startDevTiming } from '../../utils/devPerformance';
+import {
+  createSheetMouseUpHandler,
+  registerSheetMouseUpListeners
+} from '../../utils/sheetMouseInteraction';
 
 // ==========================================
 // 1. Helper Functions (ฟังก์ชันช่วยเหลือ)
 // ==========================================
-const getMeasureCountForRowType = (row = [], rType = '') => {
-  if (!Array.isArray(row)) return 0;
-  // ⭐ หักลบช่องป้ายชื่อออกเฉพาะเมื่อหน้าทับมีความยาว 9 ห้อง
-  if (rType && (rType.startsWith('double') || hasNathapLeadingLabel(row, rType))) {
-    return Math.max(0, row.length - 1);
-  }
-  return row.length;
-};
-
-const getVisualIndexForCalc = (rowIndex, types) => {
-  let count = 0;
-  for (let i = 0; i <= rowIndex; i++) {
-    if (types[i] === 'single' || types[i] === 'double-right') count++;
-  }
-  return count > 0 ? count - 1 : 0;
-};
-
-const getMarginPx = (val, unit) => {
-  if (unit === 'cm') return val * 37.795275;
-  if (unit === 'in') return val * 96;
-  return val;
-};
-
 const hasVisibleHtml = (value) => String(value || '')
   .replace(/<[^>]*>/g, '')
   .replace(/&nbsp;/gi, ' ')
   .trim().length > 0;
 
 const THAI_NOTE_COMBINER_PATTERN = /[ั-๎​]/;
-const MAIN_STAFF_MEASURE_COUNT = 8;
-
 const splitThaiNoteToken = (token) => {
   if (!token || token === '-') return [];
 
@@ -81,8 +70,11 @@ const Sheet = forwardRef((props, ref) => {
   const [editingTokenValue, setEditingTokenValue] = useState('');
   
   const [paginateTrigger, setPaginateTrigger] = useState(0);
+  const [measuredHeaderHeight, setMeasuredHeaderHeight] = useState(null);
+  const [measuredRowHeights, setMeasuredRowHeights] = useState({});
 
   const sheetScrollRef = useRef(null);
+  const pageHeaderRef = useRef(null);
   const headerSpacingDragRef = useRef(null);
   const zoomTargetRef = useRef(props.defaultZoom || 100);
   const zoomAnimationRef = useRef(null);
@@ -94,6 +86,7 @@ const Sheet = forwardRef((props, ref) => {
   const initialDetailValueRef = useRef("");
   const staffLabelResizeRef = useRef(null);
   const pendingTextMeasureSelectionRef = useRef(null);
+  const previousPageAssignmentRef = useRef(null);
 
   const handleAddHeaderDetail = () => {
     if (isReadOnly || !addDetail) return;
@@ -450,16 +443,11 @@ const Sheet = forwardRef((props, ref) => {
   // 3. Global Event Listeners (Watchdog)
   // ==========================================
   useEffect(() => {
-    const handleMouseUpGlobal = (event) => {
-      const pending = pendingTextMeasureSelectionRef.current;
-      const pendingEditor = pending && event?.target?.closest?.('[data-text-measure-editor="true"]');
-      if (pendingEditor?.dataset.rowIndex === String(pending.rowIndex)
-        && pendingEditor?.dataset.measureIndex === String(pending.measureIndex)) {
-        return;
-      }
-      clearPendingTextMeasureSelection();
-      if (endSelection) endSelection();
-    };
+    const handleMouseUpGlobal = createSheetMouseUpHandler({
+      getPendingInteraction: () => pendingTextMeasureSelectionRef.current,
+      clearPendingInteraction: clearPendingTextMeasureSelection,
+      endSelection
+    });
     
     const handleMouseDownGlobal = (e) => {
       const isToolbar = e.target.closest('.playback-controls-container');
@@ -506,21 +494,20 @@ const Sheet = forwardRef((props, ref) => {
       }
     };
 
-    window.addEventListener('mouseup', handleMouseUpGlobal, true);
-    window.addEventListener('pointerup', handleMouseUpGlobal, true);
-    window.addEventListener('pointercancel', handleMouseUpGlobal, true);
-    window.addEventListener('blur', handleMouseUpGlobal);
+    const removeMouseUpListeners = registerSheetMouseUpListeners(window, handleMouseUpGlobal);
     // ⭐ ใส่ true เพื่อให้ทำงานแบบ Capture Phase (ดักจับก่อนโดน StopPropagation)
     window.addEventListener('mousedown', handleMouseDownGlobal, true); 
     return () => {
-      clearPendingTextMeasureSelection();
-      window.removeEventListener('mouseup', handleMouseUpGlobal, true);
-      window.removeEventListener('pointerup', handleMouseUpGlobal, true);
-      window.removeEventListener('pointercancel', handleMouseUpGlobal, true);
-      window.removeEventListener('blur', handleMouseUpGlobal);
+      removeMouseUpListeners();
       window.removeEventListener('mousedown', handleMouseDownGlobal, true);
     };
   }, [endSelection, editingSongName, editingDetailId, editingTokenCell, commitTokenEdit, setSongName, updateDetail, clearPendingTextMeasureSelection]);
+
+  // Only an actual Sheet unmount should discard the interaction ref. The
+  // listener effect above can rotate after an ordinary editor rerender.
+  useEffect(() => () => {
+    clearPendingTextMeasureSelection();
+  }, [clearPendingTextMeasureSelection]);
 
   useEffect(() => {
     const handleGlobalKeyDown = (e) => {
@@ -782,102 +769,164 @@ const Sheet = forwardRef((props, ref) => {
   }, [rowTypes]);
 
   const pages = useMemo(() => {
-    const A4_HEIGHT_PX = 1122; 
-    const mUnit = layoutConfig.marginUnit || 'px';
-    const mTopPx = getMarginPx(layoutConfig.marginTop ?? 48, mUnit);
-    const mBotPx = getMarginPx(layoutConfig.marginBottom ?? 48, mUnit);
-    const PAGE_PADDING = mTopPx + mBotPx;
-    // Matches the rows container's pb-12 (48px) plus a small safety gap above
-    // the absolutely positioned footer.
-    const FOOTER_SPACE = 56;
-    
-    const headerLines = layoutConfig.detailsAlign === 'between' ? Math.ceil(headerDetails.length / 2) : headerDetails.length;
-    const headerBottomSpacing = layoutConfig.headerBottomSpacing ?? 8;
-    const headerHeight = 40 + (layoutConfig.songNameSize * 1.5) + (headerLines * 25) + (headerBottomSpacing - 8);
-
-    const calculatedPages = [];
-    let currentRows = [];
-    let currentUsedHeight = 0;
-    let isFirstPage = true;
-
-    for (let i = 0; i < sheetData.length; i++) {
-      const row = sheetData[i];
-      const rType = rowTypes[i];
-      const headerSpace = isFirstPage ? headerHeight : 0;
-      const rMarginTop = rowMargins[i]?.top || 0;
-      const rMarginBot = rowMargins[i]?.bottom || 0;
-      
-      if (rType === 'page-break') {
-        if (currentRows.length > 0) {
-          calculatedPages.push({ rows: currentRows, startIndex: i - currentRows.length });
-          currentRows = []; currentUsedHeight = 0; isFirstPage = false;
-        }
-        currentRows.push(row);
-        continue;
-      }
-
-      if (rType === 'text') {
-        let textValue = (row && row[0] && typeof row[0][0] === 'string') ? row[0][0] : '';
-        const breakCount = (textValue.match(/<br\s*\/?>/gi) || []).length;
-        const blockCount = (textValue.match(/<(?:div|p)(?:\s[^>]*)?>/gi) || []).length;
-        const emptyBlockCount = (textValue.match(/<(?:div|p)(?:\s[^>]*)?>\s*(?:<br\s*\/?>)?\s*<\/(?:div|p)>/gi) || []).length;
-        const hasText = textValue.replace(/<[^>]+>/g, '').replace(/&nbsp;/gi, '').trim().length > 0;
-        // contenteditable commonly turns one empty Enter into <div><br></div>.
-        // That is one visual line, not three lines.
-        const totalLines = blockCount > 0
-          ? Math.max(1, blockCount + breakCount - emptyBlockCount)
-          : (hasText ? Math.max(1, breakCount + 1) : Math.max(1, breakCount));
-
-        const textLineHeight = layoutConfig.textLineHeight || 1.5;
-        const baseLineHeight = Math.max(20, (layoutConfig.textFontSize || 16) * textLineHeight);
-        const textRowHeight = (baseLineHeight * totalLines) + rMarginTop + rMarginBot + 8;
-        
-        if ((currentUsedHeight + textRowHeight + headerSpace + PAGE_PADDING + FOOTER_SPACE > A4_HEIGHT_PX) && currentRows.length > 0) {
-          calculatedPages.push({ rows: currentRows, startIndex: i - currentRows.length });
-          currentRows = [row]; currentUsedHeight = textRowHeight; isFirstPage = false;
-        } else {
-          currentRows.push(row); currentUsedHeight += textRowHeight;
-        }
-        continue;
-      }
-
-      const isDoubleRight = rType === 'double-right';
-      const isDoubleLeft = rType === 'double-left';
-      const isDouble = isDoubleRight || isDoubleLeft;
-      const measureCount = getMeasureCountForRowType(row, rType);
-      const visualLines = Math.max(1, Math.ceil(measureCount / MAIN_STAFF_MEASURE_COUNT));
-      
-      const gridHeight = (layoutConfig.measureHeight * visualLines) + (layoutConfig.rowGap * Math.max(0, visualLines - 1));
-      const nextType = rowTypes[i + 1];
-      const pb = (isDoubleRight || nextType === 'annotation' || nextType === 'nathap') ? 0 : layoutConfig.rowGap;
-      const actualRowHeight = gridHeight + pb + rMarginTop + rMarginBot;
-      let combinedHeight = actualRowHeight;
-      
-      if (isDoubleRight && i + 1 < sheetData.length && rowTypes[i + 1] === 'double-left') {
-         const nextRow = sheetData[i + 1];
-         const nextMeasureCount = getMeasureCountForRowType(nextRow, rowTypes[i + 1]);
-         const nextVisualLines = Math.max(1, Math.ceil(nextMeasureCount / 8));
-         const nextGridHeight = (layoutConfig.measureHeight * nextVisualLines) + (layoutConfig.rowGap * Math.max(0, nextVisualLines - 1));
-         const nextRMarginTop = rowMargins[i+1]?.top || 0;
-         const nextRMarginBot = rowMargins[i+1]?.bottom || 0;
-         const nextAfterPair = rowTypes[i + 2];
-         const pairGap = (nextAfterPair === 'annotation' || nextAfterPair === 'nathap') ? 0 : layoutConfig.rowGap;
-         combinedHeight += nextGridHeight + pairGap + nextRMarginTop + nextRMarginBot;
-      }
-
-      if (rType !== 'double-left' && (currentUsedHeight + combinedHeight + headerSpace + PAGE_PADDING + FOOTER_SPACE > A4_HEIGHT_PX) && currentRows.length > 0) {
-        calculatedPages.push({ rows: currentRows, startIndex: i - currentRows.length });
-        currentRows = [row]; currentUsedHeight = actualRowHeight; isFirstPage = false;
-      } else {
-        currentRows.push(row); currentUsedHeight += actualRowHeight;
-      }
-    }
-
-    if (currentRows.length > 0) {
-      calculatedPages.push({ rows: currentRows, startIndex: sheetData.length - currentRows.length });
-    }
+    const finishTiming = startDevTiming('pagination.calculate', { rowCount: sheetData.length });
+    const calculatedPages = paginateSheet({
+      sheetData,
+      rowTypes,
+      rowMargins,
+      sectionLabels,
+      layoutConfig,
+      headerDetails,
+      measuredHeaderHeight,
+      measuredRowHeights,
+      // Text-measure previews can mutate their backing cell in place. Reading
+      // this revision keeps the memo responsive without coupling it to the utility.
+      paginationRevision: paginateTrigger
+    });
+    const pageAssignment = getPageAssignmentKey(calculatedPages);
+    countDevEvent('pagination.calculate', 1, {
+      pageCount: calculatedPages.length,
+      pageAssignment
+    });
+    finishTiming({ pageCount: calculatedPages.length, pageAssignment });
     return calculatedPages;
-  }, [sheetData, layoutConfig, headerDetails, rowTypes, sectionLabels, rowMargins, paginateTrigger]);
+  }, [
+    sheetData,
+    layoutConfig,
+    headerDetails,
+    rowTypes,
+    sectionLabels,
+    rowMargins,
+    measuredHeaderHeight,
+    measuredRowHeights,
+    paginateTrigger
+  ]);
+  const pageAssignmentKey = getPageAssignmentKey(pages);
+
+  useEffect(() => {
+    if (
+      previousPageAssignmentRef.current !== null
+      && previousPageAssignmentRef.current !== pageAssignmentKey
+    ) {
+      countDevEvent('pagination.repaginate', 1, { pageAssignment: pageAssignmentKey });
+    }
+    previousPageAssignmentRef.current = pageAssignmentKey;
+  }, [pageAssignmentKey]);
+
+  useEffect(() => {
+    const root = sheetScrollRef.current;
+    if (!root || typeof window === 'undefined') return undefined;
+
+    let cancelled = false;
+    let firstFrame = null;
+    let secondFrame = null;
+    let observer = null;
+
+    const getLogicalMetrics = (element) => {
+      const rect = element.getBoundingClientRect();
+      const scale = element.offsetWidth > 0 ? rect.width / element.offsetWidth : 1;
+      const safeScale = Number.isFinite(scale) && scale > 0 ? scale : 1;
+      const styles = window.getComputedStyle(element);
+      return {
+        rect,
+        scale: safeScale,
+        height: getLogicalElementHeight({
+          rectWidth: rect.width,
+          rectHeight: rect.height,
+          offsetWidth: element.offsetWidth,
+          marginTop: Number.parseFloat(styles.marginTop) || 0,
+          marginBottom: Number.parseFloat(styles.marginBottom) || 0
+        })
+      };
+    };
+
+    const measure = () => {
+      if (cancelled) return;
+      const finishTiming = startDevTiming('pagination.measure');
+      countDevEvent('pagination.measure');
+
+      if (pageHeaderRef.current) {
+        const nextHeaderHeight = getLogicalMetrics(pageHeaderRef.current).height;
+        setMeasuredHeaderHeight((previous) => (
+          previous !== null && Math.abs(previous - nextHeaderHeight) < 0.5
+            ? previous
+            : nextHeaderHeight
+        ));
+      }
+
+      const nextRowHeights = {};
+      root.querySelectorAll('[data-pagination-row-index]').forEach((element) => {
+        const rowIndex = Number.parseInt(element.dataset.paginationRowIndex, 10);
+        if (!Number.isInteger(rowIndex)) return;
+
+        const metrics = getLogicalMetrics(element);
+        let topOverflow = 0;
+        let bottomOverflow = 0;
+        element.querySelectorAll('[data-pagination-section-label]').forEach((labelElement) => {
+          const labelRect = labelElement.getBoundingClientRect();
+          topOverflow = Math.max(topOverflow, (metrics.rect.top - labelRect.top) / metrics.scale);
+          bottomOverflow = Math.max(bottomOverflow, (labelRect.bottom - metrics.rect.bottom) / metrics.scale);
+        });
+
+        nextRowHeights[rowIndex] = metrics.height
+          + Math.max(0, topOverflow)
+          + Math.max(0, bottomOverflow);
+      });
+
+      setMeasuredRowHeights((previous) => (
+        areMeasurementsEquivalent(previous, nextRowHeights) ? previous : nextRowHeights
+      ));
+      finishTiming({ measuredRowCount: Object.keys(nextRowHeights).length });
+    };
+
+    const scheduleMeasurement = () => {
+      if (cancelled) return;
+      if (firstFrame !== null) cancelAnimationFrame(firstFrame);
+      if (secondFrame !== null) cancelAnimationFrame(secondFrame);
+      firstFrame = requestAnimationFrame(() => {
+        secondFrame = requestAnimationFrame(measure);
+      });
+    };
+
+    const observeLayout = () => {
+      if (cancelled) return;
+      scheduleMeasurement();
+      if (typeof ResizeObserver === 'undefined') return;
+      observer = new ResizeObserver(() => {
+        countDevEvent('pagination.resizeObserver');
+        scheduleMeasurement();
+      });
+      if (pageHeaderRef.current) observer.observe(pageHeaderRef.current);
+      root.querySelectorAll('[data-pagination-row-index]').forEach((element) => observer.observe(element));
+    };
+
+    let fontSet;
+    try {
+      fontSet = document.fonts;
+    } catch {
+      fontSet = undefined;
+    }
+    waitForFonts(fontSet).then(observeLayout);
+
+    return () => {
+      cancelled = true;
+      if (firstFrame !== null) cancelAnimationFrame(firstFrame);
+      if (secondFrame !== null) cancelAnimationFrame(secondFrame);
+      observer?.disconnect();
+    };
+  }, [
+    pageAssignmentKey,
+    sheetData,
+    rowTypes,
+    rowMargins,
+    sectionLabels,
+    headerDetails,
+    songName,
+    layoutConfig,
+    paginateTrigger,
+    editingSongName,
+    editingDetailId
+  ]);
 
   const createPageBreakRow = () => Array.from({ length: 8 }, () => Array(4).fill('-'));
   const createBlankMusicRow = () => Array.from({ length: 8 }, () => Array(4).fill('-'));
@@ -1331,7 +1380,7 @@ const Sheet = forwardRef((props, ref) => {
       else if (label.position.includes('center')) { positionStyle.left = '50%'; positionStyle.transform = 'translateX(-50%)'; } 
       else if (label.position.includes('right')) positionStyle.right = '0'; 
 return (
-        <div key={label.id} style={positionStyle} className="tracking-wide">
+        <div key={label.id} data-pagination-section-label="true" style={positionStyle} className="tracking-wide">
           <SectionLabel label={label} readOnly={isReadOnly}
             onSelect={() => { setSelectedCell([actualRowIndex, 0, 0]); setSelectedSymbolId(null); setToolbarMode('text'); }}
             onSave={(text) => updateSectionLabel(visualIndex, label.id, { text })}
@@ -1516,6 +1565,7 @@ return (
               {/* Page Header (Only on first page) */}
               {pIndex === 0 && (
                 <div
+                  ref={pageHeaderRef}
                   className="text-center border-b-2 border-slate-900 mb-3 shrink-0 relative z-10 print:border-b-2 print:border-slate-900"
                   style={{ paddingBottom: `${layoutConfig.headerBottomSpacing ?? 8}px` }}
                 >
@@ -1750,7 +1800,7 @@ return (
 
                   if (rType === 'page-break') {
                      return (
-                       <div key={`pb-${rIndex}`} className="w-full flex flex-col items-center justify-center my-1">
+                       <div key={`pb-${rIndex}`} className="w-full flex flex-col items-center justify-center my-1 print:hidden">
                          <div
                            onMouseDown={(e) => {
                               e.stopPropagation(); 
@@ -1771,6 +1821,7 @@ return (
                     return (
                       <div 
                         key={`text-${rIndex}`} 
+                        data-pagination-row-index={rIndex}
                         className="w-full flex items-center my-1 relative group print:my-1"
                         style={{ 
                           marginTop: `${rMarginTop}px`, marginBottom: `${rMarginBot}px`, 
@@ -2491,7 +2542,7 @@ return (
                   } else {
                       measuresContent = (
                           <div className="grid w-full" style={{ rowGap: `${layoutConfig.rowGap}px`, gridTemplateColumns: `repeat(${MAIN_STAFF_MEASURE_COUNT}, minmax(0, 1fr))` }}>
-                              {row.map((measure, mIndex) => renderMeasureBlock(measure, mIndex, mIndex, rIndex, 'single', row.length))}
+                              {row.map((measure, mIndex) => renderMeasureBlock(measure, mIndex, mIndex, rIndex, rType, row.length))}
                           </div>
                       );
                   }
@@ -2522,6 +2573,7 @@ return (
                   return (
                     <div 
                       key={`note-${rIndex}-${rType}`} 
+                      data-pagination-row-index={rIndex}
                       className={`group/staff-row flex flex-col w-full relative transition-colors ${rowLayerClass}`}
                       style={{ 
                         paddingBottom: `${containerPb}px`, marginTop: `${rMarginTop}px`, marginBottom: `${containerMarginBot}px`,

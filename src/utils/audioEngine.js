@@ -1,11 +1,13 @@
 import { INSTRUMENT_CONFIG } from './instrumentConfig';
+import { createAsyncResourceCache } from './asyncResourceCache';
+import { startDevTiming } from './devPerformance';
 
 let audioCtx = null;
 let masterGainNode = null;
 let masterCompressorNode = null;
 let masterAnalyserNode = null;
 const audioBufferCache = {};
-const audioBufferPromiseCache = {};
+const audioAssetCache = createAsyncResourceCache();
 const activeSources = new Set();
 const trackGainNodes = {};
 const trackPanNodes = {};
@@ -13,7 +15,6 @@ const trackAnalyserNodes = {};
 const clipGainNodes = {};
 const DEFAULT_START_LEAD_TIME = 0.015;
 const MAX_TIMELINE_LATENESS = 0.01;
-let primeAudioPromise = null;
 let audioResumeTimer = null;
 
 const requestAudioResume = () => {
@@ -149,14 +150,12 @@ const loadSoundBuffer = async (instrumentId, key) => {
   const finalNoteStr = getFormattedNote(key.thai, key.eng);
 
   if (!audioBufferCache[instrumentId]) audioBufferCache[instrumentId] = {};
-  if (!audioBufferPromiseCache[instrumentId]) audioBufferPromiseCache[instrumentId] = {};
-
   if (audioBufferCache[instrumentId][finalNoteStr]) {
     return audioBufferCache[instrumentId][finalNoteStr];
   }
 
-  if (!audioBufferPromiseCache[instrumentId][finalNoteStr]) {
-    audioBufferPromiseCache[instrumentId][finalNoteStr] = (async () => {
+  const cacheKey = `${instrumentId}:${finalNoteStr}`;
+  return audioAssetCache.load(cacheKey, async () => {
       const ctx = getAudioContext();
       // ⭐ แก้บั๊ก cache buster: เดิมใส่ ?v=${Date.now()} + cache: 'no-store' ทำให้ browser ไม่ cache ไฟล์เลย
       //    โหลดซ้ำทุกครั้ง แม้จะเป็นโน้ตเดิม → เปลือง bandwidth (เคสโหลดหลายร้อย buffer)
@@ -169,14 +168,10 @@ const loadSoundBuffer = async (instrumentId, key) => {
       const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
       audioBufferCache[instrumentId][finalNoteStr] = audioBuffer;
       return audioBuffer;
-    })().catch((err) => {
-      delete audioBufferPromiseCache[instrumentId][finalNoteStr];
-      console.error('โหลดเสียงไม่สำเร็จ:', key.audio, err);
-      return null;
-    });
-  }
-
-  return audioBufferPromiseCache[instrumentId][finalNoteStr];
+    }).catch((err) => {
+    console.error('โหลดเสียงไม่สำเร็จ:', key.audio, err);
+    return null;
+  });
 };
 
 export const initAudioContext = async () => {
@@ -346,12 +341,14 @@ export const connectClipGain = (clipId, trackGain) => {
 export const preloadSounds = async (instrumentId) => {
   const instrument = INSTRUMENT_CONFIG[instrumentId];
   if (!instrument) return;
+  const finishTiming = startDevTiming('audio.preload', { instrumentId });
 
   const loadPromises = instrument.keys
     .filter((key) => key.audio)
     .map((key) => loadSoundBuffer(instrumentId, key));
 
   await Promise.all(loadPromises);
+  finishTiming({ assetCount: loadPromises.length });
   console.log(`เครื่องดนตรี ${instrumentId} โหลดลง RAM เรียบร้อยแล้ว!`);
 };
 
@@ -371,22 +368,13 @@ export const preloadAllSounds = async () => {
   await Promise.allSettled(instrumentIds.map((instrumentId) => preloadSounds(instrumentId)));
 };
 
-export const primeAudioEngine = async () => {
-  if (primeAudioPromise) return primeAudioPromise;
-
-  primeAudioPromise = (async () => {
-    // เริ่มดาวน์โหลด/ถอดรหัสเสียงทันทีตั้งแต่หน้าเว็บเปิด แม้ AudioContext ยังรอ user gesture
-    // เดิม await resume() ก่อน ทำให้ preload ทั้งหมดเพิ่งเริ่มหลังผู้ใช้กดเข้า Editor
-    const resumeTask = initAudioContext().catch(() => null);
-    const preloadTask = preloadAllSounds();
-    await Promise.allSettled([resumeTask, preloadTask]);
-    return true;
-  })().catch((err) => {
-    primeAudioPromise = null;
-    throw err;
-  });
-
-  return primeAudioPromise;
+export const primeAudioEngine = async (instrumentId) => {
+  // Prime only the active working set. Playback still awaits its first-note
+  // preload path, and subsequent instrument loads share the decoded cache.
+  const resumeTask = initAudioContext().catch(() => null);
+  const preloadTask = instrumentId ? preloadSounds(instrumentId) : Promise.resolve();
+  await Promise.allSettled([resumeTask, preloadTask]);
+  return true;
 };
 
 // ⭐ ตัวเลข generation ใช้กันเสียงหลุดหลังกดหยุด: ถ้ากำลังโหลด buffer อยู่แล้วมีคำสั่งหยุดแทรกเข้ามา ให้ยกเลิกการเล่นโน้ตนั้นทิ้ง

@@ -5,6 +5,7 @@ import MobileMetronomeMenu from '../components/editor/MobileMetronomeMenu';
 import MusicXmlExportDialog from '../components/editor/MusicXmlExportDialog';
 import { initAudioContext } from '../utils/audioEngine';
 import { useFeatureAccess } from '../contexts/FeatureAccessContext';
+import { markEditorUsable } from '../utils/devPerformance';
 
 // ⭐ ฟังก์ชันสำหรับล้างแท็ก HTML ให้เหลือแต่ข้อความล้วน
 const getPlainText = (html) => {
@@ -109,6 +110,8 @@ const MobileEditor = ({ onBack }) => {
   useEffect(() => {
     if (setToolbarMode) setToolbarMode('default');
   }, [setToolbarMode]);
+
+  useEffect(() => markEditorUsable('mobile'), []);
 
   useEffect(() => {
     const dismissKeyboard = () => {
