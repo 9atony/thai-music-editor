@@ -1474,7 +1474,11 @@ return (
         className="flex flex-1 min-h-0 min-w-0 overflow-auto pt-12 pb-32 w-full max-w-full custom-scrollbar select-none print:block print:flex-none print:overflow-visible print:p-0 relative"
         style={{ paddingLeft: `max(1rem, calc(50% - ${105 * (zoom / 100)}mm))`, paddingRight: `max(1rem, calc(50% - ${105 * (zoom / 100)}mm))`, touchAction: 'pan-x pan-y' }}
       >
-        <div id="sheet-pages" className="flex gap-12 snap-x h-max print:block" style={{ zoom: `${zoom}%` }}>
+        <div
+          id="sheet-pages"
+          className="flex snap-x h-max print:block"
+          style={{ zoom: `${zoom}%`, '--sheet-page-gap': '3rem', gap: 'var(--sheet-page-gap)' }}
+        >
           {pages.map((page, pIndex) => (
             <div 
               key={pIndex} 
@@ -1516,16 +1520,21 @@ return (
               )}
 
               {!isReadOnly && (
-                <button
-                  type="button"
-                  onMouseDown={(event) => event.stopPropagation()}
-                  onClick={(event) => { event.stopPropagation(); addBlankPageAfter(page); }}
-                  className="absolute -right-9 top-1/2 z-[70] hidden h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-indigo-200 bg-white text-indigo-600 shadow-md transition hover:border-indigo-400 hover:bg-indigo-50 hover:shadow-lg active:scale-95 print:hidden md:flex"
-                  title={`เพิ่มหน้ากระดาษต่อจากหน้าที่ ${pIndex + 1}`}
-                  aria-label={`เพิ่มหน้ากระดาษต่อจากหน้าที่ ${pIndex + 1}`}
+                <div
+                  className="absolute left-full top-1/2 z-[70] hidden -translate-y-1/2 items-center justify-center print:hidden md:flex"
+                  style={{ width: 'var(--sheet-page-gap)' }}
                 >
-                  <Plus size={17} strokeWidth={2.5} />
-                </button>
+                  <button
+                    type="button"
+                    onMouseDown={(event) => event.stopPropagation()}
+                    onClick={(event) => { event.stopPropagation(); addBlankPageAfter(page); }}
+                    className="flex h-8 w-8 items-center justify-center rounded-full border border-indigo-200 bg-white text-indigo-600 shadow-md transition hover:border-indigo-400 hover:bg-indigo-50 hover:shadow-lg active:scale-95"
+                    title={`เพิ่มหน้ากระดาษต่อจากหน้าที่ ${pIndex + 1}`}
+                    aria-label={`เพิ่มหน้ากระดาษต่อจากหน้าที่ ${pIndex + 1}`}
+                  >
+                    <Plus size={17} strokeWidth={2.5} />
+                  </button>
+                </div>
               )}
 
               
