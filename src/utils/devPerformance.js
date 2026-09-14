@@ -25,6 +25,17 @@ export const recordFirestoreRead = (request, documentCount) => {
   countDevEvent('firestore.documentsRead', documentCount, { request, documentCount });
 };
 
+export const recordFirestoreBytes = (request, value) => {
+  if (!DEV_ENABLED) return;
+  let bytes = 0;
+  try {
+    bytes = new TextEncoder().encode(JSON.stringify(value)).byteLength;
+  } catch {
+    return;
+  }
+  countDevEvent('firestore.bytesApprox', bytes, { request, bytes });
+};
+
 export const markEditorOpenStart = (details = {}) => {
   if (!DEV_ENABLED) return;
   editorOpenMeasurement = { startedAt: now(), details };

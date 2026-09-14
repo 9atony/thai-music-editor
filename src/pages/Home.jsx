@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useContext, useRef } from 'react';
+import React, { useCallback, useState, useEffect, useContext, useRef } from 'react';
 import { auth } from '../utils/firebase'; 
-import { fetchRecentProjects } from '../utils/firebase'; 
+import { fetchProjectById, fetchRecentProjects } from '../utils/firebase';
 import { db } from '../utils/firebase';
 import { collection, getDocs, query, orderBy, limit } from 'firebase/firestore';
 import { Hand, Sparkles } from 'lucide-react';
@@ -28,7 +28,7 @@ const Home = ({ onNewProject, onPageChange, userProfile, isMobile = false }) => 
   // ⭐ State สำหรับเปิด/ปิดฟอร์มโพสต์แอดมิน
   const [isAdminFormOpen, setIsAdminFormOpen] = useState(false);
 
-  const fetchLatestUpdate = async () => {
+  const fetchLatestUpdate = useCallback(async () => {
     try {
       const q = query(collection(db, "updates"), orderBy("date", "desc"), limit(1));
       const querySnapshot = await getDocs(q);
@@ -48,7 +48,7 @@ const Home = ({ onNewProject, onPageChange, userProfile, isMobile = false }) => 
     } catch (error) {
       console.error("Error fetching latest update:", error);
     }
-  };
+  }, [isMobile]);
 
   useEffect(() => {
     const loadProjects = async () => {
@@ -61,7 +61,7 @@ const Home = ({ onNewProject, onPageChange, userProfile, isMobile = false }) => 
     
     loadProjects();
     fetchLatestUpdate(); // เรียกใช้ตอนโหลดหน้าแรก
-  }, []);
+  }, [fetchLatestUpdate]);
 
   const handleClosePopup = () => {
     setIsPopupOpen(false);
@@ -79,7 +79,9 @@ const Home = ({ onNewProject, onPageChange, userProfile, isMobile = false }) => 
 
   const formatSize = (data) => {
     if (!data) return "0 KB";
-    const bytes = new Blob([typeof data === 'string' ? data : JSON.stringify(data)]).size;
+    const bytes = typeof data === 'number'
+      ? data
+      : new Blob([typeof data === 'string' ? data : JSON.stringify(data)]).size;
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
     return (bytes / (1024 * 1024)).toFixed(2) + " MB";
   };
@@ -92,13 +94,18 @@ const Home = ({ onNewProject, onPageChange, userProfile, isMobile = false }) => 
     e.target.value = null; 
   };
 
-  const handleOpenProject = (project) => {
-    const parsedData = {
-      ...project,
-      sheetData: typeof project.sheetData === 'string' ? JSON.parse(project.sheetData) : project.sheetData
-    };
-    loadProjectFromFirebase(parsedData, true);
-    onNewProject(); 
+  const handleOpenProject = async (project) => {
+    const uid = auth.currentUser?.uid;
+    if (!uid) return;
+    try {
+      const fullProject = await fetchProjectById(uid, project.id, { summary: project });
+      if (!fullProject) throw new Error('PROJECT_NOT_FOUND');
+      loadProjectFromFirebase(fullProject, true);
+      onNewProject();
+    } catch (error) {
+      console.error('Unable to open project:', error);
+      window.alert('ไม่สามารถเปิดโปรเจกต์นี้ได้ กรุณาลองใหม่อีกครั้ง');
+    }
   };
 
   useEffect(() => {
@@ -329,7 +336,7 @@ const Home = ({ onNewProject, onPageChange, userProfile, isMobile = false }) => 
                 <div className="text-slate-300 p-1">
                   <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg>
                 </div>
-                <span className="text-[9px] font-bold text-slate-400 mb-0.5">{formatSize(project.sheetData)}</span>
+                <span className="text-[9px] font-bold text-slate-400 mb-0.5">{formatSize(project.storageSizeBytes)}</span>
               </div>
             </button>
           ))}

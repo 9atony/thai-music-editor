@@ -1,6 +1,13 @@
 import React, { useRef, useState, useEffect, useContext } from 'react';
-import { auth, db, fetchAllProjects, fetchRecentProjects } from '../utils/firebase';
-import { addDoc, doc, deleteDoc, updateDoc, serverTimestamp, collection } from 'firebase/firestore';
+import {
+  auth,
+  deleteProjectFromDB,
+  duplicateProjectInDB,
+  fetchProjectById,
+  fetchProjectSummaries,
+  getUserStorageUsage,
+  renameProjectInDB,
+} from '../utils/firebase';
 import { MusicContext } from '../contexts/MusicContext';
 import TmeIcon from '../assets/icon.png';
 import { FolderKanban } from 'lucide-react';
@@ -17,6 +24,10 @@ const MyProjects = ({ onNewProject, onOpenArrangerProjects, userProfile }) => {
   const [openMenuId, setOpenMenuId] = useState(null); 
   const [duplicatingProjectId, setDuplicatingProjectId] = useState(null);
   const [deletingProjectId, setDeletingProjectId] = useState(null);
+  const [pageCursor, setPageCursor] = useState(null);
+  const [hasMoreProjects, setHasMoreProjects] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [storageInfo, setStorageInfo] = useState(null);
   
   const userRole = userProfile?.role || 'user';
 
@@ -30,20 +41,28 @@ const MyProjects = ({ onNewProject, onOpenArrangerProjects, userProfile }) => {
   const [storageLimitModalOpen, setStorageLimitModalOpen] = useState(false);
 
   useEffect(() => {
+    let active = true;
     const loadProjects = async () => {
       const uid = auth.currentUser?.uid;
       if (uid) {
         try {
-          setProjects(await fetchAllProjects(uid));
+          const [page, usage] = await Promise.all([
+            fetchProjectSummaries(uid),
+            getUserStorageUsage(uid, userProfile),
+          ]);
+          if (!active) return;
+          setProjects(page.projects);
+          setPageCursor(page.cursor);
+          setHasMoreProjects(page.hasMore);
+          setStorageInfo(usage);
         } catch (error) {
-          console.warn('โหลดรายการแบบเรียงเวลาไม่สำเร็จ กำลังใช้รายการสำรอง:', error);
-          const data = await fetchRecentProjects(uid);
-          setProjects(data);
+          console.warn('โหลดรายการโปรเจกต์ไม่สำเร็จ:', error);
         }
       }
     };
     loadProjects();
-  }, []);
+    return () => { active = false; };
+  }, [userProfile]);
 
   useEffect(() => {
     const handlePointerDownOutside = (event) => {
@@ -67,21 +86,13 @@ const MyProjects = ({ onNewProject, onOpenArrangerProjects, userProfile }) => {
     return date.toLocaleDateString('th-TH', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   };
 
-  const calculateTotalStorageUsed = () => {
-    let totalBytes = 0;
-    projects.forEach(project => { totalBytes += new Blob([JSON.stringify(project)]).size; });
-    return totalBytes;
-  };
-
-  const formatStorageSize = (bytes) => {
-    if (bytes === 0) return "0 KB";
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
-    return (bytes / (1024 * 1024)).toFixed(2) + " MB";
-  };
+  const calculateTotalStorageUsed = () => storageInfo?.usedBytes || 0;
 
   const formatSize = (data) => {
     if (!data) return "0 KB";
-    const bytes = new Blob([typeof data === 'string' ? data : JSON.stringify(data)]).size;
+    const bytes = typeof data === 'number'
+      ? data
+      : new Blob([typeof data === 'string' ? data : JSON.stringify(data)]).size;
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
     return (bytes / (1024 * 1024)).toFixed(2) + " MB";
   };
@@ -92,7 +103,7 @@ const MyProjects = ({ onNewProject, onOpenArrangerProjects, userProfile }) => {
     
     if (userRole === 'user') {
       // สายฟรี: ห้ามมีไฟล์เกิน 10 ไฟล์
-      return projects.length < 10;
+      return (storageInfo?.projectCount ?? projects.length) < 10;
     } 
     
     if (userRole === 'premium') {
@@ -129,11 +140,19 @@ const MyProjects = ({ onNewProject, onOpenArrangerProjects, userProfile }) => {
     e.target.value = null; 
   };
 
-  const handleOpenProject = (project) => {
-    const parsedData = { ...project, sheetData: typeof project.sheetData === 'string' ? JSON.parse(project.sheetData) : project.sheetData };
-    recordSystemEvent('projectOpens', { projectId: project.id });
-    loadProjectFromFirebase(parsedData, true);
-    onNewProject(); 
+  const handleOpenProject = async (project) => {
+    const uid = auth.currentUser?.uid;
+    if (!uid) return;
+    try {
+      const fullProject = await fetchProjectById(uid, project.id, { summary: project });
+      if (!fullProject) throw new Error('PROJECT_NOT_FOUND');
+      recordSystemEvent('projectOpens', { projectId: project.id });
+      loadProjectFromFirebase(fullProject, true);
+      onNewProject();
+    } catch (error) {
+      console.error('Unable to open project:', error);
+      window.alert('ไม่สามารถเปิดโปรเจกต์นี้ได้ กรุณาลองใหม่อีกครั้ง');
+    }
   };
 
   const openRenameModal = (e, project) => { e.stopPropagation(); setOpenMenuId(null); setProjectToRename(project); setNewProjectName(project.name || "โปรเจกต์ไม่มีชื่อ"); setRenameModalOpen(true); };
@@ -142,9 +161,9 @@ const MyProjects = ({ onNewProject, onOpenArrangerProjects, userProfile }) => {
     if (!newProjectName.trim() || newProjectName === projectToRename.name) { setRenameModalOpen(false); return; }
     try {
       const uid = auth.currentUser?.uid;
-      await updateDoc(doc(db, 'users', uid, 'projects', projectToRename.id), { name: newProjectName.trim(), updatedAt: serverTimestamp() });
-      recordSystemEvent('projectRenames', { feature: 'renameProject', writes: 1, projectId: projectToRename.id });
+      await renameProjectInDB(uid, projectToRename.id, newProjectName.trim());
       setProjects(prev => prev.map(p => p.id === projectToRename.id ? { ...p, name: newProjectName.trim(), updatedAt: { seconds: Date.now() / 1000 } } : p));
+      setStorageInfo(await getUserStorageUsage(uid, userProfile));
       setRenameModalOpen(false);
     } catch (error) {
       console.error('เปลี่ยนชื่อโปรเจกต์ไม่สำเร็จ:', error);
@@ -156,9 +175,8 @@ const MyProjects = ({ onNewProject, onOpenArrangerProjects, userProfile }) => {
     e.stopPropagation();
     if (duplicatingProjectId) return;
 
-    const { id: _id, createdAt: _createdAt, updatedAt: _updatedAt, ...projectData } = project;
     const duplicateName = `${project.name || 'โปรเจกต์ไม่มีชื่อ'} (สำเนา)`;
-    const duplicateSize = new Blob([JSON.stringify({ ...projectData, name: duplicateName })]).size;
+    const duplicateSize = project.storageSizeBytes || 0;
     if (!isCreationAllowed(duplicateSize)) {
       setOpenMenuId(null);
       setStorageLimitModalOpen(true);
@@ -170,25 +188,21 @@ const MyProjects = ({ onNewProject, onOpenArrangerProjects, userProfile }) => {
 
     setDuplicatingProjectId(project.id);
     try {
+      const duplicateId = await duplicateProjectInDB(uid, project.id, duplicateName, { summary: project, userProfile });
       const now = { seconds: Date.now() / 1000 };
-      const duplicateRef = await addDoc(collection(db, 'users', uid, 'projects'), {
-        ...projectData,
-        name: duplicateName,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-      recordSystemEvent('projectsCreated', { feature: 'createProject', writes: 1, projectId: duplicateRef.id });
       setProjects((prev) => [{
-        ...projectData,
-        id: duplicateRef.id,
+        ...project,
+        id: duplicateId,
         name: duplicateName,
         createdAt: now,
         updatedAt: now,
       }, ...prev]);
+      setStorageInfo(await getUserStorageUsage(uid, userProfile));
       setOpenMenuId(null);
     } catch (error) {
       console.error('เกิดข้อผิดพลาดในการทำซ้ำโปรเจกต์:', error);
-      alert('ไม่สามารถทำซ้ำโปรเจกต์ได้ครับ');
+      if (error.message === 'STORAGE_LIMIT_EXCEEDED') setStorageLimitModalOpen(true);
+      else alert('ไม่สามารถทำซ้ำโปรเจกต์ได้ครับ');
     } finally {
       setDuplicatingProjectId(null);
     }
@@ -206,9 +220,9 @@ const MyProjects = ({ onNewProject, onOpenArrangerProjects, userProfile }) => {
 
     setDeletingProjectId(projectId);
     try {
-      await deleteDoc(doc(db, 'users', uid, 'projects', projectId));
-      recordSystemEvent('projectsDeleted', { feature: 'deleteProject', deletes: 1 });
+      await deleteProjectFromDB(uid, projectId);
       setProjects(prev => prev.filter(project => project.id !== projectId));
+      setStorageInfo(await getUserStorageUsage(uid, userProfile));
       setOpenMenuId(null);
     } catch (error) {
       console.error('ไม่สามารถลบโปรเจกต์ได้:', error);
@@ -218,6 +232,22 @@ const MyProjects = ({ onNewProject, onOpenArrangerProjects, userProfile }) => {
       alert(message);
     } finally {
       setDeletingProjectId(null);
+    }
+  };
+
+  const handleLoadMore = async () => {
+    const uid = auth.currentUser?.uid;
+    if (!uid || !pageCursor || isLoadingMore) return;
+    setIsLoadingMore(true);
+    try {
+      const page = await fetchProjectSummaries(uid, { cursor: pageCursor });
+      setProjects((current) => [...current, ...page.projects]);
+      setPageCursor(page.cursor);
+      setHasMoreProjects(page.hasMore);
+    } catch (error) {
+      console.error('Unable to load more projects:', error);
+    } finally {
+      setIsLoadingMore(false);
     }
   };
 
@@ -397,7 +427,7 @@ const MyProjects = ({ onNewProject, onOpenArrangerProjects, userProfile }) => {
                 <h4 className="font-bold text-slate-800 text-sm line-clamp-3 break-words pr-4">{file.name || "โปรเจกต์ไม่มีชื่อ"}</h4>
                 <div className="flex items-center gap-2 mt-0.5">
                   <p className="text-[10px] text-slate-400 font-medium">{formatTimeMobile(file.updatedAt)}</p>
-                  <span className="text-[8px] bg-slate-100 text-slate-400 px-1.5 py-0.5 rounded font-bold">{formatSize(file.sheetData)}</span>
+                  <span className="text-[8px] bg-slate-100 text-slate-400 px-1.5 py-0.5 rounded font-bold">{formatSize(file.storageSizeBytes)}</span>
                 </div>
               </div>
               <div data-project-menu className="relative pl-2 h-full flex items-center">
@@ -415,74 +445,20 @@ const MyProjects = ({ onNewProject, onOpenArrangerProjects, userProfile }) => {
         </div>
       </div>
 
-      {/* แถบพื้นที่จัดเก็บลอยติดขอบล่าง และยกเหนือ Bottom Navigation บนมือถือ */}
-      <div className="hidden">
-        <div className="pointer-events-auto mx-auto w-full max-w-[1480px] rounded-2xl bg-slate-50/80 p-1.5 shadow-[0_18px_50px_rgba(15,23,42,0.18)] backdrop-blur-xl">
-        {(() => {
-        const usedBytes = calculateTotalStorageUsed();
-        
-        // 🚀 แถบของ Admin (ไม่จำกัด)
-        if (userRole === 'admin') {
-           return (
-             <div className="mt-auto flex flex-col items-center justify-between text-[10px] md:text-xs font-semibold text-slate-400 bg-white border border-slate-100 md:border-slate-200 rounded-xl px-4 md:px-5 py-3 shadow-sm shrink-0">
-               <div className="flex items-center justify-between w-full">
-                 <div className="flex items-center gap-1.5"><svg className="w-3.5 h-3.5 text-violet-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" /></svg><span className="text-violet-600 font-bold">สิทธิ์ Admin</span></div>
-                 <span>ทั้งหมด {projects.length} ไฟล์ | พื้นที่ {formatStorageSize(usedBytes)} (ไม่จำกัด)</span>
-               </div>
-             </div>
-           );
-        }
-
-        // 🚀 แถบของ Premium (5 MB)
-        if (userRole === 'premium') {
-          const maxLimitBytes = 5 * 1024 * 1024; // 5 MB
-          const percentage = Math.min(Math.max((usedBytes / maxLimitBytes) * 100, 0.1), 100).toFixed(2);
-          const remainingBytes = Math.max(maxLimitBytes - usedBytes, 0);
-
-          return (
-            <div className="mt-auto flex flex-col items-center justify-between text-[10px] md:text-xs font-semibold text-slate-400 bg-white border border-amber-200 rounded-xl px-4 md:px-5 py-3 shadow-sm shrink-0">
-              <div className="flex items-center justify-between w-full mb-2">
-                <div className="flex items-center gap-1.5"><svg className="w-3.5 h-3.5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" /></svg><span className="text-amber-600 font-bold">Premium</span></div>
-                <span className={usedBytes >= maxLimitBytes ? "text-red-500 font-bold" : ""}>พื้นที่ใช้ไป {formatStorageSize(usedBytes)} จาก 5 MB</span>
-              </div>
-              <div className="flex items-center gap-3 w-full">
-                <div className="flex-1 h-1.5 bg-amber-50 rounded-full overflow-hidden"><div className={`h-full rounded-full transition-all duration-500 ${usedBytes >= maxLimitBytes ? 'bg-red-500' : 'bg-amber-400'}`} style={{ width: `${percentage}%` }}></div></div>
-                <span className={`whitespace-nowrap ${usedBytes >= maxLimitBytes ? "text-red-500 font-bold" : "text-amber-600"}`}>เหลือ {formatStorageSize(remainingBytes)}</span>
-              </div>
-            </div>
-          );
-        }
-
-        // 🚀 แถบของ สายฟรี User (10 ไฟล์)
-        const maxFiles = 10;
-        const currentFiles = projects.length;
-        const percentage = Math.min((currentFiles / maxFiles) * 100, 100).toFixed(2);
-        const remainingFiles = Math.max(maxFiles - currentFiles, 0);
-
-        return (
-          <div className="mt-auto flex flex-col items-center justify-between text-[10px] md:text-xs font-semibold text-slate-400 bg-white border border-slate-200 rounded-xl px-4 md:px-5 py-3 shadow-sm shrink-0">
-            <div className="flex items-center justify-between w-full mb-2">
-              <div className="flex items-center gap-1.5">
-                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
-                 <span>Free User</span>
-              </div>
-              <span className={currentFiles >= maxFiles ? "text-red-500 font-bold" : ""}>สร้างแล้ว {currentFiles} / 10 ไฟล์</span>
-            </div>
-            <div className="flex items-center gap-3 w-full">
-              <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                <div className={`h-full rounded-full transition-all duration-500 ${currentFiles >= maxFiles ? 'bg-red-500' : 'bg-sky-500'}`} style={{ width: `${percentage}%` }}></div>
-              </div>
-              <span className={`whitespace-nowrap ${currentFiles >= maxFiles ? "text-red-500 font-bold" : "text-sky-500"}`}>สร้างได้อีก {remainingFiles} ไฟล์</span>
-            </div>
-          </div>
-        );
-        })()}
-        </div>
-      </div>
+      {hasMoreProjects && (
+        <button
+          type="button"
+          onClick={handleLoadMore}
+          disabled={isLoadingMore}
+          className="mx-auto mb-6 rounded-xl border border-slate-200 bg-white px-5 py-2 text-xs font-bold text-slate-600 transition-colors hover:border-sky-300 hover:text-sky-600 disabled:opacity-50"
+        >
+          {isLoadingMore ? 'กำลังโหลด...' : 'โหลดโปรเจกต์เพิ่มเติม'}
+        </button>
+      )}
 
       <ProjectStatusBar
         role={userRole}
-        itemCount={projects.length}
+        itemCount={storageInfo?.projectCount ?? projects.length}
         usedBytes={calculateTotalStorageUsed()}
         itemLabel="ไฟล์"
       />

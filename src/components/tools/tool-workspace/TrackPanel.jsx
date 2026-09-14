@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useWorkspace, MIN_TRACK_LANE_HEIGHT, MAX_TRACK_LANE_HEIGHT, DEFAULT_TRACK_LANE_HEIGHT, COLLAPSED_TRACK_HEIGHT } from '../../../contexts/WorkspaceContext';
 import { INSTRUMENT_CONFIG } from '../../../utils/instrumentConfig';
-import { auth, fetchAllProjects } from '../../../utils/firebase';
+import { auth, fetchAllProjectSummaries, fetchProjectById } from '../../../utils/firebase';
 
 const BLACK_SCROLLBAR_STYLE = `
   .track-panel-scroll,
@@ -206,8 +206,8 @@ export default function TrackPanel() {
     setWebImportLoading(true);
     setWebImportError('');
     try {
-      const projects = await fetchAllProjects(uid);
-      setWebProjects(Array.isArray(projects) ? projects : []);
+      const projects = await fetchAllProjectSummaries(uid);
+      setWebProjects(projects);
     } catch (error) {
       console.error('โหลดโปรเจกต์จากเว็บไม่สำเร็จ:', error);
       setWebImportError('โหลดรายการโปรเจกต์ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง');
@@ -223,9 +223,21 @@ export default function TrackPanel() {
     }
   };
 
-  const handleImportFromWeb = (project) => {
-    importProjectFromWeb(project, `${project?.name || 'โปรเจกต์จากเว็บ'}.json`);
-    setWebImportOpen(false);
+  const handleImportFromWeb = async (project) => {
+    const uid = auth.currentUser?.uid;
+    if (!uid) return;
+    setWebImportLoading(true);
+    try {
+      const fullProject = await fetchProjectById(uid, project.id, { summary: project });
+      if (!fullProject) throw new Error('PROJECT_NOT_FOUND');
+      importProjectFromWeb(fullProject, `${project?.name || 'โปรเจกต์จากเว็บ'}.json`);
+      setWebImportOpen(false);
+    } catch (error) {
+      console.error('Unable to import project from web:', error);
+      setWebImportError('ไม่สามารถโหลดข้อมูลโปรเจกต์นี้ได้ กรุณาลองใหม่อีกครั้ง');
+    } finally {
+      setWebImportLoading(false);
+    }
   };
 
   return (

@@ -6,6 +6,13 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "lint:firestore": "eslint src/utils/firebase.js src/utils/projectStorage.js src/utils/projectStorage.test.js src/utils/devPerformance.js src/pages/Home.jsx src/pages/MyProjects.jsx src/components/tools/tool-workspace/TrackPanel.jsx scripts/backup-firestore.mjs scripts/backup-firestore.test.mjs scripts/reconcile-firestore-storage.mjs scripts/reconcile-firestore-storage.test.mjs test/firestore.phase36.test.js test/firestore.rules.test.js",
+    "firebase:emulators": "firebase emulators:start --only firestore,auth --project demo-thai-music-editor",
+    "firebase:backup": "node scripts/backup-firestore.mjs",
+    "firebase:reconcile": "node scripts/reconcile-firestore-storage.mjs",
+    "firebase:rules:test": "firebase emulators:exec --only firestore --project demo-thai-music-editor \"node --test --test-concurrency=1 test/firestore.rules.test.js\"",
+    "firebase:qa": "firebase emulators:exec --only firestore --project demo-thai-music-editor \"node --test --test-concurrency=1 test/firestore.rules.test.js test/firestore.phase36.test.js\"",
+    "firebase:release-check": "npm run lint:firestore && npm test && npm run build && npm run firebase:qa",
     "lint": "eslint .",
     "test": "node --test",
     "preview": "vite preview"
@@ -21,6 +28,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
+    "@firebase/rules-unit-testing": "^5.0.2",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
@@ -28,6 +36,8 @@
     "eslint": "^9.39.4",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.5.2",
+    "firebase-admin": "^14.4.0",
+    "firebase-tools": "^15.30.0",
     "globals": "^17.4.0",
     "postcss": "^8.5.9",
     "tailwindcss": "^3.4.19",

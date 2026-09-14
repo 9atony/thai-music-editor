@@ -31,6 +31,29 @@ service cloud.firestore {
 
       match /projects/{projectId} {
         allow read, write: if owns(userId) || isAdmin();
+
+        match /content/{contentId} {
+          allow read, write: if contentId == 'current' && (owns(userId) || isAdmin());
+        }
+      }
+
+      match /meta/{metaId} {
+        allow read: if owns(userId) || isAdmin();
+        allow create, update: if (owns(userId) || isAdmin())
+          && metaId == 'storage'
+          && request.resource.data.keys().hasOnly([
+            'schemaVersion', 'projectCount', 'storageUsedBytes', 'updatedAt'
+          ])
+          && request.resource.data.keys().hasAll([
+            'schemaVersion', 'projectCount', 'storageUsedBytes', 'updatedAt'
+          ])
+          && request.resource.data.schemaVersion == 1
+          && request.resource.data.projectCount is int
+          && request.resource.data.projectCount >= 0
+          && request.resource.data.storageUsedBytes is int
+          && request.resource.data.storageUsedBytes >= 0
+          && request.resource.data.updatedAt is timestamp;
+        allow delete: if isAdmin();
       }
 
       match /arrangerProjects/{projectId} {
