@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { ADMIN_TOOL_CATALOG, PUBLIC_TOOL_CATALOG } from '../data/toolCatalog';
 import { useFeatureAccess } from '../contexts/FeatureAccessContext';
+import { isToolBlockedByMaintenance, resolveToolFeatureId } from '../utils/toolAvailability';
 
 const ACTIVE_TOOL_SESSION_KEY = 'thaiMusicEditorActiveTool';
 const adminToolIds = new Set(['generator', 'dictionary', 'tuner-ai', 'rhythm-manager']);
@@ -26,8 +27,14 @@ const Tools = ({ userProfile }) => {
   
   const userRole = userProfile?.role || 'user';
   const isAdmin = userRole === 'admin';
-  const { canAccess } = useFeatureAccess();
-  const canUseTool = (toolId) => canAccess(toolId === 'workspace' ? 'arranger' : toolId, userRole);
+  const { canAccess, isLoading, maintenance } = useFeatureAccess();
+  const canUseTool = (toolId) => canAccess(resolveToolFeatureId(toolId), userRole);
+  const isToolInMaintenance = (toolId) => maintenance?.[resolveToolFeatureId(toolId)] === true;
+  const isMaintenanceBlocking = (toolId) => isToolBlockedByMaintenance({
+    toolId,
+    maintenance,
+    role: userRole,
+  });
 
   const [activeTool, setActiveToolState] = useState(() => {
     const storedTool = sessionStorage.getItem(ACTIVE_TOOL_SESSION_KEY);
@@ -44,11 +51,19 @@ const Tools = ({ userProfile }) => {
   };
   
   const [showPremiumAlert, setShowPremiumAlert] = useState(false);
+  const [maintenanceAlertTool, setMaintenanceAlertTool] = useState(null);
 
   const premiumTools = PUBLIC_TOOL_CATALOG;
   const adminTools = ADMIN_TOOL_CATALOG;
+  const getToolInfo = (toolId) => [...premiumTools, ...adminTools].find((tool) => (
+    tool.id === toolId || tool.featureId === resolveToolFeatureId(toolId)
+  ));
 
   const handleToolClick = (toolId) => {
+    if (isMaintenanceBlocking(toolId)) {
+      setMaintenanceAlertTool(getToolInfo(toolId));
+      return;
+    }
     if (!canUseTool(toolId)) {
       setShowPremiumAlert(true);
       return;
@@ -69,10 +84,35 @@ const Tools = ({ userProfile }) => {
     }
   };
 
+  if (isLoading) {
+    return <div className="flex min-h-[50vh] items-center justify-center text-sm font-semibold text-slate-500">กำลังตรวจสอบสถานะเครื่องมือ...</div>;
+  }
+
+  if (activeTool && isMaintenanceBlocking(activeTool)) {
+    const currentToolInfo = getToolInfo(activeTool);
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 p-5" style={{ fontFamily: 'Prompt, sans-serif' }}>
+        <div className="w-full max-w-lg rounded-[28px] border border-amber-200 bg-white p-7 text-center shadow-xl shadow-amber-950/5 sm:p-10">
+          <span className="mx-auto flex h-20 w-20 items-center justify-center rounded-3xl bg-amber-100 text-amber-600">
+            <Wrench size={34} />
+          </span>
+          <p className="mt-6 text-[10px] font-black uppercase tracking-[0.2em] text-amber-600">Maintenance mode</p>
+          <h1 className="mt-2 text-2xl font-black text-slate-900">กำลังปรับปรุง</h1>
+          <p className="mt-3 text-sm leading-6 text-slate-500">
+            เครื่องมือ <strong className="text-slate-700">{currentToolInfo?.name || 'นี้'}</strong> ปิดให้บริการชั่วคราว กรุณากลับมาใช้งานอีกครั้งภายหลัง
+          </p>
+          <button type="button" onClick={() => setActiveTool(null)} className="mt-7 inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-slate-900 px-5 text-xs font-bold text-white transition hover:bg-slate-800">
+            <ArrowLeft size={15} /> กลับหน้ารวมเครื่องมือ
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (activeTool) {
     const isArrangerProjects = activeTool === 'arranger-projects';
     const usesLightToolTheme = isArrangerProjects || activeTool === 'metronome';
-    const currentToolInfo = [...premiumTools, ...adminTools].find(t => t.id === activeTool)
+    const currentToolInfo = getToolInfo(activeTool)
       || (activeTool === 'arranger-projects' ? { name: 'โปรเจกต์จัดวงดนตรี', Icon: PUBLIC_TOOL_CATALOG[0].Icon } : null);
     
     return (
@@ -130,7 +170,7 @@ const Tools = ({ userProfile }) => {
             <div className="rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-2.5 text-right">
               <span className="block text-[9px] font-bold uppercase tracking-widest text-slate-400">เครื่องมือที่ใช้ได้</span>
               <span className="mt-0.5 block text-sm font-black text-slate-800">
-                {premiumTools.filter((tool) => canUseTool(tool.id)).length + (isAdmin ? adminTools.length : 0)} รายการ
+                {premiumTools.filter((tool) => canUseTool(tool.id) && !isMaintenanceBlocking(tool.id)).length + (isAdmin ? adminTools.length : 0)} รายการ
               </span>
             </div>
             {isAdmin && (
@@ -160,19 +200,24 @@ const Tools = ({ userProfile }) => {
             <button 
               key={tool.id}
               onClick={() => tool.id === 'workspace' ? handleToolClick('arranger-projects') : handleToolClick(tool.id)}
-              className={`group relative flex min-h-[178px] w-full overflow-hidden rounded-3xl border border-slate-200 bg-white p-5 text-left shadow-sm transition-all duration-300 sm:p-6 ${tool.hoverClass} hover:-translate-y-0.5 hover:shadow-xl active:translate-y-0 active:scale-[0.99]`}
+              aria-disabled={isMaintenanceBlocking(tool.id)}
+              className={`group relative flex min-h-[178px] w-full overflow-hidden rounded-3xl border border-slate-200 bg-white p-5 text-left shadow-sm transition-all duration-300 sm:p-6 ${isMaintenanceBlocking(tool.id) ? 'cursor-not-allowed opacity-80' : `${tool.hoverClass} hover:-translate-y-0.5 hover:shadow-xl active:translate-y-0 active:scale-[0.99]`}`}
             >
               <div className={`absolute inset-x-0 top-0 h-1 bg-gradient-to-r ${tool.accentClass}`} />
               <div className={`pointer-events-none absolute -bottom-20 -right-16 h-44 w-44 rounded-full bg-gradient-to-br opacity-[0.07] blur-2xl transition-opacity group-hover:opacity-[0.13] ${tool.accentClass}`} />
 
-              <div className={`mr-5 flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl ring-1 ring-inset transition-transform duration-300 group-hover:scale-105 ${tool.iconClass} ${!canUseTool(tool.id) ? 'grayscale' : ''}`}>
+              <div className={`mr-5 flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl ring-1 ring-inset transition-transform duration-300 group-hover:scale-105 ${tool.iconClass} ${!canUseTool(tool.id) || isMaintenanceBlocking(tool.id) ? 'grayscale' : ''}`}>
                 {React.createElement(tool.Icon, { size: 24 })}
               </div>
 
               <div className="relative min-w-0 flex-1 pr-8">
                 <div className="mb-2 flex flex-wrap items-center gap-2">
                   <h3 className="text-base font-black text-slate-900 md:text-[17px]">{tool.name}</h3>
-                {!canUseTool(tool.id) ? (
+                {isToolInMaintenance(tool.id) ? (
+                    <span className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-amber-800">
+                      <Wrench size={10} /> กำลังปรับปรุง{isAdmin ? ' · Admin ทดสอบได้' : ''}
+                    </span>
+                  ) : !canUseTool(tool.id) ? (
                     <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-amber-700">
                       <LockKeyhole size={10} /> ไม่รวมในแผนนี้
                     </span>
@@ -182,7 +227,7 @@ const Tools = ({ userProfile }) => {
                 </div>
                 <p className="max-w-xl text-[11px] font-medium leading-5 text-slate-500 md:text-xs">{tool.desc}</p>
                 <span className="mt-4 inline-flex items-center gap-1.5 text-[10px] font-black text-slate-700 transition-colors group-hover:text-indigo-600">
-                  {!canUseTool(tool.id) ? 'ดูสิทธิ์การใช้งาน' : 'เปิดเครื่องมือ'} <ArrowUpRight size={13} />
+                  {isMaintenanceBlocking(tool.id) ? 'ปิดให้บริการชั่วคราว' : !canUseTool(tool.id) ? 'ดูสิทธิ์การใช้งาน' : 'เปิดเครื่องมือ'} <ArrowUpRight size={13} />
                 </span>
               </div>
 
@@ -231,6 +276,23 @@ const Tools = ({ userProfile }) => {
             ))}
           </div>
         </section>
+      )}
+
+      {maintenanceAlertTool && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm animate-fadeIn">
+          <div className="w-full max-w-sm rounded-3xl bg-white p-8 text-center shadow-2xl animate-slideUp">
+            <span className="mx-auto flex h-20 w-20 items-center justify-center rounded-full border border-amber-200 bg-amber-100 text-amber-600">
+              <Wrench size={32} />
+            </span>
+            <h3 className="mt-5 text-xl font-extrabold text-slate-800">กำลังปรับปรุง</h3>
+            <p className="mt-2 text-sm leading-6 text-slate-500">
+              เครื่องมือ <strong className="text-slate-700">{maintenanceAlertTool.name}</strong> ปิดให้บริการชั่วคราว กรุณาลองใหม่ภายหลัง
+            </p>
+            <button type="button" onClick={() => setMaintenanceAlertTool(null)} className="mt-7 w-full rounded-xl bg-slate-900 py-3.5 font-bold text-white transition hover:bg-slate-800 active:scale-[0.98]">
+              รับทราบ
+            </button>
+          </div>
+        </div>
       )}
 
       {showPremiumAlert && (

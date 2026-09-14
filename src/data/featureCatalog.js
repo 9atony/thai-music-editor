@@ -31,6 +31,14 @@ const INSTRUMENT_FEATURES = Object.values(INSTRUMENT_CONFIG).map((instrument) =>
 
 export const FEATURE_CATALOG = [...FEATURE_GROUPS, ...INSTRUMENT_FEATURES];
 
+export const MAINTAINABLE_TOOL_FEATURES = FEATURE_GROUPS.filter(
+  (feature) => feature.group === 'tools',
+);
+
 export const DEFAULT_FEATURE_ACCESS = Object.fromEntries(
   FEATURE_CATALOG.map((feature) => [feature.id, { free: feature.free, premium: feature.premium }]),
+);
+
+export const DEFAULT_TOOL_MAINTENANCE = Object.fromEntries(
+  MAINTAINABLE_TOOL_FEATURES.map((feature) => [feature.id, false]),
 );

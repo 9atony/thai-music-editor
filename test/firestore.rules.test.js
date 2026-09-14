@@ -119,6 +119,29 @@ emulatorTest('admin retains project, content and aggregate access', async () => 
   ));
 });
 
+emulatorTest('only admins can change tool maintenance while signed-in users can read it', async () => {
+  const adminDatabase = testEnvironment.authenticatedContext(ADMIN_ID).firestore();
+  const ownerDatabase = testEnvironment.authenticatedContext(OWNER_ID).firestore();
+  const adminSettingsRef = doc(adminDatabase, 'system_settings/feature_access');
+  const ownerSettingsRef = doc(ownerDatabase, 'system_settings/feature_access');
+
+  await assertSucceeds(setDoc(adminSettingsRef, {
+    maintenance: { metronome: false },
+    updatedAt: Timestamp.now(),
+  }, { merge: true }));
+  await assertSucceeds(setDoc(adminSettingsRef, {
+    maintenance: { arranger: true },
+    updatedAt: Timestamp.now(),
+  }, { merge: true }));
+  const snapshot = await assertSucceeds(getDoc(ownerSettingsRef));
+  assert.equal(snapshot.data().maintenance.arranger, true);
+  assert.equal(snapshot.data().maintenance.metronome, false);
+  await assertFails(setDoc(ownerSettingsRef, {
+    maintenance: { arranger: false },
+    updatedAt: Timestamp.now(),
+  }, { merge: true }));
+});
+
 emulatorTest('invalid storage aggregate values are rejected', async () => {
   const database = testEnvironment.authenticatedContext(OWNER_ID).firestore();
   const aggregateRef = doc(database, `users/${OWNER_ID}/meta/storage`);

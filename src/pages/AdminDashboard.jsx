@@ -19,6 +19,7 @@ import {
   Sparkles,
   UserRound,
   Users,
+  Wrench,
   X,
 } from 'lucide-react';
 import {
@@ -30,7 +31,11 @@ import {
 import { db, upgradeUserToPremium } from '../utils/firebase';
 import PageHeader from '../components/layout/PageHeader';
 import SystemAnalyticsPanel from '../components/admin/SystemAnalyticsPanel';
-import { FEATURE_CATALOG, FEATURE_GROUP_DETAILS } from '../data/featureCatalog';
+import {
+  FEATURE_CATALOG,
+  FEATURE_GROUP_DETAILS,
+  MAINTAINABLE_TOOL_FEATURES,
+} from '../data/featureCatalog';
 import { useFeatureAccess } from '../contexts/FeatureAccessContext';
 
 const GIB = 1024 * 1024 * 1024;
@@ -148,9 +153,16 @@ const AdminDashboard = ({ userProfile }) => {
   const [activeSection, setActiveSection] = useState('analytics');
   const [selectedUser, setSelectedUser] = useState(null);
   const [now, setNow] = useState(new Date());
-  const { access: featureAccess, saveAccess } = useFeatureAccess();
+  const {
+    access: featureAccess,
+    maintenance: toolMaintenance,
+    saveAccess,
+    setToolMaintenance,
+  } = useFeatureAccess();
   const [isSavingAccess, setIsSavingAccess] = useState(false);
   const [accessSaveError, setAccessSaveError] = useState('');
+  const [savingMaintenanceId, setSavingMaintenanceId] = useState(null);
+  const [maintenanceSaveError, setMaintenanceSaveError] = useState('');
 
   const isAdmin = userProfile?.role === 'admin';
   const featureGroups = Object.entries(FEATURE_GROUP_DETAILS).map(([id, details]) => ({
@@ -173,6 +185,22 @@ const AdminDashboard = ({ userProfile }) => {
       setAccessSaveError('บันทึกไม่สำเร็จ โปรดตรวจสอบสิทธิ์ Firestore แล้วลองอีกครั้ง');
     } finally {
       setIsSavingAccess(false);
+    }
+  };
+
+  const updateToolMaintenance = async (feature) => {
+    const nextEnabled = toolMaintenance[feature.id] !== true;
+    if (nextEnabled && !window.confirm(`ยืนยันปิด “${feature.name}” ชั่วคราว? ผู้ใช้จะไม่สามารถเข้าเครื่องมือนี้ได้`)) return;
+
+    setSavingMaintenanceId(feature.id);
+    setMaintenanceSaveError('');
+    try {
+      await setToolMaintenance(feature.id, nextEnabled);
+    } catch (error) {
+      console.error('บันทึกสถานะปิดปรับปรุงไม่สำเร็จ:', error);
+      setMaintenanceSaveError('บันทึกสถานะไม่สำเร็จ โปรดตรวจสอบสิทธิ์ Firestore แล้วลองอีกครั้ง');
+    } finally {
+      setSavingMaintenanceId(null);
     }
   };
 
@@ -385,6 +413,7 @@ const AdminDashboard = ({ userProfile }) => {
           ['analytics', 'System Analytics', Activity],
           ['overview', 'ภาพรวม', BarChart3],
           ['users', 'จัดการผู้ใช้', Users],
+          ['tool-maintenance', 'ปิดปรับปรุง', Wrench],
           ['feature-access', 'สิทธิ์ตามแผน', SlidersHorizontal],
           ['database', 'ข้อมูล Firebase', Database],
         ].map(([id, label, Icon]) => (
@@ -557,6 +586,58 @@ const AdminDashboard = ({ userProfile }) => {
           </div>
           <div className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-xs leading-6 text-amber-900">
             เทมเพลตมาตรฐาน {BUILT_IN_TEMPLATE_COUNT} แบบในหน้าผู้ใช้เป็นไฟล์ภายในตัวเว็บ จึงไม่กินพื้นที่ Firestore ส่วน “เทมเพลตบน Cloud” จะแสดงเฉพาะเอกสารใน collection <code className="rounded bg-white/70 px-1.5 py-0.5 font-mono">templates</code>
+          </div>
+        </section>
+      )}
+
+      {activeSection === 'tool-maintenance' && (
+        <section className="mx-auto max-w-4xl">
+          <div className="overflow-hidden rounded-3xl border border-amber-100 bg-white shadow-sm">
+            <div className="border-b border-amber-100 bg-gradient-to-r from-amber-50 via-white to-orange-50 px-5 py-6 md:px-7">
+              <div className="flex items-start gap-4">
+                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-amber-500 text-white shadow-lg shadow-amber-500/20"><Wrench size={21} /></span>
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.18em] text-amber-600">Tool maintenance control</p>
+                  <h2 className="mt-1 text-xl font-black text-slate-900">สถานะปิดปรับปรุงเครื่องมือ</h2>
+                  <p className="mt-1 text-xs leading-5 text-slate-500">ปิดเครื่องมือเป็นรายรายการ ผู้ใช้ที่เปิดเว็บอยู่จะเห็นสถานะใหม่ทันทีโดยไม่ต้อง deploy เว็บใหม่</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-3 p-4 sm:p-5 md:p-7">
+              {MAINTAINABLE_TOOL_FEATURES.map((feature) => {
+                const underMaintenance = toolMaintenance[feature.id] === true;
+                const isSaving = savingMaintenanceId === feature.id;
+                return (
+                  <div key={feature.id} className={`flex flex-col gap-4 rounded-2xl border p-4 transition sm:flex-row sm:items-center sm:justify-between ${underMaintenance ? 'border-amber-200 bg-amber-50/70' : 'border-emerald-100 bg-emerald-50/40'}`}>
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="text-sm font-black text-slate-900">{feature.name}</h3>
+                        <span className={`rounded-full border px-2.5 py-1 text-[9px] font-black ${underMaintenance ? 'border-amber-300 bg-amber-100 text-amber-800' : 'border-emerald-200 bg-emerald-100 text-emerald-700'}`}>
+                          {underMaintenance ? 'กำลังปรับปรุง' : 'เปิดใช้งานปกติ'}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-[11px] leading-5 text-slate-500">{feature.description}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => updateToolMaintenance(feature)}
+                      disabled={Boolean(savingMaintenanceId)}
+                      aria-pressed={underMaintenance}
+                      className={`flex h-11 shrink-0 items-center justify-between gap-3 rounded-xl border px-3 text-xs font-black transition-all active:scale-[0.98] sm:min-w-48 ${underMaintenance ? 'border-amber-300 bg-amber-100 text-amber-800' : 'border-emerald-200 bg-white text-emerald-700'} disabled:cursor-wait disabled:opacity-60`}
+                    >
+                      <span>{isSaving ? 'กำลังบันทึก...' : underMaintenance ? 'ปิดปรับปรุงอยู่' : 'เปิดใช้งานอยู่'}</span>
+                      <span className={`relative h-6 w-11 rounded-full p-0.5 shadow-inner transition-colors ${underMaintenance ? 'bg-amber-500' : 'bg-emerald-500'}`}>
+                        <span className={`block h-5 w-5 rounded-full bg-white shadow-md transition-transform duration-200 ${underMaintenance ? 'translate-x-5' : 'translate-x-0'}`} />
+                      </span>
+                    </button>
+                  </div>
+                );
+              })}
+
+              {maintenanceSaveError && <p className="rounded-xl bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-700">{maintenanceSaveError}</p>}
+              <p className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-[11px] leading-5 text-slate-600">เมื่อปิดปรับปรุง ผู้ใช้ทั่วไปและ Premium จะเห็นป้าย “กำลังปรับปรุง” และเข้าเครื่องมือไม่ได้ ส่วน Admin ยังเข้าได้เพื่อทดสอบก่อนเปิดให้ผู้ใช้งานอีกครั้ง</p>
+            </div>
           </div>
         </section>
       )}

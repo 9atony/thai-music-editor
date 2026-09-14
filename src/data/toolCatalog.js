@@ -10,6 +10,7 @@ import {
 export const PUBLIC_TOOL_CATALOG = [
   {
     id: 'workspace',
+    featureId: 'arranger',
     name: 'จัดวงดนตรี (Arranger)',
     shortName: 'จัดวงดนตรี',
     desc: 'จัดการวงดนตรี ไทม์ไลน์ และผูกเนื้อร้องเข้ากับโครงสร้างดนตรี',
@@ -21,6 +22,7 @@ export const PUBLIC_TOOL_CATALOG = [
   },
   {
     id: 'metronome',
+    featureId: 'metronome',
     name: 'เครื่องประกอบจังหวะ',
     shortName: 'เครื่องประกอบจังหวะ',
     desc: 'เปิดหน้าทับฉิ่ง กลองแขก และกรับสำหรับฝึกซ้อม ปรับความเร็วและระดับเสียงได้',
