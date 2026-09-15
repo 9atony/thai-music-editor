@@ -1,5 +1,5 @@
 import React, { useContext } from 'react';
-import { AudioLines, ChevronDown, CircleDot, Drum, Hand, Link2, Unlink2, Volume2, X } from 'lucide-react';
+import { AudioLines, ChevronDown, CircleDot, Drum, Hand, Link2, RefreshCw, Unlink2, Volume2, X } from 'lucide-react';
 import { MusicContext } from '../../contexts/MusicContext';
 import { initAudioContext } from '../../utils/audioEngine';
 import { applyRhythmLayer, filterRhythmPatternsByLayer, RHYTHM_LAYER_OPTIONS } from '../../utils/rhythmLayer';
@@ -17,7 +17,13 @@ const accentClasses = {
 };
 
 const MobileMetronomeMenu = ({ isOpen, onClose }) => {
-  const { metronomeConfig, setMetronomeConfig } = useContext(MusicContext);
+  const {
+    metronomeConfig,
+    setMetronomeConfig,
+    rhythmLibraryStatus = 'idle',
+    reloadRhythmLibrary,
+    userRole,
+  } = useContext(MusicContext);
   const enabled = metronomeConfig.enabled === true;
   const linked = metronomeConfig.linked !== false;
 
@@ -78,6 +84,26 @@ const MobileMetronomeMenu = ({ isOpen, onClose }) => {
         </header>
 
         <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4 custom-scrollbar">
+          <div className="rounded-2xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-[11px] leading-5 text-indigo-800">
+            <b>วิธีใช้:</b> เลือกชั้นเพลงและหน้าทับ → เปิดฉิ่ง/กลอง/กรับ → กดเริ่มเสียง
+            {linked ? ' แล้วกดเล่นโน้ต ▶' : ' เพื่อเล่นวนทันที'}
+          </div>
+
+          {rhythmLibraryStatus !== 'ready' && (
+            <div className={`flex items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-[11px] font-bold ${rhythmLibraryStatus === 'error' ? 'border-rose-200 bg-rose-50 text-rose-700' : rhythmLibraryStatus === 'empty' ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-sky-200 bg-sky-50 text-sky-700'}`} role="status">
+              <span>
+                {rhythmLibraryStatus === 'error'
+                  ? 'โหลดคลังหน้าทับไม่สำเร็จ'
+                  : rhythmLibraryStatus === 'empty'
+                    ? (userRole === 'admin' ? 'คลังหน้าทับกลางยังว่าง กรุณาเพิ่มที่หน้าผู้ดูแลระบบ' : 'ยังไม่มีหน้าทับในคลังกลาง')
+                    : 'กำลังโหลดคลังหน้าทับ…'}
+              </span>
+              <button type="button" onClick={reloadRhythmLibrary} className="flex shrink-0 items-center gap-1 rounded-lg bg-white px-2.5 py-1.5 text-[10px] font-black shadow-sm">
+                <RefreshCw size={12} className={rhythmLibraryStatus === 'loading' ? 'animate-spin' : ''} /> โหลดใหม่
+              </button>
+            </div>
+          )}
+
           <button
             type="button"
             aria-pressed={enabled}
@@ -101,7 +127,7 @@ const MobileMetronomeMenu = ({ isOpen, onClose }) => {
                 {linked ? <Link2 size={19} /> : <Unlink2 size={19} />}
               </span>
               <span className="min-w-0">
-                <span className="block text-sm font-black text-slate-800">{linked ? 'LINK กับโน้ต' : 'เล่นวนอิสระ'}</span>
+                <span className="block text-sm font-black text-slate-800">{linked ? 'เล่นพร้อมโน้ต' : 'เล่นวนทันที'}</span>
                 <span className="mt-0.5 block text-[11px] leading-4 text-slate-500">{linked ? 'จังหวะเริ่มและหยุดพร้อมโน้ตบนกระดาษ' : 'เครื่องจังหวะเล่นแยกจากปุ่มเล่นโน้ต'}</span>
               </span>
             </span>

@@ -23,6 +23,7 @@ const BACKGROUND_SCHEDULE_AHEAD_SEC = 45;
 const BACKGROUND_METRONOME_AHEAD_SEC = 45;
 
 export const useAudioPlayback = ({
+  rhythmLibraryUserId,
   sheetDataRef,
   rowTypesRef,
   sectionLabelsRef,
@@ -57,6 +58,9 @@ export const useAudioPlayback = ({
     krub: { active: false, pattern: '', volume: 80 },
     rhythms: { ching: [], klong: [], krub: [] }
   });
+  const [rhythmLibraryStatus, setRhythmLibraryStatus] = useState('idle');
+  const [rhythmLibraryError, setRhythmLibraryError] = useState('');
+  const [rhythmLibraryReloadToken, setRhythmLibraryReloadToken] = useState(0);
 
   const isPlayingRef = useRef(false);
   
@@ -91,13 +95,23 @@ export const useAudioPlayback = ({
   useEffect(() => { playbackCursorRef.current = playbackCursor; }, [playbackCursor]);
 
   useEffect(() => {
+    if (!rhythmLibraryUserId) {
+      setRhythmLibraryStatus('idle');
+      setRhythmLibraryError('');
+      return undefined;
+    }
+
+    let cancelled = false;
     const fetchRhythms = async () => {
+      setRhythmLibraryStatus('loading');
+      setRhythmLibraryError('');
       try {
         const docRef = doc(db, "system_rhythms", "master");
         const docSnap = await getDoc(docRef);
+        if (cancelled) return;
         if (docSnap.exists()) {
           const data = docSnap.data();
-          const allPatterns = data.patterns || [];
+          const allPatterns = Array.isArray(data.patterns) ? data.patterns : [];
           const chingPatterns = allPatterns.filter(p => p.instrumentId === 'ching');
           const klongPatterns = allPatterns.filter(p => p.instrumentId === 'klong-khaek');
           const krubPatterns = allPatterns.filter(p => p.instrumentId === 'krub');
@@ -110,13 +124,22 @@ export const useAudioPlayback = ({
             klong: { ...prev.klong, pattern: klongPatterns.some(p => p.id === prev.klong.pattern) ? prev.klong.pattern : (klongPatterns[0]?.id || '') },
             krub: { ...prev.krub, pattern: krubPatterns.some(p => p.id === prev.krub.pattern) ? prev.krub.pattern : (krubPatterns[0]?.id || '') }
           }));
+          setRhythmLibraryStatus(allPatterns.length > 0 ? 'ready' : 'empty');
+        } else {
+          setRhythmLibraryStatus('empty');
         }
       } catch (error) {
+        if (cancelled) return;
         console.error("Error fetching rhythms:", error);
+        setRhythmLibraryError(error?.message || 'ไม่สามารถโหลดคลังหน้าทับได้');
+        setRhythmLibraryStatus('error');
       }
     };
     fetchRhythms();
-  }, []);
+    return () => { cancelled = true; };
+  }, [rhythmLibraryReloadToken, rhythmLibraryUserId]);
+
+  const reloadRhythmLibrary = () => setRhythmLibraryReloadToken((value) => value + 1);
 
   useEffect(() => {
     const stopIndependentMetronome = () => {
@@ -1378,6 +1401,7 @@ export const useAudioPlayback = ({
     activeSequenceIdx, activeLoop,
     startPlayback, stopPlayback, togglePlay, refreshTempoPlayback,
     seek, skipToNext, skipToPrev, jumpToSequence, playFromTempoMeasure,
-    metronomeConfig, setMetronomeConfig, stopMetronomePlayback, isPlayingRef
+    metronomeConfig, setMetronomeConfig, stopMetronomePlayback, isPlayingRef,
+    rhythmLibraryStatus, rhythmLibraryError, reloadRhythmLibrary
   };
 };

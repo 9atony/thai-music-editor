@@ -288,6 +288,7 @@ export const MusicProvider = ({ children }) => {
   useEffect(() => { symbolsRef.current = sheetEditor.symbols; }, [sheetEditor.symbols]);
 
   const audioPlayback = useAudioPlayback({
+    rhythmLibraryUserId: user?.uid || null,
     sheetDataRef,
     rowTypesRef,
     sectionLabelsRef,
