@@ -183,7 +183,7 @@ const MobileEditor = ({ onBack }) => {
       </header>
 
       {/* 2. Sheet Area */}
-      <main className="flex-1 bg-slate-200 relative flex flex-col min-h-0">
+      <main className="relative z-0 isolate flex min-h-0 flex-1 flex-col overflow-hidden bg-slate-200">
         <div 
           className={`flex-1 w-full h-full transition-opacity duration-300 ${isPlaying ? 'opacity-90' : 'opacity-100'} 
                       [&_[contenteditable]]:pointer-events-none [&_input]:pointer-events-none`}
