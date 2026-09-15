@@ -73,6 +73,16 @@ const Keyboard = () => {
 
   const [isMetronomeExpanded, setIsMetronomeExpanded] = useState(false);
 
+  useEffect(() => {
+    const handleOpenKeyboard = () => {
+      setIsMinimized(false);
+      setIsTempoTrackOpen(false);
+      setAreNoteKeysVisible(true);
+    };
+    window.addEventListener('tme-open-keyboard', handleOpenKeyboard);
+    return () => window.removeEventListener('tme-open-keyboard', handleOpenKeyboard);
+  }, [setIsTempoTrackOpen]);
+
   const activeCell = (isPlaying && playbackCursor) ? playbackCursor : selectedCell;
   let displayInstrument = currentInstrument;
   

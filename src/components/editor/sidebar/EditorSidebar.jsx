@@ -36,6 +36,17 @@ const EditorSidebar = () => {
   }, []);
 
   useEffect(() => {
+    const handleOpenPanel = (event) => {
+      const panel = event.detail?.panel;
+      if (['sequence', 'labels', 'table', 'velocity', 'sabat', 'kro'].includes(panel)) {
+        setActiveSidePanel(panel);
+      }
+    };
+    window.addEventListener('tme-open-editor-panel', handleOpenPanel);
+    return () => window.removeEventListener('tme-open-editor-panel', handleOpenPanel);
+  }, []);
+
+  useEffect(() => {
     const handleOpenSymbolPanel = (event) => {
       if (event.detail?.type === 'sabat' || event.detail?.type === 'kro') {
         setActiveSidePanel(event.detail.type);
