@@ -15,7 +15,7 @@ import PageHeader from '../components/layout/PageHeader';
 import ProjectStatusBar from '../components/projects/ProjectStatusBar';
 import { recordSystemEvent } from '../utils/systemAnalytics';
 
-const MyProjects = ({ onNewProject, onOpenArrangerProjects, userProfile }) => {
+const MyProjects = ({ onNewProject, onOpenArrangerProjects, userProfile, userId }) => {
   const { newProject, loadProjectFromFirebase, loadProject } = useContext(MusicContext);
   const fileInputRef = useRef(null);
   
@@ -28,6 +28,9 @@ const MyProjects = ({ onNewProject, onOpenArrangerProjects, userProfile }) => {
   const [hasMoreProjects, setHasMoreProjects] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [storageInfo, setStorageInfo] = useState(null);
+  const [isLoadingProjects, setIsLoadingProjects] = useState(true);
+  const [projectLoadError, setProjectLoadError] = useState(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   
   const userRole = userProfile?.role || 'user';
 
@@ -43,26 +46,49 @@ const MyProjects = ({ onNewProject, onOpenArrangerProjects, userProfile }) => {
   useEffect(() => {
     let active = true;
     const loadProjects = async () => {
-      const uid = auth.currentUser?.uid;
-      if (uid) {
-        try {
-          const [page, usage] = await Promise.all([
-            fetchProjectSummaries(uid),
-            getUserStorageUsage(uid, userProfile),
-          ]);
-          if (!active) return;
-          setProjects(page.projects);
-          setPageCursor(page.cursor);
-          setHasMoreProjects(page.hasMore);
-          setStorageInfo(usage);
-        } catch (error) {
-          console.warn('โหลดรายการโปรเจกต์ไม่สำเร็จ:', error);
+      const uid = userId || auth.currentUser?.uid;
+      if (!uid) {
+        if (active) {
+          setProjectLoadError('เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่');
+          setIsLoadingProjects(false);
         }
+        return;
+      }
+
+      setIsLoadingProjects(true);
+      setProjectLoadError(null);
+      const storageRequest = getUserStorageUsage(uid, userProfile).then(
+        (value) => ({ value }),
+        (error) => ({ error }),
+      );
+
+      try {
+        const page = await fetchProjectSummaries(uid);
+        if (!active) return;
+        setProjects(page.projects);
+        setPageCursor(page.cursor);
+        setHasMoreProjects(page.hasMore);
+      } catch (error) {
+        if (!active) return;
+        console.warn('โหลดรายการโปรเจกต์ไม่สำเร็จ:', error);
+        setProjectLoadError('โหลดรายการโปรเจกต์ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง');
+      } finally {
+        if (active) setIsLoadingProjects(false);
+      }
+
+      const storageResult = await storageRequest;
+      if (!active) return;
+      if (storageResult.value) {
+        setStorageInfo(storageResult.value);
+      } else {
+        // Storage usage is supplementary. Never hide an otherwise valid
+        // project list when its aggregate is temporarily unavailable.
+        console.warn('โหลดข้อมูลพื้นที่จัดเก็บไม่สำเร็จ:', storageResult.error);
       }
     };
     loadProjects();
     return () => { active = false; };
-  }, [userProfile]);
+  }, [loadAttempt, userId, userProfile]);
 
   useEffect(() => {
     const handlePointerDownOutside = (event) => {
@@ -284,6 +310,25 @@ const MyProjects = ({ onNewProject, onOpenArrangerProjects, userProfile }) => {
       </PageHeader>
 
       <input type="file" accept=".json,.tme,.thai" ref={fileInputRef} style={{ display: 'none' }} onChange={handleFileUpload} />
+
+      {isLoadingProjects && (
+        <div className="mb-6 rounded-2xl border border-sky-100 bg-sky-50 px-4 py-3 text-sm font-medium text-sky-700" role="status">
+          กำลังโหลดรายการโปรเจกต์...
+        </div>
+      )}
+
+      {projectLoadError && (
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-3" role="alert">
+          <span className="text-sm font-medium text-red-700">{projectLoadError}</span>
+          <button
+            type="button"
+            onClick={() => setLoadAttempt((current) => current + 1)}
+            className="rounded-xl bg-red-600 px-4 py-2 text-xs font-bold text-white transition-colors hover:bg-red-700"
+          >
+            ลองใหม่
+          </button>
+        </div>
+      )}
 
       <button type="button" onClick={onOpenArrangerProjects} className="mb-6 flex w-full items-center justify-between rounded-2xl border border-violet-200 bg-violet-50 px-5 py-4 text-left transition-colors hover:bg-violet-100">
         <span>

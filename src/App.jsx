@@ -260,6 +260,7 @@ function App() {
       {currentView === 'my-projects' && (
         canAccess('projects', userProfile?.role) ? <MyProjects
           userProfile={userProfile}
+          userId={user.uid}
           onOpenArrangerProjects={handleOpenArrangerProjects}
           onNewProject={(...args) => {
             setEditorMode('normal');
