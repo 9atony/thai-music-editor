@@ -4,6 +4,7 @@ import Sheet from '../components/editor/Sheet';
 import MobileMetronomeMenu from '../components/editor/MobileMetronomeMenu';
 import MobileEditControls from '../components/editor/MobileEditControls';
 import SettingsModal from '../components/editor/SettingsModal';
+import EditorSidebar from '../components/editor/sidebar/EditorSidebar';
 import MusicXmlExportDialog from '../components/editor/MusicXmlExportDialog';
 import { initAudioContext } from '../utils/audioEngine';
 import { useFeatureAccess } from '../contexts/FeatureAccessContext';
@@ -163,6 +164,7 @@ const MobileEditor = ({ onBack }) => {
 
   return (
     <div id="music-editor-root" className="flex flex-col h-screen bg-white w-full overflow-hidden" style={{ fontFamily: 'Prompt, sans-serif' }}>
+      {mobileMode === 'edit' && <EditorSidebar mobile />}
       
       {/* 1. Top Bar */}
       <header className="h-16 bg-white flex items-center justify-between px-3 shrink-0 z-20 shadow-sm rounded-b-2xl">

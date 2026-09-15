@@ -111,6 +111,30 @@ const Sheet = forwardRef((props, ref) => {
     return () => window.removeEventListener('tme-sheet-zoom', handleExternalZoom);
   }, [requestResponsiveZoom]);
 
+  useEffect(() => {
+    const handleExternalPageChange = (event) => {
+      const pages = Array.from(document.querySelectorAll('#sheet-pages .print-page'));
+      if (pages.length === 0) return;
+      const selectedElement = selectedCell
+        ? document.getElementById(`note-${selectedCell[0]}-${selectedCell[1]}-${selectedCell[2]}`)
+        : null;
+      const currentPage = selectedElement?.closest('.print-page');
+      const currentIndex = Math.max(0, pages.indexOf(currentPage));
+      const requestedIndex = Number(event.detail?.index);
+      const delta = Number(event.detail?.delta);
+      const nextIndex = Number.isFinite(requestedIndex)
+        ? Math.max(0, Math.min(pages.length - 1, requestedIndex))
+        : Math.max(0, Math.min(pages.length - 1, currentIndex + (Number.isFinite(delta) ? delta : 0)));
+      const targetPage = pages[nextIndex];
+      const firstNote = targetPage?.querySelector('[id^="note-"]');
+      const match = firstNote?.id.match(/^note-(\d+)-(\d+)-(\d+)$/);
+      if (match) setSelectedCell(match.slice(1).map(Number));
+      targetPage?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'start' });
+    };
+    window.addEventListener('tme-sheet-page', handleExternalPageChange);
+    return () => window.removeEventListener('tme-sheet-page', handleExternalPageChange);
+  }, [selectedCell, setSelectedCell]);
+
   const setSheetScrollContainerRef = useCallback((node) => {
     sheetScrollRef.current = node;
     if (typeof ref === 'function') ref(node);
@@ -649,7 +673,7 @@ const Sheet = forwardRef((props, ref) => {
             const currentNoteEl = document.getElementById(`note-${r}-${m}-${c}`);
             if (!currentNoteEl) return;
 
-            const vContainer = document.querySelector('main') || window;
+            const vContainer = hContainer;
             const noteRect = currentNoteEl.getBoundingClientRect();
             const isMobileViewport = window.matchMedia('(max-width: 767px)').matches;
             const scrollBehavior = isMobileViewport ? 'auto' : 'smooth';
@@ -712,25 +736,34 @@ const Sheet = forwardRef((props, ref) => {
         const isRowChanged = lastEditRowRef.current !== r;
 
         // บังคับเลื่อนเมื่อเปลี่ยนบรรทัด หรือ เปลี่ยนหน้ากระดาษ
-        if (isRowChanged || isPageChanged) {
+        {
           
           // หน่วงเวลา 50ms (แค่พริบตาเดียว) เพื่อให้ React เรนเดอร์ DOM เสร็จก่อนคำนวณระยะ
           setTimeout(() => {
             const el = document.getElementById(`note-${r}-${m}-${c}`) || document.getElementById(`text-row-${r}`);
             if (!el) return;
 
-            const vContainer = document.querySelector('main') || window;
+            const vContainer = hContainer;
             const rect = el.getBoundingClientRect();
+
+            const horizontalContainerRect = hContainer.getBoundingClientRect();
+            const horizontalPadding = Math.min(80, horizontalContainerRect.width * 0.2);
+            if (rect.left < horizontalContainerRect.left + horizontalPadding || rect.right > horizontalContainerRect.right - horizontalPadding) {
+              const targetLeft = hContainer.scrollLeft + rect.left + (rect.width / 2) - horizontalContainerRect.left - (horizontalContainerRect.width / 2);
+              hContainer.scrollTo({ left: Math.max(0, targetLeft), behavior: window.matchMedia('(max-width: 767px)').matches ? 'auto' : 'smooth' });
+            }
             
-            // ⭐ จุดที่ 3: ใช้สูตร scrollTo แบบ Absolute แม่นยำกว่าทุกเบราว์เซอร์
-            if (vContainer === window) {
-              const targetY = window.scrollY + rect.top - (window.innerHeight / 2) + (rect.height / 2);
-              window.scrollTo({ top: targetY, behavior: 'smooth' });
-            } else {
-              const parentRect = vContainer.getBoundingClientRect();
-              const topOffset = 60; // ปรับชดเชยความสูงของเมนูด้านบน
-              const targetY = vContainer.scrollTop + (rect.top - parentRect.top) - topOffset - (parentRect.height / 2) + (rect.height / 2);
-              vContainer.scrollTo({ top: targetY, behavior: 'smooth' });
+            if (isRowChanged || isPageChanged) {
+              // ⭐ จุดที่ 3: ใช้สูตร scrollTo แบบ Absolute แม่นยำกว่าทุกเบราว์เซอร์
+              if (vContainer === window) {
+                const targetY = window.scrollY + rect.top - (window.innerHeight / 2) + (rect.height / 2);
+                window.scrollTo({ top: targetY, behavior: 'smooth' });
+              } else {
+                const parentRect = vContainer.getBoundingClientRect();
+                const topOffset = 60; // ปรับชดเชยความสูงของเมนูด้านบน
+                const targetY = vContainer.scrollTop + (rect.top - parentRect.top) - topOffset - (parentRect.height / 2) + (rect.height / 2);
+                vContainer.scrollTo({ top: targetY, behavior: 'smooth' });
+              }
             }
           }, 50);
 

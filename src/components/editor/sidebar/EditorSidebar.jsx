@@ -8,7 +8,7 @@ import KroTab from './KroTab';
 // ⭐ 1. นำเข้าไฟล์แท็บใหม่ที่เพิ่งสร้าง
 import VelocityTab from './VelocityTab'; 
 
-const EditorSidebar = () => {
+const EditorSidebar = ({ mobile = false }) => {
   const { selectedSymbolId, setSelectedSymbolId, symbols } = useContext(MusicContext);
   const [activeSidePanel, setActiveSidePanel] = useState(null);
   const sidebarRef = useRef(null);
@@ -105,7 +105,7 @@ const EditorSidebar = () => {
   ];
 
   return (
-    <div ref={sidebarRef} className={`editor-tool-sidebar absolute top-0 left-0 z-[100] flex h-full flex-col border-r border-slate-200 bg-slate-50 shadow-[12px_0_32px_rgba(15,23,42,0.12)] transition-transform duration-300 ${activeSidePanel ? 'w-[304px] translate-x-0' : 'w-[304px] -translate-x-full'}`} style={{ fontFamily: 'Prompt, Sarabun, sans-serif' }}>
+    <div ref={sidebarRef} className={`editor-tool-sidebar ${mobile ? 'mobile-editor-sidebar fixed inset-0 z-[120] w-full' : 'absolute top-0 left-0 z-[100] w-[304px]'} flex h-full flex-col border-r border-slate-200 bg-slate-50 shadow-[12px_0_32px_rgba(15,23,42,0.12)] transition-transform duration-300 ${activeSidePanel ? 'translate-x-0' : '-translate-x-full'}`} style={{ fontFamily: 'Prompt, Sarabun, sans-serif' }}>
       <style>{`
         .editor-tool-sidebar .tool-tab-root { background: #f8fafc; }
         .editor-tool-sidebar .tool-tab-header { min-height: 64px; padding: 14px 16px !important; background: rgba(255,255,255,.96) !important; border-color: #e2e8f0 !important; box-shadow: 0 1px 0 rgba(15,23,42,.03) !important; }
@@ -116,10 +116,24 @@ const EditorSidebar = () => {
         .editor-tool-sidebar .tool-tab-card { border-radius: 14px !important; border-color: #e2e8f0 !important; box-shadow: 0 1px 2px rgba(15,23,42,.04) !important; }
         .editor-tool-sidebar .tool-tab-body h4 { font-size: 11px !important; font-weight: 800 !important; color: #334155 !important; }
         .editor-tool-sidebar .tool-tab-body label { font-size: 11px !important; }
+        .mobile-editor-sidebar .tool-tab-header { min-height: 76px; padding: 18px 64px 18px 20px !important; }
+        .mobile-editor-sidebar .tool-tab-header h3 { font-size: 17px !important; }
+        .mobile-editor-sidebar .tool-tab-header p,
+        .mobile-editor-sidebar .tool-tab-body label,
+        .mobile-editor-sidebar .tool-tab-body h4 { font-size: 14px !important; }
+        .mobile-editor-sidebar .tool-tab-body { padding: 18px !important; gap: 16px !important; }
+        .mobile-editor-sidebar .tool-tab-body button,
+        .mobile-editor-sidebar .tool-tab-body input,
+        .mobile-editor-sidebar .tool-tab-body select,
+        .mobile-editor-sidebar .tool-tab-body textarea { min-height: 44px; font-size: 14px !important; }
       `}</style>
+
+      {mobile && activeSidePanel && (
+        <button type="button" onClick={() => { setActiveSidePanel(null); setSelectedSymbolId(null); }} className="absolute right-3 top-3 z-[160] flex h-12 w-12 items-center justify-center rounded-full border border-slate-200 bg-white text-2xl font-bold text-slate-500 shadow-md" aria-label="ปิดแผงเครื่องมือ">×</button>
+      )}
       
       {/* ================= ปุ่มเปิด/ปิด ================= */}
-      <div className="absolute top-3 -right-[44px] z-50 flex flex-col gap-1.5">
+      <div className={`${mobile ? 'hidden' : 'flex'} absolute top-3 -right-[44px] z-50 flex-col gap-1.5`}>
         {panels.map((panel) => (
           <button
             key={panel.id}

@@ -6,6 +6,7 @@ import {
   ClipboardPaste,
   Copy,
   Drum,
+  AudioLines,
   FilePlus2,
   FileText,
   Keyboard,
@@ -16,13 +17,18 @@ import {
   Play,
   Plus,
   Redo2,
+  ListMusic,
   Rows3,
   Save,
   Scissors,
   Settings,
   SlidersHorizontal,
+  Table2,
+  Tag,
   Trash2,
   Undo2,
+  Volume2,
+  Waves,
   X,
   ZoomIn,
   ZoomOut,
@@ -156,6 +162,11 @@ const MobileEditControls = ({ onOpenMetronome, onOpenSettings }) => {
     callback?.();
   };
 
+  const openEditorPanel = (panel) => {
+    setIsToolsOpen(false);
+    window.dispatchEvent(new CustomEvent('tme-open-editor-panel', { detail: { panel } }));
+  };
+
   return (
     <footer className="relative z-40 shrink-0 rounded-t-3xl border-t border-slate-200 bg-white shadow-[0_-12px_30px_rgba(15,23,42,0.15)]">
       <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2">
@@ -287,11 +298,25 @@ const MobileEditControls = ({ onOpenMetronome, onOpenSettings }) => {
               <SmallAction icon={Drum} label="เครื่องจังหวะ" onClick={() => openPanel(onOpenMetronome)} />
               <SmallAction icon={Settings} label="ตั้งค่ากระดาษ" onClick={() => openPanel(onOpenSettings)} />
             </div>
+            <p className="mb-2 mt-5 text-xs font-black text-slate-400">เครื่องมือแบบคอม</p>
+            <div className="grid grid-cols-3 gap-2">
+              <SmallAction icon={ListMusic} label="ลำดับเพลง" onClick={() => openEditorPanel('sequence')} />
+              <SmallAction icon={Tag} label="ป้ายกำกับ" onClick={() => openEditorPanel('labels')} />
+              <SmallAction icon={Table2} label="ตั้งค่าตาราง" onClick={() => openEditorPanel('table')} />
+              <SmallAction icon={Volume2} label="น้ำหนักเสียง" onClick={() => openEditorPanel('velocity')} />
+              <SmallAction icon={Waves} label="ลูกสะบัด" onClick={() => openEditorPanel('sabat')} />
+              <SmallAction icon={AudioLines} label="ลูกกรอ" onClick={() => openEditorPanel('kro')} />
+            </div>
             <p className="mb-2 mt-5 text-xs font-black text-slate-400">ขนาดกระดาษ</p>
             <div className="grid grid-cols-3 gap-2">
               <SmallAction icon={ZoomOut} label="ดูทั้งหน้า" onClick={() => window.dispatchEvent(new CustomEvent('tme-sheet-zoom', { detail: { value: 48 } }))} />
               <SmallAction icon={ZoomIn} label="แตะง่าย" onClick={() => window.dispatchEvent(new CustomEvent('tme-sheet-zoom', { detail: { value: 160 } }))} active />
               <SmallAction icon={ZoomIn} label="ขยายสุด" onClick={() => window.dispatchEvent(new CustomEvent('tme-sheet-zoom', { detail: { value: 200 } }))} />
+            </div>
+            <p className="mb-2 mt-5 text-xs font-black text-slate-400">เปลี่ยนหน้ากระดาษ</p>
+            <div className="grid grid-cols-2 gap-2">
+              <SmallAction icon={ChevronLeft} label="หน้าก่อนหน้า" onClick={() => { setIsToolsOpen(false); window.dispatchEvent(new CustomEvent('tme-sheet-page', { detail: { delta: -1 } })); }} />
+              <SmallAction icon={ChevronRight} label="หน้าถัดไป" onClick={() => { setIsToolsOpen(false); window.dispatchEvent(new CustomEvent('tme-sheet-page', { detail: { delta: 1 } })); }} />
             </div>
           </section>
         </div>
