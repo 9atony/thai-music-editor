@@ -100,6 +100,17 @@ const Sheet = forwardRef((props, ref) => {
     });
   }, []);
 
+  useEffect(() => {
+    const handleExternalZoom = (event) => {
+      const value = Number(event.detail?.value);
+      const delta = Number(event.detail?.delta);
+      if (Number.isFinite(value)) requestResponsiveZoom(value);
+      else if (Number.isFinite(delta)) requestResponsiveZoom((current) => current + delta);
+    };
+    window.addEventListener('tme-sheet-zoom', handleExternalZoom);
+    return () => window.removeEventListener('tme-sheet-zoom', handleExternalZoom);
+  }, [requestResponsiveZoom]);
+
   const setSheetScrollContainerRef = useCallback((node) => {
     sheetScrollRef.current = node;
     if (typeof ref === 'function') ref(node);

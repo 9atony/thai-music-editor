@@ -79,8 +79,17 @@ const Keyboard = () => {
       setIsTempoTrackOpen(false);
       setAreNoteKeysVisible(true);
     };
+    const handleOpenMetronome = () => {
+      setIsMinimized(false);
+      setIsTempoTrackOpen(false);
+      setIsMetronomeExpanded(true);
+    };
     window.addEventListener('tme-open-keyboard', handleOpenKeyboard);
-    return () => window.removeEventListener('tme-open-keyboard', handleOpenKeyboard);
+    window.addEventListener('tme-open-metronome', handleOpenMetronome);
+    return () => {
+      window.removeEventListener('tme-open-keyboard', handleOpenKeyboard);
+      window.removeEventListener('tme-open-metronome', handleOpenMetronome);
+    };
   }, [setIsTempoTrackOpen]);
 
   const activeCell = (isPlaying && playbackCursor) ? playbackCursor : selectedCell;
@@ -316,7 +325,7 @@ const Keyboard = () => {
   const iconClass = 'w-4 h-4';
 
   return (
-    <div className={`relative flex flex-col z-[200] w-full font-sans transition-colors duration-300 ${isTempoTrackOpen ? 'bg-white' : isIntervalActive && !isMinimized ? 'bg-[#fffdf0]' : 'bg-[#eaf4fc]'}`}>
+    <div className={`editor-keyboard relative flex flex-col z-[200] w-full font-sans transition-colors duration-300 ${isTempoTrackOpen ? 'bg-white' : isIntervalActive && !isMinimized ? 'bg-[#fffdf0]' : 'bg-[#eaf4fc]'}`}>
       
       <style>
         {`

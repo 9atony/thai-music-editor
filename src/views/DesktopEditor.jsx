@@ -8,6 +8,7 @@ import Keyboard from '../components/editor/Keyboard';
 import Sheet from '../components/editor/Sheet';
 import { MusicContext } from '../contexts/MusicContext'; 
 import EditorSidebar from '../components/editor/sidebar/EditorSidebar';
+import TouchDesktopController from '../components/editor/TouchDesktopController';
 import { markEditorUsable } from '../utils/devPerformance';
 
 const isTouchPortraitDevice = () => {
@@ -23,7 +24,7 @@ function DesktopEditor({ onBack }) {
   const [isTouchToolsOpen, setIsTouchToolsOpen] = useState(false);
   const componentRef = useRef();
   
-  const { addTextRow, stopPlayback } = useContext(MusicContext);
+  const { addTextRow, stopPlayback, isPlaying, togglePlay } = useContext(MusicContext);
 
   const stopPlaybackRef = useRef(stopPlayback);
   useEffect(() => {
@@ -82,17 +83,6 @@ function DesktopEditor({ onBack }) {
     setIsTouchToolsOpen(false);
   };
 
-  const touchTools = [
-    { id: 'keyboard', label: 'คีย์บอร์ด', icon: '⌨️', action: () => { window.dispatchEvent(new Event('tme-open-keyboard')); setIsTouchToolsOpen(false); } },
-    { id: 'settings', label: 'ตั้งค่าหลัก', icon: '⚙️', action: () => { setIsSettingsOpen(true); setIsTouchToolsOpen(false); } },
-    { id: 'sequence', label: 'ลำดับเพลง', icon: '☷', action: () => openEditorPanel('sequence') },
-    { id: 'labels', label: 'ป้ายกำกับ', icon: '🏷️', action: () => openEditorPanel('labels') },
-    { id: 'table', label: 'ตั้งค่าตาราง', icon: '▦', action: () => openEditorPanel('table') },
-    { id: 'velocity', label: 'น้ำหนักเสียง', icon: '🔊', action: () => openEditorPanel('velocity') },
-    { id: 'sabat', label: 'ลูกสะบัด', icon: '⌁', action: () => openEditorPanel('sabat') },
-    { id: 'kro', label: 'ลูกกรอ', icon: '↔', action: () => openEditorPanel('kro') },
-  ];
-
   return (
     <div id="music-editor-root" className={`h-screen w-full flex flex-col bg-slate-100 font-sans overflow-hidden ${isTouchPortrait ? 'touch-desktop-editor' : ''}`}>
       {isTouchPortrait && <style>{`
@@ -124,6 +114,36 @@ function DesktopEditor({ onBack }) {
           min-height: 58px;
           font-size: 18px !important;
         }
+        .touch-desktop-editor .touch-project-settings {
+          width: min(900px, calc(100vw - 48px)) !important;
+          max-width: none !important;
+          max-height: 82vh !important;
+        }
+        .touch-desktop-editor .touch-project-settings button,
+        .touch-desktop-editor .touch-project-settings input,
+        .touch-desktop-editor .touch-project-settings select,
+        .touch-desktop-editor .touch-project-settings textarea {
+          min-height: 52px;
+          font-size: 17px !important;
+        }
+        .touch-desktop-editor .playback-controls-container button {
+          min-height: 50px;
+          min-width: 50px;
+        }
+        .touch-desktop-editor .playback-controls-container input:not([type="range"]),
+        .touch-desktop-editor .playback-controls-container select {
+          min-height: 50px;
+          font-size: 17px !important;
+        }
+        .touch-desktop-editor .playback-controls-container > div:last-child {
+          height: 82px !important;
+          padding-top: 15px !important;
+          padding-bottom: 15px !important;
+        }
+        .touch-desktop-editor .editor-keyboard [id^="kbd-key-"] {
+          min-width: 72px !important;
+          min-height: 92px !important;
+        }
       `}</style>}
       
       <Navbar onPrint={handlePrint} onOpenSettings={handleOpenSettings} onBack={onBack} />
@@ -149,34 +169,42 @@ function DesktopEditor({ onBack }) {
 
       {isTouchPortrait && (
         <>
-          <button
-            type="button"
-            onClick={() => setIsTouchToolsOpen(true)}
-            className="fixed bottom-28 right-5 z-[900] flex h-24 w-24 flex-col items-center justify-center gap-1 rounded-full border-4 border-white bg-sky-600 text-lg font-black text-white shadow-2xl active:scale-95"
-            aria-label="เปิดเครื่องมือสำหรับมือถือ"
-          >
-            <span className="text-3xl leading-none" aria-hidden="true">🛠️</span>
-            เครื่องมือ
-          </button>
+          <div className="fixed right-5 top-1/2 z-[900] flex -translate-y-1/2 flex-col items-end gap-3 print:hidden">
+            <button
+              type="button"
+              onClick={togglePlay}
+              className={`flex h-20 min-w-20 items-center justify-center rounded-full border-4 border-white px-5 text-lg font-black text-white shadow-2xl active:scale-95 ${isPlaying ? 'bg-rose-600' : 'bg-emerald-600'}`}
+              aria-label={isPlaying ? 'หยุดเล่นเพลง' : 'เล่นเพลง'}
+            >
+              {isPlaying ? 'หยุด' : 'เล่น'}
+            </button>
+            <button
+              type="button"
+              onClick={() => { window.dispatchEvent(new Event('tme-open-keyboard')); window.dispatchEvent(new CustomEvent('tme-sheet-zoom', { detail: { value: 160 } })); }}
+              className="flex h-20 min-w-20 items-center justify-center rounded-full border-4 border-white bg-indigo-600 px-5 text-lg font-black text-white shadow-2xl active:scale-95"
+              aria-label="เปิดคีย์บอร์ดและขยายกระดาษ"
+            >
+              โน้ต
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsTouchToolsOpen(true)}
+              className="flex h-24 min-w-24 flex-col items-center justify-center rounded-full border-4 border-white bg-sky-600 px-4 text-lg font-black leading-tight text-white shadow-2xl active:scale-95"
+              aria-label="เปิดศูนย์ควบคุมมือถือ"
+            >
+              <span>เมนูใหญ่</span>
+              <span className="text-sm">เครื่องมือ</span>
+            </button>
+          </div>
 
-          {isTouchToolsOpen && (
-            <div className="fixed inset-0 z-[1000] flex items-end justify-center bg-slate-950/45 p-4" onClick={() => setIsTouchToolsOpen(false)}>
-              <section className="w-[min(920px,calc(100vw-32px))] rounded-t-[36px] border border-slate-200 bg-white p-7 shadow-2xl" onClick={(event) => event.stopPropagation()} aria-label="เครื่องมือสำหรับมือถือ">
-                <div className="mb-6 flex items-center justify-between gap-4">
-                  <div><h2 className="text-3xl font-black text-slate-900">เรียกเครื่องมือ</h2><p className="mt-1 text-lg font-semibold text-slate-500">สำหรับมือถือแนวตั้งในโหมดเว็บไซต์เดสก์ท็อป</p></div>
-                  <button type="button" onClick={() => setIsTouchToolsOpen(false)} className="flex h-16 w-16 items-center justify-center rounded-full bg-slate-100 text-3xl font-bold text-slate-500 active:bg-slate-200" aria-label="ปิดเมนู">×</button>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  {touchTools.map((tool) => (
-                    <button key={tool.id} type="button" onClick={tool.action} className="flex min-h-24 items-center gap-4 rounded-2xl border-2 border-slate-200 bg-slate-50 px-6 text-left text-xl font-black text-slate-800 shadow-sm active:border-sky-400 active:bg-sky-50">
-                      <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-white text-3xl shadow-sm" aria-hidden="true">{tool.icon}</span>
-                      {tool.label}
-                    </button>
-                  ))}
-                </div>
-              </section>
-            </div>
-          )}
+          <TouchDesktopController
+            isOpen={isTouchToolsOpen}
+            onClose={() => setIsTouchToolsOpen(false)}
+            onOpenSettings={handleOpenSettings}
+            onPrint={handlePrint}
+            onBack={onBack}
+            onOpenEditorPanel={openEditorPanel}
+          />
         </>
       )}
     </div>

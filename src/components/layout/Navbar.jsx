@@ -1,4 +1,4 @@
-import React, { useContext, useState } from 'react';
+import React, { useContext, useEffect, useState } from 'react';
 import { MusicContext } from '../../contexts/MusicContext';
 import PlaybackControls from "../editor/PlaybackControls";
 import logo from '../../assets/logo wep.png';
@@ -23,6 +23,12 @@ const Navbar = ({ onPrint, onOpenSettings, onBack }) => {
     canUndo, canRedo, stopPlayback, projectName, setSongName, isReadOnly, userRole
   } = useContext(MusicContext);
   const [isMusicXmlDialogOpen, setIsMusicXmlDialogOpen] = useState(false);
+
+  useEffect(() => {
+    const openMusicXmlDialog = () => setIsMusicXmlDialogOpen(true);
+    window.addEventListener('tme-open-musicxml-export', openMusicXmlDialog);
+    return () => window.removeEventListener('tme-open-musicxml-export', openMusicXmlDialog);
+  }, []);
 
   return (
     <header className="sticky top-0 z-50 bg-white/90 backdrop-blur-md border-b border-slate-200 shadow-sm flex flex-col font-sans transition-all">
