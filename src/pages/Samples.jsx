@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../utils/firebase'; 
 import { collection, onSnapshot, addDoc, doc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
-import TmeIcon from '../assets/icon.png'; 
+import TmeIcon from '../assets/icon.webp';
 import { Music2 } from 'lucide-react';
 import PageHeader from '../components/layout/PageHeader';
 

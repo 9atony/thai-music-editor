@@ -7,11 +7,18 @@ const SettingsModal = ({ isOpen, onClose }) => {
   const { canAccess } = useFeatureAccess();
   const { 
     currentInstrument, changeInstrument, 
+    songName, setSongName,
     layoutConfig, setLayoutConfig,
-    headerDetails, addDetail, removeDetail, updateDetail, userRole
+    headerDetails, addDetail, removeDetail, updateDetail, userRole, isReadOnly
   } = useContext(MusicContext);
   
   const [activeTab, setActiveTab] = useState('info');
+
+  const getPlainText = (value = '') => {
+    const temp = document.createElement('div');
+    temp.innerHTML = String(value ?? '');
+    return temp.textContent || temp.innerText || '';
+  };
 
   if (!isOpen) return null;
 
@@ -39,11 +46,11 @@ const SettingsModal = ({ isOpen, onClose }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm transition-opacity">
-      <div className="touch-project-settings bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col overflow-hidden animate-fade-in-up">
+    <div className="fixed inset-0 z-[100] flex items-end justify-center bg-slate-900/40 backdrop-blur-sm transition-opacity sm:items-center sm:p-4">
+      <div className="touch-project-settings flex max-h-[92dvh] w-full max-w-lg flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl animate-fade-in-up sm:max-h-[85vh] sm:rounded-2xl">
         
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-slate-50">
+        <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-4 py-4 sm:px-6">
           <div className="flex items-center gap-2.5 text-slate-800">
             <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
             <h2 className="text-lg font-bold">การตั้งค่าโปรเจกต์</h2>
@@ -54,7 +61,7 @@ const SettingsModal = ({ isOpen, onClose }) => {
         </div>
 
         {/* Tabs */}
-        <div className="flex px-6 pt-4 gap-2 border-b border-slate-200 bg-white">
+        <div className="flex gap-1 overflow-x-auto border-b border-slate-200 bg-white px-3 pt-3 sm:gap-2 sm:px-6 sm:pt-4">
           {[
             { 
               id: 'info', 
@@ -70,7 +77,7 @@ const SettingsModal = ({ isOpen, onClose }) => {
             <button 
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`px-4 py-2 text-sm font-bold rounded-t-lg transition-all flex items-center gap-2 border-b-2 ${
+              className={`flex min-h-11 shrink-0 items-center gap-2 rounded-t-lg border-b-2 px-3 py-2 text-xs font-bold transition-all sm:px-4 sm:text-sm ${
                 activeTab === tab.id ? 'border-sky-500 text-sky-600 bg-sky-50/50' : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50'
               }`}
             >
@@ -80,11 +87,29 @@ const SettingsModal = ({ isOpen, onClose }) => {
         </div>
 
         {/* Content */}
-        <div className="p-6 overflow-y-auto custom-scrollbar flex-1 bg-[#f8fafd]">
+        <div className="custom-scrollbar flex-1 overflow-y-auto bg-[#f8fafd] p-4 sm:p-6">
           
           {/* ข้อมูลโปรเจกต์ */}
           {activeTab === 'info' && (
             <div className="space-y-6">
+              <section>
+                <label htmlFor="project-song-name" className="mb-2 flex items-center gap-2 text-sm font-bold text-slate-700">
+                  <svg className="h-5 w-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h10M4 18h16" /></svg>
+                  ชื่อเพลง / ชื่อโปรเจกต์
+                </label>
+                <input
+                  id="project-song-name"
+                  type="text"
+                  value={getPlainText(songName)}
+                  onChange={(event) => setSongName(event.target.value)}
+                  disabled={isReadOnly}
+                  maxLength={160}
+                  className="h-12 w-full rounded-xl border border-slate-200 bg-white px-4 text-base font-bold text-slate-800 shadow-sm outline-none transition focus:border-sky-400 focus:ring-2 focus:ring-sky-100 disabled:bg-slate-100 disabled:text-slate-400"
+                  placeholder="พิมพ์ชื่อเพลง"
+                />
+                <p className="mt-1.5 text-[10px] font-medium text-slate-400">ชื่อนี้จะแสดงบนหัวกระดาษและใช้เป็นชื่อโปรเจกต์</p>
+              </section>
+
               <section>
                 <label className="text-sm font-bold text-slate-700 flex items-center gap-2 mb-2">
                   <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" /></svg>
@@ -111,14 +136,14 @@ const SettingsModal = ({ isOpen, onClose }) => {
                 <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm space-y-4">
                   <div className="space-y-2">
                     {headerDetails.map((detail) => (
-                      <div key={detail.id} className="flex gap-2 items-center bg-slate-50 p-2 rounded-md border border-slate-100 group relative">
-                        <button onClick={() => removeDetail(detail.id)} className="absolute -top-2 -right-2 bg-rose-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-[10px] opacity-0 group-hover:opacity-100 transition-opacity z-10">✕</button>
-                        <input type="text" value={detail.label} onChange={(e) => updateDetail(detail.id, 'label', e.target.value)} className="w-1/3 text-xs font-bold text-slate-500 bg-transparent focus:text-sky-600 outline-none" placeholder="หัวข้อ" />
-                        <span className="text-slate-300">:</span>
-                        <input type="text" value={detail.value} onChange={(e) => updateDetail(detail.id, 'value', e.target.value)} className="w-2/3 text-sm text-slate-700 bg-transparent outline-none" placeholder="รายละเอียด" />
+                      <div key={detail.id} className="group relative flex flex-col gap-1 rounded-xl border border-slate-100 bg-slate-50 p-3 pr-12 sm:flex-row sm:items-center sm:gap-2 sm:p-2 sm:pr-8">
+                        <button type="button" onClick={() => removeDetail(detail.id)} disabled={isReadOnly} className="absolute right-2 top-2 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-rose-500 text-xs font-black text-white opacity-100 transition-opacity disabled:opacity-40 sm:-right-2 sm:-top-2 sm:h-6 sm:w-6 sm:opacity-0 sm:group-hover:opacity-100" aria-label="ลบรายละเอียด">✕</button>
+                        <input type="text" value={detail.label} onChange={(e) => updateDetail(detail.id, 'label', e.target.value)} disabled={isReadOnly} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-500 outline-none focus:border-sky-400 focus:text-sky-600 disabled:bg-slate-100 sm:h-auto sm:w-1/3 sm:border-0 sm:bg-transparent sm:px-0" placeholder="หัวข้อ" />
+                        <span className="hidden text-slate-300 sm:inline">:</span>
+                        <input type="text" value={detail.value} onChange={(e) => updateDetail(detail.id, 'value', e.target.value)} disabled={isReadOnly} className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-sky-400 disabled:bg-slate-100 sm:h-auto sm:w-2/3 sm:border-0 sm:bg-transparent sm:px-0" placeholder="รายละเอียด" />
                       </div>
                     ))}
-                    <button onClick={addDetail} className="w-full py-2 border border-dashed border-slate-300 rounded-md text-sm text-slate-500 hover:border-sky-400 hover:text-sky-600 hover:bg-sky-50 transition-all font-semibold flex justify-center items-center gap-1.5">
+                    <button type="button" onClick={addDetail} disabled={isReadOnly} className="flex min-h-11 w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-slate-300 py-2 text-sm font-semibold text-slate-500 transition-all hover:border-sky-400 hover:bg-sky-50 hover:text-sky-600 disabled:bg-slate-100 disabled:text-slate-300">
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
                       เพิ่มข้อมูล
                     </button>
@@ -172,8 +197,8 @@ const SettingsModal = ({ isOpen, onClose }) => {
         </div>
         
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex justify-end">
-          <button onClick={onClose} className="px-6 py-2 bg-sky-500 hover:bg-sky-600 text-white font-bold rounded-lg transition-colors shadow-sm">
+        <div className="flex justify-end border-t border-slate-200 bg-slate-50 px-4 py-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:px-6 sm:py-4">
+          <button type="button" onClick={onClose} className="min-h-11 w-full rounded-xl bg-sky-500 px-6 py-2 font-bold text-white shadow-sm transition-colors hover:bg-sky-600 sm:w-auto">
             เสร็จสิ้น
           </button>
         </div>

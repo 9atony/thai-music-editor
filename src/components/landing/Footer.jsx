@@ -1,5 +1,5 @@
 import React from 'react';
-import logo from '../../assets/logo wep.png';
+import logo from '../../assets/logo-wep.webp';
 import { CONTACT_LINKS } from '../../config/contactLinks';
 
 const Footer = () => {

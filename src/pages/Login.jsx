@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import logoImg from '../assets/logo wep.png';
+import logoImg from '../assets/logo-wep.webp';
 // ⭐ 1. นำเข้ารูปภาพพื้นหลังใหม่จากโฟลเดอร์ assets
-import bgImg from '../assets/bgtme.png'; 
+import bgImg from '../assets/bgtme.webp';
 import { 
   signInWithEmailAndPassword, 
   createUserWithEmailAndPassword, 

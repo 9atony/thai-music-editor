@@ -1,7 +1,7 @@
 import React, { useContext, useEffect, useState } from 'react';
 import { MusicContext } from '../../contexts/MusicContext';
 import PlaybackControls from "../editor/PlaybackControls";
-import logo from '../../assets/logo wep.png';
+import logo from '../../assets/logo-wep.webp';
 import pdfIcon from '../../assets/icons/pdf.png';
 import saveIcon from '../../assets/icons/save.png';
 import newIcon from '../../assets/icons/new.png';

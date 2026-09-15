@@ -1,5 +1,5 @@
 import React from 'react';
-import logo from '../../assets/logo.png';
+import logo from '../../assets/logo.webp';
 import { logoutUser } from '../../utils/firebase';
 
 // ฟังก์ชันตัวช่วยสำหรับสร้างไอคอน SVG แบบเส้น (Outline) เพื่อลดความซ้ำซ้อนของโค้ด

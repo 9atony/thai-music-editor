@@ -1,7 +1,7 @@
 import React from 'react';
 import { CheckCircle2, Cloud, Lock } from 'lucide-react';
 // import รูปเข้ามา (สมมติว่าคุณเซฟรูปไว้ใน assets ชื่อ hero-mockup.png)
-import mockupImage from '../../assets/hero-mockup.png';
+import mockupImage from '../../assets/hero-mockup.webp';
 
 const HeroSection = ({ onLoginClick }) => {
   return (
@@ -60,6 +60,9 @@ const HeroSection = ({ onLoginClick }) => {
              <img 
                src={mockupImage} 
                alt="Thai Music Editor Interface" 
+               width="1280"
+               height="854"
+               decoding="async"
                className="w-full h-auto object-contain drop-shadow-2xl" 
              />
           </div>

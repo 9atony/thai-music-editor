@@ -9,7 +9,7 @@ import {
   renameProjectInDB,
 } from '../utils/firebase';
 import { MusicContext } from '../contexts/MusicContext';
-import TmeIcon from '../assets/icon.png';
+import TmeIcon from '../assets/icon.webp';
 import { FolderKanban } from 'lucide-react';
 import PageHeader from '../components/layout/PageHeader';
 import ProjectStatusBar from '../components/projects/ProjectStatusBar';

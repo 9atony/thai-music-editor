@@ -6,7 +6,7 @@ import { collection, getDocs, query, orderBy, limit } from 'firebase/firestore';
 import { Hand, Sparkles } from 'lucide-react';
 
 import { MusicContext } from '../contexts/MusicContext';
-import TmeIcon from '../assets/icon.png'; 
+import TmeIcon from '../assets/icon.webp';
 import AdminUpdateForm from '../components/AdminUpdateForm'; // 👈 นำเข้าฟอร์มแอดมิน
 import PageHeader from '../components/layout/PageHeader';
 import { APP_METADATA } from '../config/appMetadata';

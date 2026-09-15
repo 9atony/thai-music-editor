@@ -1100,6 +1100,7 @@ export const MusicProvider = ({ children }) => {
       isLoopOne, setIsLoopOne,
       isTempoTrackOpen, setIsTempoTrackOpen,
       isReadOnly,
+      autoSaveStatus,
       userRole, // ⭐ ปล่อยตัวแปร userRole ให้ Keyboard ใช้งาน
 
       ...sheetEditor,

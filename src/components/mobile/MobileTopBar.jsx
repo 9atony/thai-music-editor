@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { collection, limit, onSnapshot, orderBy, query } from 'firebase/firestore';
-import logoImg from '../../assets/logo wep.png';
+import logoImg from '../../assets/logo-wep.webp';
 import { db } from '../../utils/firebase';
 
 const MobileTopBar = ({ currentPage, onPageChange, onMenuClick }) => {

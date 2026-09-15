@@ -1,4 +1,4 @@
-import React, { useContext, useState } from 'react';
+import React, { useContext, useEffect, useRef, useState } from 'react';
 import {
   Check,
   ChevronDown,
@@ -44,6 +44,7 @@ import { MusicContext } from '../../contexts/MusicContext';
 import { useFeatureAccess } from '../../contexts/FeatureAccessContext';
 import { INSTRUMENT_CONFIG } from '../../utils/instrumentConfig';
 import { getFlattenedCol, hasNathapLeadingLabel } from '../../utils/sheetUtils';
+import { resolveMobileTextRowHtml } from '../../utils/mobileEditorContent';
 import {
   CUSTOM_CELL_MAX_LENGTH,
   CUSTOM_KEYBOARD_FEATURE_ID,
@@ -66,6 +67,12 @@ const FONT_OPTIONS = [
 ];
 
 const NOTE_STYLE_KEYS = ['fontSize', 'noteFontFamily', 'isBold', 'isItalic', 'color'];
+
+const getPlainText = (value = '') => {
+  const temp = document.createElement('div');
+  temp.innerHTML = String(value ?? '');
+  return temp.textContent || temp.innerText || '';
+};
 
 const formatNote = (key) => {
   const octaveMatch = key.eng?.match(/\d+/);
@@ -119,6 +126,7 @@ const MobileEditControls = ({ onOpenMetronome, onOpenSettings, onOpenMusicXml, o
     inputCustomText,
     appendCustomTextToCurrentCell,
     updateCellToken,
+    updateTextRow,
     moveSelectionPrev,
     moveSelectionNext,
     undo,
@@ -162,6 +170,7 @@ const MobileEditControls = ({ onOpenMetronome, onOpenSettings, onOpenMusicXml, o
     setIsReduceMode,
     shiftNoteObject,
     userRole,
+    autoSaveStatus,
   } = useContext(MusicContext);
   const [isExpanded, setIsExpanded] = useState(true);
   const [keyboardMode, setKeyboardMode] = useState('notes');
@@ -172,6 +181,11 @@ const MobileEditControls = ({ onOpenMetronome, onOpenSettings, onOpenMusicXml, o
   const [isCellEditorOpen, setIsCellEditorOpen] = useState(false);
   const [cellDraft, setCellDraft] = useState('');
   const [cellDraftMode, setCellDraftMode] = useState('notes');
+  const [cellOriginalHtml, setCellOriginalHtml] = useState('');
+  const [notice, setNotice] = useState(null);
+  const noticeTimerRef = useRef(null);
+
+  useEffect(() => () => window.clearTimeout(noticeTimerRef.current), []);
 
   const hasCell = Array.isArray(selectedCell);
   const selectedInstrumentId = hasCell
@@ -196,6 +210,7 @@ const MobileEditControls = ({ onOpenMetronome, onOpenSettings, onOpenMusicXml, o
   const selectedRow = hasCell ? sheetData?.[selectedCell[0]] : null;
   const selectedRowType = hasCell ? rowTypes?.[selectedCell[0]] : null;
   const selectedMeasure = hasCell ? selectedRow?.[selectedCell[1]] : null;
+  const isSelectedTextRow = hasCell && selectedRowType === 'text';
   const isSelectedLeadingLabel = hasCell && selectedCell[1] === 0 && (
     String(selectedRowType || '').startsWith('double') || hasNathapLeadingLabel(selectedRow, selectedRowType)
   );
@@ -205,6 +220,24 @@ const MobileEditControls = ({ onOpenMetronome, onOpenSettings, onOpenMusicXml, o
     && selectedRowType !== 'text'
     && selectedRowType !== 'page-break'
     && !isSelectedLeadingLabel;
+  const canOpenContentEditor = canEditSelectedToken || isSelectedTextRow;
+  const autoSaveLabel = {
+    saving: 'กำลังบันทึกขึ้น Cloud…',
+    saved: 'บันทึกขึ้น Cloud แล้ว',
+    retrying: 'รอบันทึกขึ้น Cloud ใหม่',
+    error: 'ยังบันทึกขึ้น Cloud ไม่สำเร็จ',
+  }[autoSaveStatus];
+
+  const showNotice = (message, tone = 'success') => {
+    window.clearTimeout(noticeTimerRef.current);
+    setNotice({ message, tone });
+    noticeTimerRef.current = window.setTimeout(() => setNotice(null), 1800);
+  };
+
+  const runWithNotice = (callback, message) => {
+    callback?.();
+    showNotice(message);
+  };
 
   const updateCustomKeys = (nextKeys) => {
     if (!canUseCustomKeyboard || isReadOnly) return;
@@ -402,9 +435,18 @@ const MobileEditControls = ({ onOpenMetronome, onOpenSettings, onOpenMusicXml, o
   };
 
   const openCellEditor = () => {
-    if (!canEditSelectedToken || isReadOnly) return;
+    if (!canOpenContentEditor || isReadOnly) return;
+    if (isSelectedTextRow) {
+      const originalHtml = String(selectedRow?.[0]?.[0] ?? '');
+      setCellOriginalHtml(originalHtml);
+      setCellDraft(getPlainText(originalHtml));
+      setCellDraftMode('text');
+      setIsCellEditorOpen(true);
+      return;
+    }
     const rawToken = selectedMeasure[selectedCell[2]];
     const customText = decodeCustomCellToken(rawToken);
+    setCellOriginalHtml('');
     setCellDraft(customText ?? (rawToken === '-' ? '' : String(rawToken ?? '')));
     setCellDraftMode(customText !== null && canUseCustomKeyboard ? 'custom' : 'notes');
     setIsCellEditorOpen(true);
@@ -412,7 +454,18 @@ const MobileEditControls = ({ onOpenMetronome, onOpenSettings, onOpenMusicXml, o
 
   const saveCellDraft = (event) => {
     event.preventDefault();
-    if (!canEditSelectedToken || isReadOnly) return;
+    if (!canOpenContentEditor || isReadOnly) return;
+    if (cellDraftMode === 'text' && isSelectedTextRow) {
+      const nextValue = resolveMobileTextRowHtml({
+        originalHtml: cellOriginalHtml,
+        originalPlainText: getPlainText(cellOriginalHtml),
+        draft: cellDraft,
+      });
+      updateTextRow?.(selectedCell[0], nextValue);
+      setIsCellEditorOpen(false);
+      showNotice('บันทึกบรรทัดข้อความแล้ว');
+      return;
+    }
     const [rowIndex, measureIndex, cellIndex] = selectedCell;
     const nextToken = cellDraftMode === 'custom' && canUseCustomKeyboard
       ? encodeCustomCellToken(cellDraft)
@@ -421,12 +474,20 @@ const MobileEditControls = ({ onOpenMetronome, onOpenSettings, onOpenMusicXml, o
       preview: cellDraftMode !== 'custom',
     });
     setIsCellEditorOpen(false);
+    showNotice('บันทึกเนื้อหาในช่องแล้ว');
   };
 
   const clearCurrentCell = () => {
-    if (!canEditSelectedToken || isReadOnly) return;
+    if (!canOpenContentEditor || isReadOnly) return;
+    if (isSelectedTextRow) {
+      updateTextRow?.(selectedCell[0], '');
+      setIsCellEditorOpen(false);
+      showNotice('ล้างบรรทัดข้อความแล้ว');
+      return;
+    }
     updateCellToken?.(selectedCell[0], selectedCell[1], selectedCell[2], '-', { preview: false });
     setIsCellEditorOpen(false);
+    showNotice('ล้างช่องแล้ว');
   };
 
   const addMobileSymbol = (type) => {
@@ -451,12 +512,14 @@ const MobileEditControls = ({ onOpenMetronome, onOpenSettings, onOpenMusicXml, o
     setSelectionRange?.(null);
     setSelectedSymbolId?.(symbolId);
     window.dispatchEvent(new CustomEvent('tme-open-symbol-panel', { detail: { type } }));
+    showNotice(type === 'kro' ? 'เพิ่มเส้นกรอแล้ว' : 'เพิ่มเส้นสะบัดแล้ว');
   };
 
   const deleteSelectedSymbol = () => {
     if (!selectedSymbol || isReadOnly) return;
     removeSymbol?.(selectedSymbol.id);
     setSelectedSymbolId?.(null);
+    showNotice('ลบเส้นสัญลักษณ์แล้ว');
   };
 
   return (
@@ -467,7 +530,9 @@ const MobileEditControls = ({ onOpenMetronome, onOpenSettings, onOpenMusicXml, o
         </button>
         <div className="min-w-0 flex-1 text-center">
           <p className="truncate text-xs font-black text-slate-700">{selectedLabel}</p>
-          <p className="mt-0.5 text-[9px] font-semibold text-slate-400">{displayInstrument?.name || 'เครื่องดนตรีไทย'}</p>
+          <p className={`mt-0.5 text-[9px] font-semibold ${autoSaveStatus === 'error' || autoSaveStatus === 'retrying' ? 'text-amber-600' : 'text-slate-400'}`}>
+            {autoSaveLabel || displayInstrument?.name || 'เครื่องดนตรีไทย'}
+          </p>
         </div>
         <button type="button" onClick={moveSelectionNext} disabled={!hasCell} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-600 disabled:opacity-40" aria-label="ไปช่องถัดไป">
           <ChevronRight size={22} />
@@ -526,11 +591,11 @@ const MobileEditControls = ({ onOpenMetronome, onOpenSettings, onOpenMusicXml, o
             <SmallAction icon={Undo2} label="ย้อนกลับ" onClick={undo} disabled={!canUndo || isReadOnly} />
             <SmallAction icon={Redo2} label="ทำซ้ำ" onClick={redo} disabled={!canRedo || isReadOnly} />
             <SmallAction icon={isPlaying ? Pause : Play} label={isPlaying ? 'หยุด' : 'เล่น'} onClick={togglePlay} active={isPlaying} />
-            <SmallAction icon={Save} label="บันทึก" onClick={saveProject} />
-            <SmallAction icon={Pencil} label="แก้ในช่อง" onClick={openCellEditor} disabled={!canEditSelectedToken || isReadOnly} />
-            <SmallAction icon={Copy} label="คัดลอก" onClick={copySelection} disabled={!hasCell || isReadOnly} />
-            <SmallAction icon={Scissors} label="ตัด" onClick={cutSelection} disabled={!hasCell || isReadOnly} />
-            <SmallAction icon={ClipboardPaste} label="วาง" onClick={pasteSelection} disabled={!hasCell || isReadOnly} />
+            <SmallAction icon={Save} label="บันทึก" onClick={() => runWithNotice(saveProject, 'ดาวน์โหลดไฟล์ .tme แล้ว')} />
+            <SmallAction icon={Pencil} label={isSelectedTextRow ? 'แก้ข้อความ' : 'แก้ในช่อง'} onClick={openCellEditor} disabled={!canOpenContentEditor || isReadOnly} />
+            <SmallAction icon={Copy} label="คัดลอก" onClick={() => runWithNotice(copySelection, 'คัดลอกแล้ว')} disabled={!hasCell || isReadOnly} />
+            <SmallAction icon={Scissors} label="ตัด" onClick={() => runWithNotice(cutSelection, 'ตัดแล้ว')} disabled={!hasCell || isReadOnly} />
+            <SmallAction icon={ClipboardPaste} label="วาง" onClick={() => runWithNotice(pasteSelection, 'วางแล้ว')} disabled={!hasCell || isReadOnly} />
             <SmallAction icon={Waves} label="เพิ่มสะบัด" onClick={() => addMobileSymbol('sabat')} disabled={!canCreateSymbol || isReadOnly} />
             <SmallAction icon={AudioLines} label="เพิ่มกรอ" onClick={() => addMobileSymbol('kro')} disabled={!canCreateSymbol || isReadOnly} />
             {selectedSymbol && <SmallAction icon={Trash2} label="ลบเส้น" onClick={deleteSelectedSymbol} disabled={isReadOnly} danger />}
@@ -647,8 +712,8 @@ const MobileEditControls = ({ onOpenMetronome, onOpenSettings, onOpenMusicXml, o
               <SmallAction icon={FilePlus2} label="โปรเจกต์ใหม่" onClick={() => openPanel(newProject)} />
               <FileAction icon={FolderOpen} label="เปิดไฟล์ .tme" accept=".thai,.tme,.json" onFile={(file) => openPanel(() => loadProject?.(file))} />
               <FileAction icon={Upload} label="นำเข้า TXML" accept=".txml,application/xml,text/xml" onFile={(file) => openPanel(() => importThaiMusicXml?.(file))} />
-              <SmallAction icon={Save} label="บันทึก .tme" onClick={() => openPanel(saveProject)} />
-              {canAccess('export-txml', userRole) && <SmallAction icon={Download} label="ส่งออก TXML" onClick={() => openPanel(exportThaiMusicXml)} />}
+              <SmallAction icon={Save} label="บันทึก .tme" onClick={() => { openPanel(saveProject); showNotice('ดาวน์โหลดไฟล์ .tme แล้ว'); }} />
+              {canAccess('export-txml', userRole) && <SmallAction icon={Download} label="ส่งออก TXML" onClick={() => { openPanel(exportThaiMusicXml); showNotice('ส่งออก TXML แล้ว'); }} />}
               {canAccess('export-musicxml', userRole) && <SmallAction icon={Music2} label="MusicXML" onClick={() => openPanel(onOpenMusicXml)} />}
               {canAccess('export-pdf', userRole) && <SmallAction icon={FileDown} label="ส่งออก PDF" onClick={() => openPanel(() => { stopPlayback?.(); onPrint?.(); })} />}
             </div>
@@ -672,31 +737,48 @@ const MobileEditControls = ({ onOpenMetronome, onOpenSettings, onOpenMusicXml, o
           <form className="w-full rounded-t-3xl bg-white p-4 pb-8 shadow-2xl" onSubmit={saveCellDraft} onClick={(event) => event.stopPropagation()}>
             <div className="mb-4 flex items-center justify-between">
               <div>
-                <h3 className="text-lg font-black text-slate-900">แก้เนื้อหาในช่อง</h3>
-                <p className="text-xs font-semibold text-slate-400">พิมพ์โน้ตหลายตัวหรือข้อความกำหนดเองได้โดยตรง</p>
+                <h3 className="text-lg font-black text-slate-900">{cellDraftMode === 'text' ? 'แก้บรรทัดข้อความ' : 'แก้เนื้อหาในช่อง'}</h3>
+                <p className="text-xs font-semibold text-slate-400">{cellDraftMode === 'text' ? 'พิมพ์ข้อความยาวได้โดยไม่ต้องแตะตัวอักษรเล็กบนกระดาษ' : 'พิมพ์โน้ตหลายตัวหรือข้อความกำหนดเองได้โดยตรง'}</p>
               </div>
               <button type="button" onClick={() => setIsCellEditorOpen(false)} className="flex h-11 w-11 items-center justify-center rounded-full bg-slate-100 text-slate-500" aria-label="ปิด"><X size={22} /></button>
             </div>
-            <div className="mb-3 grid grid-cols-2 gap-2">
+            {cellDraftMode !== 'text' && <div className="mb-3 grid grid-cols-2 gap-2">
               <button type="button" onClick={() => setCellDraftMode('notes')} className={`h-12 rounded-xl border text-sm font-black ${cellDraftMode === 'notes' ? 'border-sky-500 bg-sky-500 text-white' : 'border-slate-200 bg-white text-slate-600'}`}>ตัวโน้ต</button>
               <button type="button" onClick={() => setCellDraftMode('custom')} disabled={!canUseCustomKeyboard} className={`h-12 rounded-xl border text-sm font-black disabled:opacity-40 ${cellDraftMode === 'custom' ? 'border-violet-500 bg-violet-500 text-white' : 'border-slate-200 bg-white text-slate-600'}`}>คำกำหนดเอง</button>
-            </div>
-            <input
-              value={cellDraft}
-              onChange={(event) => setCellDraft(event.target.value)}
-              maxLength={cellDraftMode === 'custom' ? CUSTOM_CELL_MAX_LENGTH : 32}
-              autoFocus
-              enterKeyHint="done"
-              placeholder={cellDraftMode === 'custom' ? 'พิมพ์คำที่ต้องการแสดงในช่อง' : 'เช่น ดรมฟ หรือ - สำหรับช่องว่าง'}
-              className="h-16 w-full rounded-2xl border-2 border-sky-200 bg-sky-50 px-4 text-center text-xl font-black text-slate-800 outline-none focus:border-sky-500"
-            />
-            <p className="mt-2 text-center text-[10px] font-bold text-slate-400">ช่องว่างจะถูกบันทึกเป็นเครื่องหมายพักเสียง −</p>
+            </div>}
+            {cellDraftMode === 'text' ? (
+              <textarea
+                value={cellDraft}
+                onChange={(event) => setCellDraft(event.target.value)}
+                maxLength={1000}
+                autoFocus
+                rows={5}
+                placeholder="พิมพ์ข้อความที่ต้องการแสดงในบรรทัด"
+                className="w-full resize-none rounded-2xl border-2 border-sky-200 bg-sky-50 p-4 text-base font-semibold leading-7 text-slate-800 outline-none focus:border-sky-500"
+              />
+            ) : (
+              <input
+                value={cellDraft}
+                onChange={(event) => setCellDraft(event.target.value)}
+                maxLength={cellDraftMode === 'custom' ? CUSTOM_CELL_MAX_LENGTH : 32}
+                autoFocus
+                enterKeyHint="done"
+                placeholder={cellDraftMode === 'custom' ? 'พิมพ์คำที่ต้องการแสดงในช่อง' : 'เช่น ดรมฟ หรือ - สำหรับช่องว่าง'}
+                className="h-16 w-full rounded-2xl border-2 border-sky-200 bg-sky-50 px-4 text-center text-xl font-black text-slate-800 outline-none focus:border-sky-500"
+              />
+            )}
+            <p className="mt-2 text-center text-[10px] font-bold text-slate-400">{cellDraftMode === 'text' ? 'รองรับข้อความหลายบรรทัด สูงสุด 1,000 ตัวอักษร' : 'ช่องว่างจะถูกบันทึกเป็นเครื่องหมายพักเสียง −'}</p>
             <div className="mt-4 grid grid-cols-3 gap-2">
               <button type="button" onClick={() => setIsCellEditorOpen(false)} className="h-12 rounded-xl border border-slate-200 bg-white text-sm font-black text-slate-600">ยกเลิก</button>
               <button type="button" onClick={clearCurrentCell} className="h-12 rounded-xl border border-rose-200 bg-rose-50 text-sm font-black text-rose-600">ล้างช่อง</button>
               <button type="submit" className="h-12 rounded-xl bg-sky-500 text-sm font-black text-white shadow-lg shadow-sky-500/20">บันทึก</button>
             </div>
           </form>
+        </div>
+      )}
+      {notice && (
+        <div className={`fixed left-1/2 top-[max(1rem,env(safe-area-inset-top))] z-[220] flex min-h-11 -translate-x-1/2 items-center gap-2 whitespace-nowrap rounded-full px-4 py-2 text-xs font-black text-white shadow-xl ${notice.tone === 'error' ? 'bg-rose-600' : 'bg-emerald-600'}`} role="status" aria-live="polite">
+          <Check size={17} /> {notice.message}
         </div>
       )}
     </footer>
