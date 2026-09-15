@@ -33,7 +33,21 @@ export default function RanatDictionary() {
   };
 
   useEffect(() => {
-    fetchDictionaries();
+    let active = true;
+    getDocs(collection(db, "ranat_dictionary"))
+      .then((querySnapshot) => {
+        if (!active) return;
+        const dicts = querySnapshot.docs.map(snapshot => ({
+          id: snapshot.id,
+          ...snapshot.data()
+        }));
+        dicts.sort((a, b) => b.timestamp - a.timestamp);
+        setSavedDicts(dicts);
+      })
+      .catch((error) => console.error("Error fetching dictionaries: ", error));
+    return () => {
+      active = false;
+    };
   }, []);
 
   const handleDelete = async (id, e) => {
@@ -100,7 +114,7 @@ export default function RanatDictionary() {
         setSongName(stripHtml(songName) || "ไม่ทราบชื่อเพลง");
         switchView('preview');
         setIsSidebarOpen(false); // ปิดเมนูบนมือถือเมื่ออัปโหลดเสร็จ
-      } catch (err) {
+      } catch {
         alert("รูปแบบไฟล์ไม่ถูกต้อง หรือไม่พบข้อมูล");
       }
     };

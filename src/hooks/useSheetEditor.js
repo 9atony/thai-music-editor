@@ -3,7 +3,7 @@ import { useState, useRef, useEffect } from 'react';
 import {
   getFlattenedCol, normalizeCellToken, splitThaiNoteToken, getIntervalPair,
   shiftNoteString, createDefaultSheetData, createDefaultRowTypes, createDefaultRowMargins,
-  normalizeNathapRowData, hasNathapLeadingLabel
+  hasNathapLeadingLabel
 } from '../utils/sheetUtils.js';
 import { INSTRUMENT_CONFIG } from '../utils/instrumentConfig.js';
 import { insertMeasureWithLogicalRowSplit } from '../utils/sheetRowSplit.js';
@@ -473,7 +473,9 @@ export const useSheetEditor = ({
         const parsed = JSON.parse(text);
         if (parsed && parsed.type === 'TME_CLIPBOARD') payload = parsed.data; 
       }
-    } catch (err) {}
+    } catch {
+      // Fall back to the in-memory clipboard when browser clipboard access is denied.
+    }
 
     if (!payload) return;
     
@@ -764,12 +766,12 @@ export const useSheetEditor = ({
     else if (isFirstHalf) setSelectedCell([insertIdx + 2, 0, 0]); 
   };
 
-  const addPageBreak = (insertAtTop = null) => {
+  const addPageBreak = () => {
     if (isReadOnlyRef.current) return;
     if (isPlayingRef?.current) stopPlayback(); 
     setSelectionRange(null);
     
-    const [rIdx, mIdx] = selectedCell;
+    const [rIdx] = selectedCell;
     let insertIdx;
 
     if (rowTypes[rIdx] === 'page-break') {

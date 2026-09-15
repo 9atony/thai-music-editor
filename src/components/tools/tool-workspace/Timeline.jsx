@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import { useWorkspace, MIN_TRACK_LANE_HEIGHT, MAX_TRACK_LANE_HEIGHT, DEFAULT_TRACK_LANE_HEIGHT, COLLAPSED_TRACK_HEIGHT, MIN_VIEWPORT_FOR_NOTES } from '../../../contexts/WorkspaceContext';
 import TimelineClip from './TimelineClip'; // ⭐ นำเข้า Component ลูกที่เราเพิ่งสร้าง
 
@@ -261,7 +261,7 @@ export default function Timeline() {
     setResizeInfo({ trackId, clipId, edge, startX: e.clientX, initialStart, initialWidth });
   };
 
-  const handleMouseMove = (e) => {
+  const handleMouseMove = useEffectEvent((e) => {
     if (dragInfo) {
       const container = scrollContainerRef.current;
       if (!container) return;
@@ -305,7 +305,7 @@ export default function Timeline() {
         });
       }
     }
-  };
+  });
 
   const handleMouseUp = () => {
     // Do not calculate the position again here. Re-snapping on mouseup was the
@@ -316,8 +316,10 @@ export default function Timeline() {
     setMarquee(null);
   };
 
+  const hasPointerInteraction = Boolean(dragInfo || resizeInfo || marquee);
+
   useEffect(() => {
-    if (!dragInfo && !resizeInfo && !marquee) return undefined;
+    if (!hasPointerInteraction) return undefined;
     const onMouseMove = (event) => handleMouseMove(event);
     const onMouseUp = (event) => handleMouseUp(event);
     document.addEventListener('mousemove', onMouseMove);
@@ -326,7 +328,7 @@ export default function Timeline() {
       document.removeEventListener('mousemove', onMouseMove);
       document.removeEventListener('mouseup', onMouseUp);
     };
-  }, [dragInfo, resizeInfo, marquee, measureWidth, snapGrid, totalMeasures]);
+  }, [hasPointerInteraction]);
 
   const beginSymbolDrag = (selection, event) => {
     if (!notationSymbolTool) return;
@@ -418,35 +420,37 @@ export default function Timeline() {
     setTimelineMenu(null);
   };
 
+  const handleTimelineKeyDown = useEffectEvent((event) => {
+    if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+    const target = event.target;
+    if (target instanceof HTMLElement && target.closest('input, textarea, select, [contenteditable="true"]')) return;
+    // Use the physical-key code so Ctrl/Cmd shortcuts work with both Thai
+    // and English keyboard layouts.
+    if (event.code === 'KeyC') {
+      const selected = getSelectedClips()[0];
+      if (!selected) return;
+      event.preventDefault();
+      copyTimelineClip(selected.clipId);
+      return;
+    }
+    if (event.code === 'KeyV') {
+      const fallback = selectedNotationCell ? (() => {
+        const track = tracks.find((item) => item.id === selectedNotationCell.trackId);
+        const clip = track?.clips.find((item) => item.id === selectedNotationCell.clipId);
+        return track && clip ? { trackId: track.id, start: Number(clip.start) + Number(clip.width) } : null;
+      })() : null;
+      const immediateTarget = pasteTargetRef.current || pasteTarget || fallback;
+      if (!(hasClipboard || hasTimelineClipboardRef.current) || !immediateTarget) return;
+      event.preventDefault();
+      pasteAtTarget(immediateTarget);
+    }
+  });
+
   useEffect(() => {
-    const onKeyDown = (event) => {
-      if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
-      const target = event.target;
-      if (target instanceof HTMLElement && target.closest('input, textarea, select, [contenteditable="true"]')) return;
-      // Use the physical-key code so Ctrl/Cmd shortcuts work with both Thai
-      // and English keyboard layouts.
-      if (event.code === 'KeyC') {
-        const selected = getSelectedClips()[0];
-        if (!selected) return;
-        event.preventDefault();
-        copyTimelineClip(selected.clipId);
-        return;
-      }
-      if (event.code === 'KeyV') {
-        const fallback = selectedNotationCell ? (() => {
-          const track = tracks.find((item) => item.id === selectedNotationCell.trackId);
-          const clip = track?.clips.find((item) => item.id === selectedNotationCell.clipId);
-          return track && clip ? { trackId: track.id, start: Number(clip.start) + Number(clip.width) } : null;
-        })() : null;
-        const immediateTarget = pasteTargetRef.current || pasteTarget || fallback;
-        if (!(hasClipboard || hasTimelineClipboardRef.current) || !immediateTarget) return;
-        event.preventDefault();
-        pasteAtTarget(immediateTarget);
-      }
-    };
+    const onKeyDown = (event) => handleTimelineKeyDown(event);
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [clipSelection, copiedClipWidth, hasClipboard, pasteTarget, selectedNotationCell, tracks]);
+  }, []);
 
   const openClipMenu = (clipId, e) => { e.stopPropagation(); setClipMenu({ clipId, x: e.clientX, y: e.clientY }); };
   const closeClipMenu = () => setClipMenu(null);

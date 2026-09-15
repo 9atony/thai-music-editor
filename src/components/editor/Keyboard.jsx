@@ -33,7 +33,7 @@ const Keyboard = () => {
     currentInstrument, changeInstrument, inputNote, layoutConfig,
     addRow, removeRow, addDoubleRow,
     addMeasure, removeMeasure, addNoteColumn, removeNoteColumn,
-    copySelection, pasteSelection, cutSelection, clipboardData, addPageBreak,
+    copySelection, pasteSelection, cutSelection, addPageBreak,
     intervalMode, setIntervalMode,
     isReduceMode, setIsReduceMode, shiftNoteObject,
     isShowPlayMode, setIsShowPlayMode,
@@ -100,7 +100,9 @@ const Keyboard = () => {
         buttons.forEach((btn) => {
           btn.classList.remove('lit-left', 'lit-right', 'lit-single');
         });
-      } catch (_) {}
+      } catch {
+        // Visual key feedback is best-effort when the editor is unmounting.
+      }
     };
 
     const flashKey = (idx, hand) => {

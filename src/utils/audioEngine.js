@@ -135,8 +135,8 @@ const createBufferedSource = (buffer, volumeLevel, whenSec, destination, sampleG
   activeSources.add(source);
   source.onended = () => {
     activeSources.delete(source);
-    try { source.disconnect(); } catch (_) {}
-    try { gainNode.disconnect(); } catch (_) {}
+    try { source.disconnect(); } catch { /* Already disconnected. */ }
+    try { gainNode.disconnect(); } catch { /* Already disconnected. */ }
   };
 
   source.start(startAt);
@@ -196,7 +196,9 @@ export const initAudioContext = async () => {
       warmSrc.start(0);
       ctx._warmed = true;
     }
-  } catch (_) {}
+  } catch {
+    // Audio warm-up is best-effort on browsers that restrict autoplay.
+  }
   return ctx;
 };
 
@@ -331,7 +333,7 @@ export const connectClipGain = (clipId, trackGain) => {
   if (!g) return;
   if (g._dest !== trackGain) {
     if (g._dest) {
-      try { g.disconnect(g._dest); } catch (_) {}
+      try { g.disconnect(g._dest); } catch { /* Already disconnected. */ }
     }
     g.connect(trackGain);
     g._dest = trackGain;
@@ -506,7 +508,9 @@ export const stopAllScheduledNotes = ({ excludeGroupId = null } = {}) => {
             gainNode.gain.setValueAtTime(nowVal, startTime);
             gainNode.gain.linearRampToValueAtTime(0.0001, startTime + release);
           }
-        } catch (_) {}
+        } catch {
+          // Ignore automation errors for sources that already ended.
+        }
       }
 
       // ⭐ แก้บั๊กเสียงปนกัน: scheduler จองโน้ตล่วงหน้า ~1.5 วิ (lookahead)
@@ -514,7 +518,7 @@ export const stopAllScheduledNotes = ({ excludeGroupId = null } = {}) => {
       //    ทำให้โน้ตนั้นไม่ถูกยกเลิก แล้วยังเล่นต่อเมื่อกดเล่นใหม่ → เสียงซ้อนกัน
       //    วิธีแก้: หยุดที่เวลาหลัง start เสมอ (s + 0.001) เพื่อให้หยุดได้จริง
       source.stop(endStopTime);
-    } catch (_) {
+    } catch {
       // ignore already-ended sources
     }
     activeSources.delete(source);
@@ -562,7 +566,7 @@ let playbackOwnerStop = null;
 
 export const claimPlaybackOwnership = (stopFn) => {
   if (playbackOwnerStop && playbackOwnerStop !== stopFn) {
-    try { playbackOwnerStop(); } catch (_) {}
+    try { playbackOwnerStop(); } catch { /* Playback may already be stopped. */ }
   }
   playbackOwnerStop = stopFn;
 };

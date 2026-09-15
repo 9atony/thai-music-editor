@@ -539,6 +539,8 @@ export const WorkspaceProvider = ({ children }) => {
   const [isOctavePairEnabled, setIsOctavePairEnabled] = useState(false);
   const [currentProjectId, setCurrentProjectId] = useState(null);
   const [saveStatus, setSaveStatus] = useState('saved');
+  const [saveError, setSaveError] = useState('');
+  const [saveRetryRevision, setSaveRetryRevision] = useState(0);
   const [isProjectReady, setIsProjectReady] = useState(false);
 
   const playbackRef = useRef({ rafId: null, startedAt: 0, durationSec: 0 });
@@ -547,6 +549,8 @@ export const WorkspaceProvider = ({ children }) => {
   const clipboardRef = useRef(null);
   const [hasClipboard, setHasClipboard] = useState(false);
   const workspaceSnapshotRef = useRef(null);
+  const saveRetryAttemptRef = useRef(0);
+  const saveRetryTimerRef = useRef(null);
   const historyRef = useRef({ undo: [], redo: [], committed: null, pending: null, timer: null, restoring: false, skipNext: false });
   const historySnapshotRef = useRef(null);
   const [historyRevision, setHistoryRevision] = useState(0);
@@ -746,10 +750,10 @@ export const WorkspaceProvider = ({ children }) => {
   const hiddenPlaybackPositionRef = useRef(null);
   const visibilityResumeInFlightRef = useRef(false);
 
-  const setCurrentTimeWrapper = (t) => {
+  const setCurrentTimeWrapper = useCallback((t) => {
     currentTimeRef.current = t;
     setCurrentTime(t);
-  };
+  }, []);
 
   const getPlaybackPosition = useCallback(() => {
     if (playbackRef.current.rafId && playbackRef.current.startAudioTime != null) {
@@ -788,9 +792,9 @@ export const WorkspaceProvider = ({ children }) => {
     releasePlaybackOwnership(stopPlaybackRef.current);
   }, []);
 
-  const returnToPlaybackStart = () => {
+  const returnToPlaybackStart = useCallback(() => {
     setCurrentTimeWrapper(Math.max(0, Number(playbackRef.current.startTime) || 0));
-  };
+  }, [setCurrentTimeWrapper]);
 
   useEffect(() => () => {
     stopPlayback();
@@ -1022,7 +1026,7 @@ export const WorkspaceProvider = ({ children }) => {
       document.removeEventListener('visibilitychange', resumeArrangerAfterTabSwitch);
       window.removeEventListener('focus', resumeArrangerAfterTabSwitch);
     };
-  }, [getPlaybackPosition]);
+  }, [getPlaybackPosition, setCurrentTimeWrapper]);
 
   useEffect(() => {
     const onKeyDown = (event) => {
@@ -1051,7 +1055,7 @@ export const WorkspaceProvider = ({ children }) => {
     };
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, []);
+  }, [returnToPlaybackStart]);
 
   // ⭐ 3. ระบบซิงค์ระดับเสียง (Gain) กับ AudioEngine ทันทีที่ State มีการเปลี่ยนแปลง
   // ลดอาการหน่วง เพราะให้ React จับตาดู tracks แล้วอัปเดตตรงไปที่ระบบเสียงทันที
@@ -1337,7 +1341,7 @@ export const WorkspaceProvider = ({ children }) => {
       return {
         ...track,
         clips: [...track.clips, {
-          id: clipId, start: validStart, width: 2, name: 'โน้ตใหม่', sectionLabel: 'manual', loops: 1,
+          id: clipId, start: validStart, name: 'โน้ตใหม่', sectionLabel: 'manual', loops: 1,
           notesPreview: [], sourceInstrumentId: track.instrumentId,
           width: 8,
           playback: { measureCount: 8, durationSec: getEditorMeasureDurationSec(bpm) * 8, events: [], notationMeasures: createNotationMeasures(8) },
@@ -1753,6 +1757,7 @@ export const WorkspaceProvider = ({ children }) => {
     const uid = auth.currentUser?.uid;
     if (!uid) return false;
     setSaveStatus('saving');
+    setSaveError('');
     try {
       let projectId = currentProjectId;
       if (!projectId) {
@@ -1763,14 +1768,35 @@ export const WorkspaceProvider = ({ children }) => {
         setIsProjectReady(true);
       }
       await saveArrangerProject(uid, projectId, workspaceSnapshotRef.current);
+      if (saveRetryTimerRef.current) window.clearTimeout(saveRetryTimerRef.current);
+      saveRetryTimerRef.current = null;
+      saveRetryAttemptRef.current = 0;
       setSaveStatus('saved');
       return true;
     } catch (error) {
       console.error('บันทึกโปรเจกต์จัดวงไม่สำเร็จ:', error);
+      const projectTooLarge = error.message === 'PROJECT_TOO_LARGE';
+      setSaveError(projectTooLarge
+        ? 'โปรเจกต์มีขนาดใหญ่เกินไป กรุณา Export เก็บไว้แล้วแบ่งข้อมูลเป็นหลายโปรเจกต์'
+        : 'ยังบันทึกขึ้น Cloud ไม่สำเร็จ ระบบจะลองใหม่อัตโนมัติ');
+      if (!projectTooLarge) {
+        const retryDelays = [1000, 3000, 10000, 30000];
+        const retryIndex = Math.min(saveRetryAttemptRef.current, retryDelays.length - 1);
+        saveRetryAttemptRef.current += 1;
+        if (saveRetryTimerRef.current) window.clearTimeout(saveRetryTimerRef.current);
+        saveRetryTimerRef.current = window.setTimeout(() => {
+          saveRetryTimerRef.current = null;
+          setSaveRetryRevision((revision) => revision + 1);
+        }, retryDelays[retryIndex]);
+      }
       setSaveStatus('error');
       return false;
     }
   }, [currentProjectId]);
+
+  useEffect(() => () => {
+    if (saveRetryTimerRef.current) window.clearTimeout(saveRetryTimerRef.current);
+  }, []);
 
   useEffect(() => {
     if (!isProjectReady) return undefined;
@@ -1792,6 +1818,7 @@ export const WorkspaceProvider = ({ children }) => {
     isProjectReady,
     currentProjectId,
     saveProject,
+    saveRetryRevision,
   ]);
 
   const importWorkspace = (fileContent) => {
@@ -1837,6 +1864,7 @@ export const WorkspaceProvider = ({ children }) => {
     currentProjectId,
     saveProject,
     saveStatus,
+    saveError,
     isPlaying,
     setIsPlaying,
     startPlayback,

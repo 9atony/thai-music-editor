@@ -141,7 +141,7 @@ const VelocityTab = () => {
     if (activeCells.length > 0 && activeCells[0].velocity !== undefined) {
       setFlatVol(activeCells[0].velocity);
     }
-  }, [selectionLimits]);
+  }, [activeCells]);
 
   // ⭐ อัปเกรดฟังก์ชันให้รับ Payload การแก้ไขเข้ามาแทน state ตัวเก่า (เพื่อความ Real-time)
   const applyVelocityToSelection = (mode, val = null, smartPayload = {}) => {

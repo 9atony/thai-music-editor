@@ -2,9 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
+  FIRESTORE_SAFE_DOCUMENT_LIMIT_BYTES,
   FREE_PROJECT_LIMIT,
   PREMIUM_STORAGE_LIMIT_BYTES,
   applyStorageMutation,
+  assertProjectDocumentSize,
   assertProjectQuota,
   createProjectStorageDocuments,
   parseStoredSheetData,
@@ -146,6 +148,14 @@ test('free quota rejects only a count over the limit', () => {
 test('premium quota rejects bytes over the limit', () => {
   assert.doesNotThrow(() => assertProjectQuota({ role: 'premium', projectCount: 999, storageUsedBytes: PREMIUM_STORAGE_LIMIT_BYTES }));
   assert.throws(() => assertProjectQuota({ role: 'premium', projectCount: 1, storageUsedBytes: PREMIUM_STORAGE_LIMIT_BYTES + 1 }), /STORAGE_LIMIT_EXCEEDED/);
+});
+
+test('a single project document keeps a safety margin below the Firestore hard limit', () => {
+  assert.doesNotThrow(() => assertProjectDocumentSize(FIRESTORE_SAFE_DOCUMENT_LIMIT_BYTES));
+  assert.throws(
+    () => assertProjectDocumentSize(FIRESTORE_SAFE_DOCUMENT_LIMIT_BYTES + 1),
+    /PROJECT_TOO_LARGE/,
+  );
 });
 
 test('.tme editor payload survives a storage round trip unchanged', () => {

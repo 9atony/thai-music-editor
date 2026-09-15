@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import React, { createContext, useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { INSTRUMENT_CONFIG } from '../utils/instrumentConfig';
 import { playNote } from '../utils/audioEngine';
@@ -8,7 +9,8 @@ import { countDevEvent, startDevTiming } from '../utils/devPerformance';
 
 import {
   getFlattenedCol, createDefaultLayoutConfig, createDefaultHeaderDetails,
-  DEFAULT_INSTRUMENT, shiftNoteObject, shiftNoteString, normalizeNathapRowData, hasNathapLeadingLabel
+  createDefaultRowTypes, DEFAULT_INSTRUMENT, shiftNoteObject, shiftNoteString,
+  normalizeNathapRowData, hasNathapLeadingLabel
 } from '../utils/sheetUtils';
 import { useSheetEditor } from '../hooks/useSheetEditor';
 import { useAudioPlayback } from '../hooks/useAudioPlayback';
@@ -60,6 +62,8 @@ export const MusicProvider = ({ children }) => {
   const [isTempoTrackOpen, setIsTempoTrackOpen] = useState(false);
 
   const [pendingAction, setPendingAction] = useState({ isOpen: false, type: null, payload: null });
+  const [autoSaveStatus, setAutoSaveStatus] = useState('idle');
+  const [recoveryFailure, setRecoveryFailure] = useState(null);
   const [isReadOnly, setIsReadOnly] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
   const [projectLoadEpoch, setProjectLoadEpoch] = useState(0);
@@ -87,6 +91,7 @@ export const MusicProvider = ({ children }) => {
     const coordinator = createAutosaveCoordinator({
       delayMs: 2000,
       save: async (task, revision) => {
+        setAutoSaveStatus((current) => current === 'retrying' ? current : 'saving');
         countDevEvent('project.autosaveRequests', 1, { revision });
         const finishTiming = startDevTiming('project.autosave', {
           revision,
@@ -105,6 +110,7 @@ export const MusicProvider = ({ children }) => {
               setProjectId(id);
             }
           }
+          setAutoSaveStatus('saved');
           finishTiming({ success: true });
         } catch (error) {
           finishTiming({ success: false, error: error.message });
@@ -113,12 +119,20 @@ export const MusicProvider = ({ children }) => {
       },
       onError: (error) => {
         if (error.message === 'STORAGE_LIMIT_EXCEEDED') {
+          setAutoSaveStatus('error');
           isReadOnlyRef.current = true;
           setIsReadOnly(true);
           setProjectId(null);
           setPendingAction({ isOpen: true, type: 'STORAGE_LIMIT', payload: null });
+          return false;
+        } else if (error.message === 'PROJECT_TOO_LARGE') {
+          setAutoSaveStatus('error');
+          setPendingAction({ isOpen: true, type: 'PROJECT_TOO_LARGE', payload: null });
+          return false;
         } else {
           console.error('Auto-save failed:', error);
+          setAutoSaveStatus('retrying');
+          return true;
         }
       }
     });
@@ -128,6 +142,16 @@ export const MusicProvider = ({ children }) => {
       autosaveCoordinatorRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    if (autoSaveStatus !== 'retrying') return undefined;
+    const warnBeforeUnload = (event) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warnBeforeUnload);
+    return () => window.removeEventListener('beforeunload', warnBeforeUnload);
+  }, [autoSaveStatus]);
 
   const beginProjectLoad = () => {
     if (loadFinishTimerRef.current) clearTimeout(loadFinishTimerRef.current);
@@ -697,9 +721,19 @@ export const MusicProvider = ({ children }) => {
     const a = document.createElement('a'); a.href = url; a.download = `${projectName || 'my-song'}.tme`; a.click(); URL.revokeObjectURL(url);
   };
 
+  const downloadRecoveryFailure = () => {
+    if (!recoveryFailure) return;
+    const url = URL.createObjectURL(new Blob([recoveryFailure], { type: 'application/json' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `thai-music-editor-recovery-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   const autoSaveToFirebase = async (data, currentProjectId) => {
     const uid = user?.uid || auth.currentUser?.uid;
-    if (!uid) return;
+    if (!uid) return false;
     return autosaveCoordinatorRef.current?.saveNow({
       uid,
       userProfile,
@@ -752,7 +786,7 @@ export const MusicProvider = ({ children }) => {
         setProjectName(loadName);
         setSongName(data.songName || loadName);
         
-        const restoredRowTypes = data.rowTypes || createDefaultRowTypes();
+        const restoredRowTypes = Array.isArray(data.rowTypes) ? data.rowTypes : createDefaultRowTypes();
         const restoredSheetData = Array.isArray(data.sheetData) ? data.sheetData.map((row, rIdx) => {
             if (restoredRowTypes[rIdx] === 'nathap') {
               let parentRIdx = rIdx - 1;
@@ -775,14 +809,18 @@ export const MusicProvider = ({ children }) => {
         if (data.isShowPlayMode !== undefined) setIsShowPlayMode(data.isShowPlayMode); 
 
         const loadedMargins = data.rowMargins || Array(restoredSheetData?.length || 4).fill({ top: 0, bottom: 0, left: 0 });
-        sheetEditor.commitChange(restoredSheetData || sheetEditor.sheetData, data.rowTypes || sheetEditor.rowTypes, data.sectionLabels || sheetEditor.sectionLabels, data.symbols || sheetEditor.symbols, loadedMargins);
+        sheetEditor.commitChange(restoredSheetData || sheetEditor.sheetData, restoredRowTypes, data.sectionLabels || sheetEditor.sectionLabels, data.symbols || sheetEditor.symbols, loadedMargins);
       } catch (error) {
+        console.error('Unable to restore local recovery snapshot:', error);
+        setRecoveryFailure(saved);
         sheetEditor.commitChange(sheetEditor.sheetData, sheetEditor.rowTypes, sheetEditor.sectionLabels, sheetEditor.symbols, sheetEditor.rowMargins);
       }
     } else {
       sheetEditor.commitChange(sheetEditor.sheetData, sheetEditor.rowTypes, sheetEditor.sectionLabels, sheetEditor.symbols, sheetEditor.rowMargins);
     }
     setIsLoaded(true);
+    // Recovery must run exactly once so later dependency changes cannot overwrite live edits.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); 
 
   useEffect(() => {
@@ -829,6 +867,8 @@ export const MusicProvider = ({ children }) => {
   }, [projectId, isReadOnly, scheduleRecoverySnapshot]);
 
   const actionsRef = useRef({});
+  // Keep the command table synchronized with the latest render handlers.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     actionsRef.current = {
       undo: undoEditor, redo: redoEditor,
@@ -1096,15 +1136,18 @@ export const MusicProvider = ({ children }) => {
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fadeIn">
           <div className="bg-white rounded-3xl p-6 md:p-8 w-full max-w-md shadow-2xl scale-100 animate-slideUp text-center" style={{ fontFamily: 'Prompt, sans-serif' }}>
             
-            {pendingAction.type === 'STORAGE_LIMIT' ? (
+            {pendingAction.type === 'STORAGE_LIMIT' || pendingAction.type === 'PROJECT_TOO_LARGE' ? (
               <>
                 <div className="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
                   <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
                 </div>
-                <h3 className="text-xl font-bold text-slate-800 mb-2">พื้นที่จัดเก็บเต็มแล้ว!</h3>
+                <h3 className="text-xl font-bold text-slate-800 mb-2">{pendingAction.type === 'PROJECT_TOO_LARGE' ? 'โปรเจกต์มีขนาดใหญ่เกินไป' : 'พื้นที่จัดเก็บเต็มแล้ว!'}</h3>
                 <p className="text-sm text-slate-500 mb-6">
-                  ระบบไม่สามารถบันทึกอัตโนมัติได้และได้ทำการ <strong className="text-red-500">ล็อกการแก้ไข (Read-only)</strong> เพื่อป้องกันข้อมูลสูญหาย<br/><br/>
-                  กรุณา <strong>ส่งออก (Export)</strong> ไฟล์ลงเครื่องคอมพิวเตอร์ของคุณ จากนั้นกลับไปลบโปรเจกต์เก่าที่หน้าแรกครับ
+                  {pendingAction.type === 'PROJECT_TOO_LARGE' ? (
+                    <>ระบบหยุด retry เพื่อไม่ให้ส่งข้อมูลที่ Firestore ปฏิเสธซ้ำ กรุณา <strong>ส่งออก (Export)</strong> ไฟล์ลงเครื่องไว้ก่อน แล้วลดขนาดโปรเจกต์หรือแบ่งเป็นหลายโปรเจกต์</>
+                  ) : (
+                    <>ระบบไม่สามารถบันทึกอัตโนมัติได้และได้ทำการ <strong className="text-red-500">ล็อกการแก้ไข (Read-only)</strong> เพื่อป้องกันข้อมูลสูญหาย<br/><br/>กรุณา <strong>ส่งออก (Export)</strong> ไฟล์ลงเครื่องคอมพิวเตอร์ของคุณ จากนั้นกลับไปลบโปรเจกต์เก่าที่หน้าแรกครับ</>
+                  )}
                 </p>
                 
                 <div className="flex flex-col gap-3">
@@ -1139,8 +1182,8 @@ export const MusicProvider = ({ children }) => {
                         rowMargins: sheetEditor.rowMargins, playbackSequence: audioPlayback.playbackSequence,
                         metronomeSettings: metronomeProjectSettings
                       };
-                      await autoSaveToFirebase(projectData, projectId);
-                      executeAction(pendingAction.type, pendingAction.payload);
+                      const saved = await autoSaveToFirebase(projectData, projectId);
+                      if (saved) executeAction(pendingAction.type, pendingAction.payload);
                     }} 
                     className="w-full py-3 font-bold text-white bg-sky-500 hover:bg-sky-600 rounded-xl transition-all shadow-md shadow-sky-500/20 active:scale-[0.98]"
                   >
@@ -1165,6 +1208,25 @@ export const MusicProvider = ({ children }) => {
               </>
             )}
             
+          </div>
+        </div>
+      )}
+      {autoSaveStatus === 'retrying' && (
+        <div className="fixed bottom-4 right-4 z-[9998] w-[calc(100%-2rem)] max-w-sm rounded-2xl border border-amber-200 bg-white p-4 shadow-2xl" style={{ fontFamily: 'Prompt, sans-serif' }}>
+          <p className="text-sm font-black text-amber-700">ยังบันทึกขึ้น Cloud ไม่สำเร็จ</p>
+          <p className="mt-1 text-xs leading-5 text-slate-500">สำเนาในเครื่องยังถูกเก็บไว้ และระบบจะลองบันทึกใหม่อัตโนมัติ กรุณาอย่าเพิ่งปิดหน้านี้</p>
+          <button type="button" onClick={() => autosaveCoordinatorRef.current?.retryNow()} className="mt-3 rounded-lg bg-amber-500 px-3 py-2 text-[11px] font-bold text-white hover:bg-amber-600">ลองบันทึกอีกครั้งตอนนี้</button>
+        </div>
+      )}
+      {recoveryFailure && (
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm" style={{ fontFamily: 'Prompt, sans-serif' }}>
+          <div className="w-full max-w-md rounded-3xl bg-white p-7 text-center shadow-2xl">
+            <h3 className="text-xl font-black text-slate-900">กู้คืนงานในเครื่องไม่สำเร็จ</h3>
+            <p className="mt-3 text-sm leading-6 text-slate-500">ระบบเก็บข้อมูลต้นฉบับไว้และยังไม่ได้ลบ คุณสามารถดาวน์โหลดสำเนานี้เพื่อให้ผู้ดูแลช่วยตรวจสอบได้</p>
+            <div className="mt-6 flex flex-col gap-2 sm:flex-row">
+              <button type="button" onClick={downloadRecoveryFailure} className="flex-1 rounded-xl bg-sky-500 px-4 py-3 text-xs font-bold text-white hover:bg-sky-600">ดาวน์โหลดสำเนากู้คืน</button>
+              <button type="button" onClick={() => setRecoveryFailure(null)} className="flex-1 rounded-xl bg-slate-100 px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-200">ใช้งานหน้าเริ่มต้นต่อ</button>
+            </div>
           </div>
         </div>
       )}

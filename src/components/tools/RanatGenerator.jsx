@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../utils/firebase';
 
+const getRandomIndex = (length) => Math.floor(Math.random() * length);
+
 export default function RanatGenerator() {
   const [phrases, setPhrases] = useState([]);
   const [selectedIndex, setSelectedIndex] = useState(null);
@@ -65,7 +67,7 @@ export default function RanatGenerator() {
           setGeneratedRanat(null);
           setSkeleton(null);
         }
-      } catch (err) {
+      } catch {
         alert("รูปแบบไฟล์ไม่ถูกต้อง กรุณาอัปโหลดไฟล์ .tme หรือ .json ที่ถูกต้อง");
       }
     };
@@ -131,7 +133,7 @@ export default function RanatGenerator() {
       if (allVariations.length > 0) {
         setDictionaryResults(allVariations);
         // สุ่มเลือกผลลัพธ์แรกมาแสดง
-        const randomIdx = Math.floor(Math.random() * allVariations.length);
+        const randomIdx = getRandomIndex(allVariations.length);
         setGeneratedRanat(allVariations[randomIdx]);
       } else {
         setDictionaryResults([]);
@@ -148,7 +150,7 @@ export default function RanatGenerator() {
 
   const handleRefresh = () => {
     if (dictionaryResults.length > 0) {
-      const randomIdx = Math.floor(Math.random() * dictionaryResults.length);
+      const randomIdx = getRandomIndex(dictionaryResults.length);
       setGeneratedRanat(dictionaryResults[randomIdx]);
     }
   };

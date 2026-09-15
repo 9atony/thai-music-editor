@@ -15,13 +15,17 @@ const EditorSidebar = () => {
 
   // เช็กว่ากำลังเลือกสัญลักษณ์อะไรอยู่ เพื่อเปิดแถบให้ตรงกันอัตโนมัติ
   useEffect(() => {
+    let active = true;
     if (selectedSymbolId) {
       const sym = symbols.find(s => s.id === selectedSymbolId);
       if (sym) {
-        if (sym.type === 'sabat') setActiveSidePanel('sabat');
-        else if (sym.type === 'kro') setActiveSidePanel('kro');
+        const targetPanel = sym.type === 'sabat' || sym.type === 'kro' ? sym.type : null;
+        if (targetPanel) window.queueMicrotask(() => {
+          if (active) setActiveSidePanel(targetPanel);
+        });
       }
     }
+    return () => { active = false; };
   }, [selectedSymbolId, symbols]);
 
   // ตัวรับสัญญาณ: ถ้ามีใครสั่ง 'tme-open-labels-tab' ให้เปิดแท็บป้ายกำกับทันที!

@@ -1,3 +1,4 @@
+/* eslint-disable no-irregular-whitespace */
 import SectionLabel from './SectionLabel';
 import React, { useContext, forwardRef, useMemo, useEffect, useState, useCallback, useRef } from 'react';
 import { Copy, Plus, Trash2 } from 'lucide-react';
@@ -53,7 +54,7 @@ const Sheet = forwardRef((props, ref) => {
     startSelection, updateSelection, startRowLabelSelection, updateRowLabelSelection, endSelection, selectionRange, setSelectionRange,
     playbackCursor, isPlaying, symbols = [], addSymbol, removeSymbol,
     selectedSymbolId, setSelectedSymbolId, updateTextRow,
-    removeRow, addNathapRow, addMeasure, addTextRow, rowMargins, updateRowMarginsList, commitChange,
+    removeRow, addNathapRow, addMeasure, addTextRow, rowMargins, commitChange,
     setToolbarMode, stopPlayback, updateCellToken, isReadOnly,
     moveSelectionNext, updateMeasureText,
     isAutoScroll
@@ -65,7 +66,6 @@ const Sheet = forwardRef((props, ref) => {
   const [editingSongName, setEditingSongName] = useState(false);
   const [editingDetailId, setEditingDetailId] = useState(null);
   const [editingDetailField, setEditingDetailField] = useState(null);
-  const [editingLabelId, setEditingLabelId] = useState(null);
   const [editingTokenCell, setEditingTokenCell] = useState(null);
   const [editingTokenValue, setEditingTokenValue] = useState('');
   
@@ -80,7 +80,6 @@ const Sheet = forwardRef((props, ref) => {
   const zoomAnimationRef = useRef(null);
   const pinchZoomRef = useRef(null);
   const pinchScrollRafRef = useRef(null);
-  const editLabelRef = useRef("");
   const initialSongNameRef = useRef("");
   const initialDetailLabelRef = useRef("");
   const initialDetailValueRef = useRef("");
@@ -382,16 +381,6 @@ const Sheet = forwardRef((props, ref) => {
     );
   };
 
-  const startTokenEdit = useCallback((r, m, c, note) => {
-    if (isReadOnly) return;
-    if (isPlaying && stopPlayback) stopPlayback();
-    setSelectedCell([r, m, c]);
-    if (setSelectedSymbolId) setSelectedSymbolId(null);
-    setEditingTokenCell({ r, m, c });
-    setEditingTokenValue(note === '-' ? '' : (note || ''));
-    if (setToolbarMode) setToolbarMode('text');
-  }, [isReadOnly, isPlaying, stopPlayback, setSelectedCell, setSelectedSymbolId, setToolbarMode]);
-
   const clearPendingTextMeasureSelection = useCallback(() => {
     const pending = pendingTextMeasureSelectionRef.current;
     if (pending?.timerId) window.clearTimeout(pending.timerId);
@@ -411,7 +400,7 @@ const Sheet = forwardRef((props, ref) => {
       activated: false
     };
     pendingTextMeasureSelectionRef.current = pending;
-  }, [clearPendingTextMeasureSelection, isReadOnly, setSelectionRange, setToolbarMode, startSelection]);
+  }, [clearPendingTextMeasureSelection, isReadOnly, setSelectionRange, startSelection]);
 
   const moveTextMeasureSelection = useCallback((event) => {
     const pending = pendingTextMeasureSelectionRef.current;
@@ -501,7 +490,7 @@ const Sheet = forwardRef((props, ref) => {
       removeMouseUpListeners();
       window.removeEventListener('mousedown', handleMouseDownGlobal, true);
     };
-  }, [endSelection, editingSongName, editingDetailId, editingTokenCell, commitTokenEdit, setSongName, updateDetail, clearPendingTextMeasureSelection]);
+  }, [endSelection, editingSongName, editingDetailId, editingTokenCell, commitTokenEdit, setSongName, updateDetail, updateMeasureText, updateTextRow, clearPendingTextMeasureSelection]);
 
   // Only an actual Sheet unmount should discard the interaction ref. The
   // listener effect above can rotate after an ordinary editor rerender.
@@ -591,7 +580,7 @@ const Sheet = forwardRef((props, ref) => {
     } else {
       setToolbarMode('default'); 
     }
-  }, [selectedCell[0], selectedCell[1], rowTypes, setToolbarMode]);
+  }, [selectedCell, rowTypes, setToolbarMode]);
 
   useEffect(() => {
     if (selectedSymbolId) setToolbarMode('symbol');
@@ -689,7 +678,7 @@ const Sheet = forwardRef((props, ref) => {
         }
       }
     }
-  }, [playbackCursor, isAutoScroll, isPlaying, zoom]);
+  }, [playbackCursor, isAutoScroll, isPlaying, zoom, rowTypes]);
 // ==========================================
   // ⭐ 2.5 ระบบติดตามและเลื่อนหน้าจอตามเคอร์เซอร์แก้ไข (Edit Tracking)
   // ==========================================
@@ -1181,8 +1170,6 @@ const Sheet = forwardRef((props, ref) => {
             // Use the cell baseline so Thai tone marks do not change the Kro height.
             const y1 = (startCellRect.top - pRect.top) / scale + offset;
             const x2 = (eRect.left - pRect.left + (eRect.width / 2)) / scale;
-            const y2 = (eRect.top - pRect.top) / scale + offset;
-
             // โน้ตไทยมีวรรณยุกต์สูงต่ำต่างกัน จึงใช้ระดับของจุดเริ่ม
             // เพื่อให้เส้นกรอในแต่ละบรรทัดเป็นแนวนอนเสมอ
             const d = `M ${x1} ${y1} L ${x2} ${y1}`;
@@ -1237,7 +1224,7 @@ const Sheet = forwardRef((props, ref) => {
       }
     });
     setPageSvgPaths(newPagePaths);
-  }, [symbols, layoutConfig, pages, zoom, sheetData]);
+  }, [symbols, layoutConfig, pages, zoom, sheetData, rowTypes]);
 
   useEffect(() => {
     if (playbackCursor !== null) return; 
@@ -1389,14 +1376,6 @@ return (
       );
     });
   };
-
-  const selectionLimits = useMemo(() => {
-    if (!selectionRange || !selectionRange.start || !selectionRange.end) return { min: -1, max: -1 };
-    return {
-      min: Math.min(selectionRange.start[0], selectionRange.end[0]),
-      max: Math.max(selectionRange.start[0], selectionRange.end[0])
-    };
-  }, [selectionRange]);
 
   // ==========================================
   // 7. Main Rendering
@@ -1977,18 +1956,12 @@ return (
 
                   const isDoubleRight = rType === 'double-right';
                   const isDoubleLeft = rType === 'double-left';
-                  const isDouble = isDoubleRight || isDoubleLeft;
-                  const isAnnotation = rType === 'annotation';
                   
                   // ⭐ เช็กว่าบรรทัดถัดไปเป็นคำอธิบายหรือหน้าทับหรือไม่ เพื่อลดระยะห่างให้ติดกัน
                   const nextRType = rIndex + 1 < rowTypes.length ? rowTypes[rIndex + 1] : null;
                   // แถวประกอบติดกับแถวด้านบน และเว้นระยะหลังแถวสุดท้ายของกลุ่ม
                   const pb = (isDoubleRight || nextRType === 'annotation' || nextRType === 'nathap') ? 0 : layoutConfig.rowGap;
 
-                  let visualRowNumber = displayRowNumbers[rIndex];
-                  if (isDoubleLeft && rIndex > 0) visualRowNumber = displayRowNumbers[rIndex - 1]; 
-                  const visualIndex = visualRowNumber !== '' && visualRowNumber != null ? visualRowNumber - 1 : null;                  
-                  
                   // ⭐ 1. เพิ่มการเช็กว่าบรรทัดนี้มีป้ายกำกับอยู่หรือไม่
                   // Bottom labels belong to the final companion row in the staff group.
                   let labelOwnerIndex = rIndex;

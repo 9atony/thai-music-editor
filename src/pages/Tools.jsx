@@ -27,7 +27,7 @@ const Tools = ({ userProfile }) => {
   
   const userRole = userProfile?.role || 'user';
   const isAdmin = userRole === 'admin';
-  const { canAccess, isLoading, maintenance } = useFeatureAccess();
+  const { canAccess, isLoading, maintenance, settingsError } = useFeatureAccess();
   const canUseTool = (toolId) => canAccess(resolveToolFeatureId(toolId), userRole);
   const isToolInMaintenance = (toolId) => maintenance?.[resolveToolFeatureId(toolId)] === true;
   const isMaintenanceBlocking = (toolId) => isToolBlockedByMaintenance({
@@ -182,6 +182,12 @@ const Tools = ({ userProfile }) => {
           </div>
         </div>
       </header>
+
+      {settingsError && !isAdmin && (
+        <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-semibold leading-5 text-amber-800">
+          ระบบยังตรวจสอบสถานะเครื่องมือไม่ได้ จึงปิดเครื่องมือชั่วคราวเพื่อความปลอดภัย กรุณาตรวจสอบอินเทอร์เน็ตแล้วรีเฟรชอีกครั้ง
+        </div>
+      )}
 
       <section className="mb-9">
         <div className="mb-4 flex items-end justify-between px-1">

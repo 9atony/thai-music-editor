@@ -21,6 +21,7 @@ import {
   PREMIUM_STORAGE_LIMIT_BYTES,
   PROJECT_CONTENT_DOCUMENT,
   applyStorageMutation,
+  assertProjectDocumentSize,
   assertProjectQuota,
   createProjectStorageDocuments,
   estimateLegacyProjectBytes,
@@ -401,6 +402,7 @@ export const saveProjectToDB = async (
     const aggregateRef = storageAggregateDocument(uid, database);
     const migrationToken = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const stored = createProjectStorageDocuments(projectData, uid);
+    assertProjectDocumentSize(stored.contentSizeBytes);
     let migratedLegacy = false;
     let originalCreatedAt = null;
     const finishTiming = startDevTiming('quota.transaction', {
@@ -670,9 +672,12 @@ export const saveArrangerProject = async (uid, projectId, workspace) => {
     ...workspace,
     projectType: 'arranger',
     trackCount: Array.isArray(workspace.tracks) ? workspace.tracks.length : 0,
+  });
+  assertProjectDocumentSize(new TextEncoder().encode(JSON.stringify(data)).byteLength);
+  await updateDoc(doc(db, `users/${uid}/arrangerProjects`, projectId), {
+    ...data,
     updatedAt: serverTimestamp(),
   });
-  await updateDoc(doc(db, `users/${uid}/arrangerProjects`, projectId), data);
   recordSystemEvent('projectSaves', { feature: 'autosave', writes: 1, projectId });
 };
 

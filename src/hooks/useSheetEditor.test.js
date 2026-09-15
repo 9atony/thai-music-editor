@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/globals */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import React, { useState } from 'react';

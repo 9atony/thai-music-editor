@@ -92,9 +92,13 @@ function App() {
   }, [isAdmin]);
 
   useEffect(() => {
+    let active = true;
     if (userProfile && !isAdmin && currentView === 'admin-users') {
-      setCurrentView('home');
+      window.queueMicrotask(() => {
+        if (active) setCurrentView('home');
+      });
     }
+    return () => { active = false; };
   }, [currentView, isAdmin, userProfile]);
 
   useEffect(() => {

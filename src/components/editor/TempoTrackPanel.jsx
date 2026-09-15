@@ -20,18 +20,22 @@ const TempoTrackPanel = () => {
   const sourceMeasures = useMemo(() => getPlayableMeasures(sheetData, rowTypes), [sheetData, rowTypes]);
   const measures = useMemo(() => getPlaybackMeasures(sheetData, rowTypes, sectionLabels, playbackSequence), [sheetData, rowTypes, sectionLabels, playbackSequence]);
   const sectionNames = useMemo(() => {
-    let currentSection = '';
-    let previousRow = null;
-    return measures.map(measure => {
-      if (measure.sectionName) return measure.sectionName.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim();
-      if (measure.row !== previousRow) {
+    const result = measures.reduce((state, measure) => {
+      let currentSection = state.currentSection;
+      if (measure.sectionName) {
+        currentSection = measure.sectionName.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim();
+      } else if (measure.row !== state.previousRow) {
         const labels = sectionLabels?.[getVisualIndex(measure.row, rowTypes)] || [];
         const section = labels.find(label => label.position === 'top-left' && label.text?.trim());
         if (section) currentSection = section.text.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim();
-        previousRow = measure.row;
       }
-      return currentSection;
-    });
+      return {
+        currentSection,
+        previousRow: measure.row,
+        names: [...state.names, currentSection]
+      };
+    }, { currentSection: '', previousRow: null, names: [] });
+    return result.names;
   }, [measures, rowTypes, sectionLabels]);
   const normalizedPoints = useMemo(() => normalizeTempoTrack(
     layoutConfig.tempoTrack || [], sheetData, rowTypes, layoutConfig.bpm

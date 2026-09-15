@@ -9,7 +9,7 @@ const Templates = ({ onNewProject, userProfile }) => {
   // ⭐ State สำหรับระบบจัดการเมนูจุด 3 จุด
   const [adminMenuOpen, setAdminMenuOpen] = useState(null);
 
-  const [templates, setTemplates] = useState(TEMPLATE_CATALOG);
+  const [templates] = useState(TEMPLATE_CATALOG);
 
   const handleEdit = (e, id) => {
     e.stopPropagation();

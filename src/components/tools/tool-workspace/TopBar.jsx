@@ -20,6 +20,7 @@ export default function TopBar({ onBack }) {
     currentProjectId,
     saveProject,
     saveStatus,
+    saveError,
     undo,
     redo,
     canUndo,
@@ -58,6 +59,13 @@ export default function TopBar({ onBack }) {
 
   return (
     <header className="h-16 shrink-0 bg-[#11151a] border-b border-white/10 flex items-center px-3 gap-3">
+      {saveStatus === 'error' && (
+        <div className="fixed right-4 top-20 z-[1100] max-w-sm rounded-xl border border-amber-400/30 bg-[#171b20] p-4 text-left shadow-2xl">
+          <p className="text-xs font-bold text-amber-300">บันทึกโปรเจกต์จัดวงไม่สำเร็จ</p>
+          <p className="mt-1 text-[11px] leading-5 text-white/60">{saveError || 'กรุณาตรวจสอบอินเทอร์เน็ตแล้วลองบันทึกอีกครั้ง'}</p>
+          <button type="button" onClick={exportWorkspace} className="mt-3 rounded-lg bg-blue-500 px-3 py-2 text-[10px] font-bold text-white hover:bg-blue-400">Export สำเนาลงเครื่อง</button>
+        </div>
+      )}
       
       {/* กลับไปหน้ารวมเครื่องมือโดยไม่ย้อนประวัติเบราว์เซอร์ข้ามไปหน้าหลัก */}
       <button 

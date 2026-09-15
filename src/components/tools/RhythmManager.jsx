@@ -58,7 +58,7 @@ const RhythmManager = () => {
         } else {
           alert("ไฟล์ไม่ถูกต้อง ไม่พบโครงสร้างข้อมูล (sheetData)");
         }
-      } catch (error) {
+      } catch {
         alert("ไม่สามารถอ่านไฟล์ได้ โปรดตรวจสอบว่าเป็นไฟล์ .tme ที่ถูกต้อง");
       }
     };
@@ -272,7 +272,7 @@ const RhythmManager = () => {
         patterns: updated
       });
       setAllRhythms(updated);
-    } catch (error) {
+    } catch {
       alert("เกิดข้อผิดพลาดในการลบข้อมูล");
     }
   };
@@ -318,7 +318,7 @@ const RhythmManager = () => {
       });
       setAllRhythms(updated);
       setEditingItem(null);
-    } catch (error) {
+    } catch {
       alert("เกิดข้อผิดพลาดในการแก้ไข");
     } finally {
       setIsSavingEdit(false);

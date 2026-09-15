@@ -72,7 +72,7 @@ export default function TunerDashboard() {
         setPhrases(extractedPhrases);
         setSelectedIndex(null);
         setSkeletonResult(null);
-      } catch (err) {
+      } catch {
         alert("รูปแบบไฟล์ไม่ถูกต้อง");
       }
     };
@@ -96,7 +96,7 @@ export default function TunerDashboard() {
       if (data.status === "success") {
         setSkeletonResult(data.skeleton);
       }
-    } catch (error) {
+    } catch {
       alert("ไม่สามารถเชื่อมต่อ Python ได้");
     }
     setIsLoading(false);

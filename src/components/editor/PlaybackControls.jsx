@@ -14,15 +14,14 @@ const FONT_OPTIONS = [
 
 const PlaybackControls = () => {
   const {
-    rowTypes, selectedCell, selectionRange, layoutConfig, setLayoutConfig, sheetData, rowMargins, updateRowMarginsList,
+    rowTypes, selectedCell, selectionRange, layoutConfig, setLayoutConfig, sheetData,
     isPlaying, startPlayback, stopPlayback,
     currentPlaybackBpm, isTempoTrackOpen, setIsTempoTrackOpen,
-    symbols, selectedSymbolId, setSelectedSymbolId, updateSymbol, removeSymbol, removeSymbolByCell,
+    symbols, selectedSymbolId, setSelectedSymbolId, updateSymbol, removeSymbol,
     toolbarMode, setToolbarMode,
     isLoopAll, setIsLoopAll,
     isLoopOne, setIsLoopOne,
-    skipToPrev, skipToNext,
-    setSongName, updateDetail 
+    skipToPrev, skipToNext
   } = useContext(MusicContext);
 
   const [textFontSize, setTextFontSize] = useState(16);
@@ -35,12 +34,6 @@ const PlaybackControls = () => {
 
   const isTextRow = rowTypes && (rowTypes[selectedCell[0]] === 'text' || rowTypes[selectedCell[0]] === 'annotation');
 
-  let minR = selectedCell[0];
-  let maxR = selectedCell[0];
-  if (selectionRange && selectionRange.start && selectionRange.end) {
-      minR = Math.min(selectionRange.start[0], selectionRange.end[0]);
-      maxR = Math.max(selectionRange.start[0], selectionRange.end[0]);
-  }
   const activeSym = symbols.find(s => s.id === selectedSymbolId);
   const isEditingMode = toolbarMode === 'symbol'; 
 
@@ -370,7 +363,7 @@ const PlaybackControls = () => {
       : ((selectedCell && layoutConfig.customStyles?.[`${selectedCell[0]}_${selectedCell[1]}_${selectedCell[2]}`]?.fontSize)
         ?? layoutConfig.fontSize ?? 16);
     setFontSizeInput(String(size));
-  }, [toolbarMode, textFontSize, selectedCell, selectionRange, layoutConfig.fontSize, layoutConfig.rowLabelFontSize, selectedRowLabelStyle?.fontSize]);
+  }, [toolbarMode, textFontSize, selectedCell, selectionRange, layoutConfig.fontSize, layoutConfig.rowLabelFontSize, layoutConfig.customStyles, selectedRowLabelStyle?.fontSize]);
 
   const renderModeContent = () => {
     switch(toolbarMode) {

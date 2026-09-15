@@ -6,14 +6,17 @@ import './index.css'
 import { MusicProvider } from './contexts/MusicContext.jsx' 
 import { FeatureAccessProvider } from './contexts/FeatureAccessContext.jsx'
 import { AuthProfileProvider } from './contexts/AuthProfileContext.jsx'
+import ErrorBoundary from './components/ErrorBoundary.jsx'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    {/* 2. ต้องมี MusicProvider ครอบ App เอาไว้แบบนี้ครับ */}
-    <AuthProfileProvider>
-      <MusicProvider>
-        <FeatureAccessProvider><App /></FeatureAccessProvider>
-      </MusicProvider>
-    </AuthProfileProvider>
+    <ErrorBoundary>
+      {/* 2. ต้องมี MusicProvider ครอบ App เอาไว้แบบนี้ครับ */}
+      <AuthProfileProvider>
+        <MusicProvider>
+          <FeatureAccessProvider><App /></FeatureAccessProvider>
+        </MusicProvider>
+      </AuthProfileProvider>
+    </ErrorBoundary>
   </React.StrictMode>,
 )

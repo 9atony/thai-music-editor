@@ -3,6 +3,7 @@ export const PROJECT_CONTENT_DOCUMENT = 'current';
 export const STORAGE_AGGREGATE_VERSION = 1;
 export const FREE_PROJECT_LIMIT = 10;
 export const PREMIUM_STORAGE_LIMIT_BYTES = 5 * 1024 * 1024;
+export const FIRESTORE_SAFE_DOCUMENT_LIMIT_BYTES = 900 * 1024;
 
 const TRANSIENT_FIELDS = new Set([
   'id',
@@ -47,11 +48,20 @@ export const createProjectStorageDocuments = (projectData, ownerId) => {
   if (!Object.hasOwn(content, 'sheetData')) content.sheetData = normalizeStoredSheetData([]);
 
   const storageSizeBytes = utf8Bytes({ metadata, content });
+  const contentSizeBytes = utf8Bytes(content);
   return {
     metadata: { ...metadata, storageSizeBytes },
     content,
+    contentSizeBytes,
     storageSizeBytes,
   };
+};
+
+export const assertProjectDocumentSize = (contentSizeBytes) => {
+  if (contentSizeBytes <= FIRESTORE_SAFE_DOCUMENT_LIMIT_BYTES) return;
+  const error = new Error('PROJECT_TOO_LARGE');
+  error.code = 'PROJECT_TOO_LARGE';
+  throw error;
 };
 
 export const estimateLegacyProjectBytes = (projectData) => utf8Bytes(projectData || {});
