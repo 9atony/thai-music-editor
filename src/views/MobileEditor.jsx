@@ -3,6 +3,7 @@ import { MusicContext } from '../contexts/MusicContext';
 import Sheet from '../components/editor/Sheet'; 
 import MobileMetronomeMenu from '../components/editor/MobileMetronomeMenu';
 import MobileEditControls from '../components/editor/MobileEditControls';
+import SettingsModal from '../components/editor/SettingsModal';
 import MusicXmlExportDialog from '../components/editor/MusicXmlExportDialog';
 import { initAudioContext } from '../utils/audioEngine';
 import { useFeatureAccess } from '../contexts/FeatureAccessContext';
@@ -45,6 +46,7 @@ const MobileEditor = ({ onBack }) => {
   const [isQueueOpen, setIsQueueOpen] = useState(false);
   const [isMetronomeOpen, setIsMetronomeOpen] = useState(false);
   const [isMusicXmlDialogOpen, setIsMusicXmlDialogOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [mobileMode, setMobileMode] = useState('listen');
   const [isDesktopViewport, setIsDesktopViewport] = useState(() => window.matchMedia('(min-width: 768px)').matches);
 
@@ -294,7 +296,7 @@ const MobileEditor = ({ onBack }) => {
           </div>
 
         </div>
-      </footer> : <MobileEditControls />}
+      </footer> : <MobileEditControls onOpenMetronome={() => setIsMetronomeOpen(true)} onOpenSettings={() => setIsSettingsOpen(true)} />}
 
       {/* 4. Bottom Sheet (คิวเพลง, BPM) */}
       <div className={`fixed inset-0 z-[60] flex flex-col justify-end transition-all duration-300 ${isQueueOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}>
@@ -398,6 +400,7 @@ const MobileEditor = ({ onBack }) => {
       </div>
 
       <MobileMetronomeMenu isOpen={isMetronomeOpen} onClose={() => setIsMetronomeOpen(false)} />
+      <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
       <MusicXmlExportDialog isOpen={isMusicXmlDialogOpen} onClose={() => setIsMusicXmlDialogOpen(false)} onExport={(startingPitch) => exportMusicXml({ startingPitch })} />
 
     </div>
