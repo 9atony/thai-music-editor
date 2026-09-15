@@ -19,6 +19,7 @@ import {
   MousePointer2,
   Music2,
   Pause,
+  Pencil,
   Play,
   Plus,
   Redo2,
@@ -44,9 +45,12 @@ import { useFeatureAccess } from '../../contexts/FeatureAccessContext';
 import { INSTRUMENT_CONFIG } from '../../utils/instrumentConfig';
 import { getFlattenedCol, hasNathapLeadingLabel } from '../../utils/sheetUtils';
 import {
+  CUSTOM_CELL_MAX_LENGTH,
   CUSTOM_KEYBOARD_FEATURE_ID,
   CUSTOM_KEYBOARD_MAX_KEYS,
   CUSTOM_KEYBOARD_MAX_LABEL_LENGTH,
+  decodeCustomCellToken,
+  encodeCustomCellToken,
   normalizeCustomKeyboardKeys,
   normalizeCustomText,
 } from '../../utils/customKeyboard';
@@ -114,6 +118,7 @@ const MobileEditControls = ({ onOpenMetronome, onOpenSettings, onOpenMusicXml, o
     inputNote,
     inputCustomText,
     appendCustomTextToCurrentCell,
+    updateCellToken,
     moveSelectionPrev,
     moveSelectionNext,
     undo,
@@ -140,6 +145,7 @@ const MobileEditControls = ({ onOpenMetronome, onOpenSettings, onOpenMusicXml, o
     addDoubleRow,
     removeRow,
     addPageBreak,
+    addTextRow,
     convertMeasureToText,
     addAnnotationRow,
     expandSelectedMeasures,
@@ -158,6 +164,9 @@ const MobileEditControls = ({ onOpenMetronome, onOpenSettings, onOpenMusicXml, o
   const [customDraft, setCustomDraft] = useState('');
   const [appendCustomText, setAppendCustomText] = useState(false);
   const [rangeAnchor, setRangeAnchor] = useState(null);
+  const [isCellEditorOpen, setIsCellEditorOpen] = useState(false);
+  const [cellDraft, setCellDraft] = useState('');
+  const [cellDraftMode, setCellDraftMode] = useState('notes');
 
   const hasCell = Array.isArray(selectedCell);
   const selectedInstrumentId = hasCell
@@ -172,6 +181,18 @@ const MobileEditControls = ({ onOpenMetronome, onOpenSettings, onOpenMusicXml, o
   const selectedLabel = hasCell
     ? `บรรทัด ${selectedCell[0] + 1} · ห้อง ${selectedCell[1] + 1} · ช่อง ${selectedCell[2] + 1}`
     : 'แตะช่องโน้ตบนกระดาษก่อน';
+  const selectedRow = hasCell ? sheetData?.[selectedCell[0]] : null;
+  const selectedRowType = hasCell ? rowTypes?.[selectedCell[0]] : null;
+  const selectedMeasure = hasCell ? selectedRow?.[selectedCell[1]] : null;
+  const isSelectedLeadingLabel = hasCell && selectedCell[1] === 0 && (
+    String(selectedRowType || '').startsWith('double') || hasNathapLeadingLabel(selectedRow, selectedRowType)
+  );
+  const canEditSelectedToken = hasCell
+    && Array.isArray(selectedMeasure)
+    && selectedMeasure[selectedCell[2]] !== undefined
+    && selectedRowType !== 'text'
+    && selectedRowType !== 'page-break'
+    && !isSelectedLeadingLabel;
 
   const updateCustomKeys = (nextKeys) => {
     if (!canUseCustomKeyboard || isReadOnly) return;
@@ -368,6 +389,34 @@ const MobileEditControls = ({ onOpenMetronome, onOpenSettings, onOpenMusicXml, o
     setRangeAnchor(null);
   };
 
+  const openCellEditor = () => {
+    if (!canEditSelectedToken || isReadOnly) return;
+    const rawToken = selectedMeasure[selectedCell[2]];
+    const customText = decodeCustomCellToken(rawToken);
+    setCellDraft(customText ?? (rawToken === '-' ? '' : String(rawToken ?? '')));
+    setCellDraftMode(customText !== null && canUseCustomKeyboard ? 'custom' : 'notes');
+    setIsCellEditorOpen(true);
+  };
+
+  const saveCellDraft = (event) => {
+    event.preventDefault();
+    if (!canEditSelectedToken || isReadOnly) return;
+    const [rowIndex, measureIndex, cellIndex] = selectedCell;
+    const nextToken = cellDraftMode === 'custom' && canUseCustomKeyboard
+      ? encodeCustomCellToken(cellDraft)
+      : cellDraft;
+    updateCellToken?.(rowIndex, measureIndex, cellIndex, nextToken, {
+      preview: cellDraftMode !== 'custom',
+    });
+    setIsCellEditorOpen(false);
+  };
+
+  const clearCurrentCell = () => {
+    if (!canEditSelectedToken || isReadOnly) return;
+    updateCellToken?.(selectedCell[0], selectedCell[1], selectedCell[2], '-', { preview: false });
+    setIsCellEditorOpen(false);
+  };
+
   return (
     <footer className="relative z-40 shrink-0 rounded-t-3xl border-t border-slate-200 bg-white shadow-[0_-12px_30px_rgba(15,23,42,0.15)]">
       <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2">
@@ -436,6 +485,7 @@ const MobileEditControls = ({ onOpenMetronome, onOpenSettings, onOpenMusicXml, o
             <SmallAction icon={Redo2} label="ทำซ้ำ" onClick={redo} disabled={!canRedo || isReadOnly} />
             <SmallAction icon={isPlaying ? Pause : Play} label={isPlaying ? 'หยุด' : 'เล่น'} onClick={togglePlay} active={isPlaying} />
             <SmallAction icon={Save} label="บันทึก" onClick={saveProject} />
+            <SmallAction icon={Pencil} label="แก้ในช่อง" onClick={openCellEditor} disabled={!canEditSelectedToken || isReadOnly} />
             <SmallAction icon={Copy} label="คัดลอก" onClick={copySelection} disabled={!hasCell || isReadOnly} />
             <SmallAction icon={Scissors} label="ตัด" onClick={cutSelection} disabled={!hasCell || isReadOnly} />
             <SmallAction icon={ClipboardPaste} label="วาง" onClick={pasteSelection} disabled={!hasCell || isReadOnly} />
@@ -505,6 +555,7 @@ const MobileEditControls = ({ onOpenMetronome, onOpenSettings, onOpenMusicXml, o
               <SmallAction icon={Trash2} label="ลบบรรทัด" onClick={() => removeRow?.()} disabled={isReadOnly} danger />
               <SmallAction icon={FilePlus2} label="ขึ้นหน้าใหม่" onClick={() => addPageBreak?.()} disabled={isReadOnly} />
               <SmallAction icon={FileText} label="ช่องข้อความ" onClick={() => convertMeasureToText?.()} disabled={!hasCell || isReadOnly} />
+              <SmallAction icon={FileText} label="บรรทัดข้อความ" onClick={() => addTextRow?.()} disabled={!hasCell || isReadOnly} />
               <SmallAction icon={FileText} label="คำอธิบาย" onClick={() => addAnnotationRow?.()} disabled={isReadOnly} />
               <SmallAction icon={Maximize2} label="ขยาย 4→8" onClick={() => expandSelectedMeasures?.()} disabled={!canExpand || isReadOnly} />
               <SmallAction icon={Drum} label="เครื่องจังหวะ" onClick={() => openPanel(onOpenMetronome)} />
@@ -568,6 +619,39 @@ const MobileEditControls = ({ onOpenMetronome, onOpenSettings, onOpenMusicXml, o
               <SmallAction icon={ChevronRight} label="หน้าถัดไป" onClick={() => { setIsToolsOpen(false); window.dispatchEvent(new CustomEvent('tme-sheet-page', { detail: { delta: 1 } })); }} />
             </div>
           </section>
+        </div>
+      )}
+
+      {isCellEditorOpen && (
+        <div className="fixed inset-0 z-[90] flex items-end bg-slate-950/45" onClick={() => setIsCellEditorOpen(false)}>
+          <form className="w-full rounded-t-3xl bg-white p-4 pb-8 shadow-2xl" onSubmit={saveCellDraft} onClick={(event) => event.stopPropagation()}>
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-black text-slate-900">แก้เนื้อหาในช่อง</h3>
+                <p className="text-xs font-semibold text-slate-400">พิมพ์โน้ตหลายตัวหรือข้อความกำหนดเองได้โดยตรง</p>
+              </div>
+              <button type="button" onClick={() => setIsCellEditorOpen(false)} className="flex h-11 w-11 items-center justify-center rounded-full bg-slate-100 text-slate-500" aria-label="ปิด"><X size={22} /></button>
+            </div>
+            <div className="mb-3 grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => setCellDraftMode('notes')} className={`h-12 rounded-xl border text-sm font-black ${cellDraftMode === 'notes' ? 'border-sky-500 bg-sky-500 text-white' : 'border-slate-200 bg-white text-slate-600'}`}>ตัวโน้ต</button>
+              <button type="button" onClick={() => setCellDraftMode('custom')} disabled={!canUseCustomKeyboard} className={`h-12 rounded-xl border text-sm font-black disabled:opacity-40 ${cellDraftMode === 'custom' ? 'border-violet-500 bg-violet-500 text-white' : 'border-slate-200 bg-white text-slate-600'}`}>คำกำหนดเอง</button>
+            </div>
+            <input
+              value={cellDraft}
+              onChange={(event) => setCellDraft(event.target.value)}
+              maxLength={cellDraftMode === 'custom' ? CUSTOM_CELL_MAX_LENGTH : 32}
+              autoFocus
+              enterKeyHint="done"
+              placeholder={cellDraftMode === 'custom' ? 'พิมพ์คำที่ต้องการแสดงในช่อง' : 'เช่น ดรมฟ หรือ - สำหรับช่องว่าง'}
+              className="h-16 w-full rounded-2xl border-2 border-sky-200 bg-sky-50 px-4 text-center text-xl font-black text-slate-800 outline-none focus:border-sky-500"
+            />
+            <p className="mt-2 text-center text-[10px] font-bold text-slate-400">ช่องว่างจะถูกบันทึกเป็นเครื่องหมายพักเสียง −</p>
+            <div className="mt-4 grid grid-cols-3 gap-2">
+              <button type="button" onClick={() => setIsCellEditorOpen(false)} className="h-12 rounded-xl border border-slate-200 bg-white text-sm font-black text-slate-600">ยกเลิก</button>
+              <button type="button" onClick={clearCurrentCell} className="h-12 rounded-xl border border-rose-200 bg-rose-50 text-sm font-black text-rose-600">ล้างช่อง</button>
+              <button type="submit" className="h-12 rounded-xl bg-sky-500 text-sm font-black text-white shadow-lg shadow-sky-500/20">บันทึก</button>
+            </div>
+          </form>
         </div>
       )}
     </footer>
