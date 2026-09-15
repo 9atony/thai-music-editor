@@ -49,7 +49,7 @@ const Keyboard = () => {
     appendNoteToCurrentCell, trimCurrentCellToken, moveSelectionNext, moveSelectionPrev,
     convertMeasureToText,
     addAnnotationRow, expandSelectedMeasures, selectionRange,
-    selectedCell, playbackCursor, isPlaying,
+    selectedCell, rowTypes, playbackCursor, isPlaying,
     isTempoTrackOpen, setIsTempoTrackOpen, isReadOnly,
     userRole // ⭐ ดึงยศจริงมาจาก Context
   } = useContext(MusicContext);
@@ -255,10 +255,17 @@ const Keyboard = () => {
 
   const isIntervalActive = intervalMode !== 'off';
   const intervalDist = isIntervalActive ? parseInt(intervalMode, 10) - 1 : 0;
+  const selectedRowType = rowTypes?.[selectedCell?.[0]];
+  const intervalAnchor = selectedRowType === 'double-left' ? 'left' : 'right';
+  const isIntervalKeyBlocked = (idx) => isIntervalActive && (
+    intervalAnchor === 'left'
+      ? idx + intervalDist >= displayInstrument.keys.length
+      : idx < intervalDist
+  );
 
   const handleKeyClick = (idx, e) => {
     if (!inputNote || !appendNoteToCurrentCell) return;
-    if (isIntervalActive && idx < intervalDist) return; 
+    if (isIntervalKeyBlocked(idx)) return;
 
     const kOriginal = displayInstrument.keys[idx];
     const k = isReduceMode ? shiftNoteObject(kOriginal, 1) : kOriginal;
@@ -645,9 +652,11 @@ const Keyboard = () => {
                 
                 const k = isReduceMode ? shiftNoteObject(kOriginal, 1) : kOriginal;
                 
-                const isBlocked = isIntervalActive && i < intervalDist;
-                const isHovered = hoveredIdx === i || (isIntervalActive && hoveredIdx !== null && i === hoveredIdx - intervalDist);
-                const isActive = activeIdx === i || (isIntervalActive && activeIdx !== null && i === activeIdx - intervalDist);
+                const isBlocked = isIntervalKeyBlocked(i);
+                const hoveredPairIdx = intervalAnchor === 'left' ? hoveredIdx + intervalDist : hoveredIdx - intervalDist;
+                const activePairIdx = intervalAnchor === 'left' ? activeIdx + intervalDist : activeIdx - intervalDist;
+                const isHovered = hoveredIdx === i || (isIntervalActive && hoveredIdx !== null && i === hoveredPairIdx);
+                const isActive = activeIdx === i || (isIntervalActive && activeIdx !== null && i === activePairIdx);
 
                 const keyShadowClass = isShowPlayMode ? '' : 'shadow-sm ';
                 let btnClass = `w-14 h-[100px] shrink-0 border-b-[5px] rounded-b-md flex flex-col items-center justify-end pb-5 transition-all ${keyShadowClass}group select-none relative `;

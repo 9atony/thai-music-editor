@@ -4,8 +4,9 @@ import assert from 'node:assert/strict';
 import React, { useState } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { useSheetEditor } from './useSheetEditor.js';
-import { DEFAULT_INSTRUMENT, createDefaultLayoutConfig } from '../utils/sheetUtils.js';
+import { DEFAULT_INSTRUMENT, createDefaultLayoutConfig, formatInstrumentNote } from '../utils/sheetUtils.js';
 import { decodeCustomCellToken } from '../utils/customKeyboard.js';
+import { INSTRUMENT_CONFIG } from '../utils/instrumentConfig.js';
 
 test('the khayi action commits eight slots without optional playback dependencies', () => {
   let result;
@@ -145,4 +146,42 @@ test('custom keyboard fills every cell in a dragged block', () => {
   renderToStaticMarkup(React.createElement(EditorHarness));
   assert.deepEqual(result.sheetData[0][1].map(decodeCustomCellToken), ['พร้อม', 'พร้อม', 'พร้อม', null]);
   assert.equal(result.selectionRange, null);
+});
+
+test('octave-pair input keeps the pressed note on the selected hand', () => {
+  let result;
+  const instrument = INSTRUMENT_CONFIG['ranat-ek'];
+  const low = formatInstrumentNote(instrument.keys[4]);
+  const high = formatInstrumentNote(instrument.keys[11]);
+
+  function EditorHarness() {
+    const editor = useSheetEditor({
+      isReadOnlyRef: { current: false },
+      currentInstrument: instrument,
+      intervalModeRef: { current: '8' },
+      isReduceModeRef: { current: false },
+      layoutConfigRef: { current: createDefaultLayoutConfig() },
+    });
+    const [step, setStep] = useState(0);
+
+    if (step === 0) {
+      editor.inputNote(high);
+      setStep(1);
+    } else if (step === 1) {
+      editor.setSelectedCell([1, 1, 1]);
+      setStep(2);
+    } else if (step === 2) {
+      editor.inputNote(low);
+      setStep(3);
+    } else {
+      result = editor;
+    }
+    return null;
+  }
+
+  renderToStaticMarkup(React.createElement(EditorHarness));
+  assert.equal(result.sheetData[0][1][0], high);
+  assert.equal(result.sheetData[1][1][0], low);
+  assert.equal(result.sheetData[0][1][1], high);
+  assert.equal(result.sheetData[1][1][1], low);
 });

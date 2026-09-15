@@ -4,7 +4,9 @@ import {
   createEmptyMeasureRow,
   createDefaultRowTypes,
   createDefaultSheetData,
+  formatInstrumentNote,
   getFlattenedCol,
+  getIntervalPair,
   hasNathapLeadingLabel,
   normalizeCellToken,
   normalizeNathapRowData,
@@ -12,6 +14,7 @@ import {
   splitThaiNoteToken,
 } from './sheetUtils.js';
 import { encodeCustomCellToken } from './customKeyboard.js';
+import { INSTRUMENT_CONFIG } from './instrumentConfig.js';
 
 test('creates four default right-hand and left-hand staff pairs', () => {
   const sheetData = createDefaultSheetData();
@@ -82,4 +85,21 @@ test('keeps a short companion row aligned after its leading label', () => {
 test('transposes Thai notes while retaining octave marks', () => {
   assert.equal(shiftNoteString('ด', 1), 'ร');
   assert.equal(shiftNoteString('ท', 1), 'ดํ');
+});
+
+test('builds an octave pair in the direction of the selected hand', () => {
+  const instrument = INSTRUMENT_CONFIG['ranat-ek'];
+  const low = formatInstrumentNote(instrument.keys[4]);
+  const high = formatInstrumentNote(instrument.keys[11]);
+
+  assert.deepEqual(getIntervalPair(instrument, high, '8', 'right'), { left: low, right: high });
+  assert.deepEqual(getIntervalPair(instrument, low, '8', 'left'), { left: low, right: high });
+});
+
+test('an octave note at the instrument edge pairs inward instead of clamping to a wrong pitch', () => {
+  const instrument = INSTRUMENT_CONFIG['ranat-ek'];
+  const low = formatInstrumentNote(instrument.keys[0]);
+  const high = formatInstrumentNote(instrument.keys[7]);
+
+  assert.deepEqual(getIntervalPair(instrument, low, '8'), { left: low, right: high });
 });

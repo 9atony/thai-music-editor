@@ -156,7 +156,7 @@ export const formatInstrumentNote = (key) => {
   return key.thai;
 };
 
-export const getIntervalPair = (instrument, noteStr, intervalModeVal) => {
+export const getIntervalPair = (instrument, noteStr, intervalModeVal, anchor = 'right') => {
   if (!instrument?.keys || !noteStr || noteStr === '-' || intervalModeVal === 'off') {
     return { left: noteStr, right: noteStr };
   }
@@ -164,12 +164,25 @@ export const getIntervalPair = (instrument, noteStr, intervalModeVal) => {
   const dist = parseInt(intervalModeVal, 10) - 1;
   const idx = instrument.keys.findIndex(k => formatInstrumentNote(k) === noteStr);
   
-  if (idx === -1) return { left: noteStr, right: noteStr };
+  if (idx === -1 || !Number.isFinite(dist) || dist < 1) return { left: noteStr, right: noteStr };
 
-  let rightIdx = idx;
-  let leftIdx = idx - dist;
+  let leftIdx = anchor === 'left' ? idx : idx - dist;
+  let rightIdx = anchor === 'left' ? idx + dist : idx;
 
-  if (leftIdx < 0) leftIdx = 0; 
+  // If the preferred direction falls outside the instrument, use the valid
+  // octave on the other side. Clamping to the first/last key produced a
+  // different pitch class (and sometimes duplicated the same note).
+  if (leftIdx < 0 || rightIdx >= instrument.keys.length) {
+    if (idx + dist < instrument.keys.length) {
+      leftIdx = idx;
+      rightIdx = idx + dist;
+    } else if (idx - dist >= 0) {
+      leftIdx = idx - dist;
+      rightIdx = idx;
+    } else {
+      return { left: noteStr, right: noteStr };
+    }
+  }
 
   return {
     left: formatInstrumentNote(instrument.keys[leftIdx]),

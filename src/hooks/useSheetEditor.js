@@ -48,6 +48,23 @@ export const useSheetEditor = ({
     layoutConfigRef.current.customStyles?.[`${row}_${meas}_${cell}`]?.instrumentId || null
   );
 
+  const getPairedCellTokens = (token, row, meas, cell) => {
+    const isRightRow = rowTypes[row] === 'double-right';
+    const actualNote = isReduceModeRef.current ? shiftNoteString(token, -1) : token;
+    const overrideInstrumentId = getCellInstrumentId(row, meas, cell);
+    const pairInstrument = INSTRUMENT_CONFIG[overrideInstrumentId] || currentInstrument;
+    const pair = getIntervalPair(
+      pairInstrument,
+      actualNote,
+      intervalModeRef.current,
+      isRightRow ? 'right' : 'left',
+    );
+    return {
+      left: isReduceModeRef.current ? shiftNoteString(pair.left, 1) : pair.left,
+      right: isReduceModeRef.current ? shiftNoteString(pair.right, 1) : pair.right,
+    };
+  };
+
   const resetSheetState = () => {
     const defaultSheet = createDefaultSheetData();
     const defaultTypes = createDefaultRowTypes();
@@ -151,10 +168,9 @@ export const useSheetEditor = ({
             const leftParts = [];
             const rightParts = [];
             parts.forEach(n => {
-                const actualNote = isReduceModeRef.current ? shiftNoteString(n, -1) : n;
-                const { left, right } = getIntervalPair(currentInstrument, actualNote, intervalModeRef.current);
-                leftParts.push(isReduceModeRef.current ? shiftNoteString(left, 1) : left);
-                rightParts.push(isReduceModeRef.current ? shiftNoteString(right, 1) : right);
+                const { left, right } = getPairedCellTokens(n, row, meas, cell);
+                leftParts.push(left);
+                rightParts.push(right);
             });
             newData[leftRowIdx][meas][cell] = leftParts.join('');
             newData[rightRowIdx][meas][cell] = rightParts.join('');
@@ -227,10 +243,9 @@ export const useSheetEditor = ({
         const leftParts = [];
         const rightParts = [];
         parts.forEach(n => {
-            const actualNote = isReduceModeRef.current ? shiftNoteString(n, -1) : n;
-            const { left, right } = getIntervalPair(currentInstrument, actualNote, intervalModeRef.current);
-            leftParts.push(isReduceModeRef.current ? shiftNoteString(left, 1) : left);
-            rightParts.push(isReduceModeRef.current ? shiftNoteString(right, 1) : right);
+            const { left, right } = getPairedCellTokens(n, row, meas, cell);
+            leftParts.push(left);
+            rightParts.push(right);
         });
         newData[leftRowIdx][meas][cell] = leftParts.join('');
         newData[rightRowIdx][meas][cell] = rightParts.join('');
@@ -273,10 +288,9 @@ export const useSheetEditor = ({
             const leftParts = [];
             const rightParts = [];
             parts.forEach(n => {
-                const actualNote = isReduceModeRef.current ? shiftNoteString(n, -1) : n;
-                const { left, right } = getIntervalPair(currentInstrument, actualNote, intervalModeRef.current);
-                leftParts.push(isReduceModeRef.current ? shiftNoteString(left, 1) : left);
-                rightParts.push(isReduceModeRef.current ? shiftNoteString(right, 1) : right);
+                const { left, right } = getPairedCellTokens(n, row, meas, cell);
+                leftParts.push(left);
+                rightParts.push(right);
             });
             newData[leftRowIdx][meas][cell] = leftParts.join('');
             newData[rightRowIdx][meas][cell] = rightParts.join('');
@@ -401,10 +415,9 @@ export const useSheetEditor = ({
                           newData[rightRowIdx][m][c] = '-';
                           newData[leftRowIdx][m][c] = '-';
                       } else {
-                          const actualNote = isReduceModeRef.current ? shiftNoteString(normalizedToken, -1) : normalizedToken;
-                          const { left, right } = getIntervalPair(currentInstrument, actualNote, intervalModeRef.current);
-                          newData[leftRowIdx][m][c] = isReduceModeRef.current ? shiftNoteString(left, 1) : left;
-                          newData[rightRowIdx][m][c] = isReduceModeRef.current ? shiftNoteString(right, 1) : right;
+                          const { left, right } = getPairedCellTokens(normalizedToken, r, m, c);
+                          newData[leftRowIdx][m][c] = left;
+                          newData[rightRowIdx][m][c] = right;
                       }
                   } else {
                       newData[r][m][c] = normalizedToken;
@@ -459,11 +472,10 @@ export const useSheetEditor = ({
           const rightRowIdx = isRightRow ? row : row - 1;
           const leftRowIdx = isRightRow ? row + 1 : row;
           
-          const actualNote = isReduceModeRef.current ? shiftNoteString(normalizedToken, -1) : normalizedToken;
-          const { left, right } = getIntervalPair(currentInstrument, actualNote, intervalModeRef.current);
+          const { left, right } = getPairedCellTokens(normalizedToken, row, meas, cell);
           
-          newData[leftRowIdx][meas][cell] = isReduceModeRef.current ? shiftNoteString(left, 1) : left;
-          newData[rightRowIdx][meas][cell] = isReduceModeRef.current ? shiftNoteString(right, 1) : right;
+          newData[leftRowIdx][meas][cell] = left;
+          newData[rightRowIdx][meas][cell] = right;
       } else {
           newData[row][meas][cell] = normalizedToken;
       }
