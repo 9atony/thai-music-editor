@@ -8,12 +8,14 @@ const SabatTab = () => {
     symbols, 
     updateSymbol,
     updateSymbols,
-    selectedSymbolId 
+    selectedSymbolId,
+    setSelectedSymbolId,
+    removeSymbol,
   } = useContext(MusicContext);
 
   // หาสัญลักษณ์สะบัดที่กำลังคลิกอยู่ (ถ้าไม่มี = ตั้งค่าเริ่มต้นของทั้งหน้า)
   const selectedSym = symbols.find(s => s.id === selectedSymbolId && s.type === 'sabat');
-  const [scope, setScope] = useState('project');
+  const [scope, setScope] = useState(selectedSym ? 'line' : 'project');
   const isProjectScope = scope === 'project' || !selectedSym;
   const sabatCount = symbols.filter(symbol => symbol.type === 'sabat').length;
 
@@ -76,6 +78,11 @@ const SabatTab = () => {
           <p className="mt-2 text-[9px] leading-4 text-amber-700">
             {isProjectScope ? 'ค่าที่ปรับจะใช้กับลูกสะบัดทุกเส้น และเส้นใหม่ที่เพิ่มในภายหลัง' : 'เลือกเส้นลูกสะบัดบนโน้ตก่อน จึงจะปรับเฉพาะเส้นได้'}
           </p>
+          {selectedSym && !isProjectScope && (
+            <button type="button" onClick={() => { removeSymbol(selectedSym.id); setSelectedSymbolId(null); setScope('project'); }} className="mt-3 h-10 w-full rounded-lg border border-rose-200 bg-rose-50 text-[11px] font-black text-rose-600 active:scale-[0.98]">
+              ลบลูกสะบัดเส้นนี้
+            </button>
+          )}
         </div>
         
         {/* --- หมวดรูปลักษณ์เส้น --- */}

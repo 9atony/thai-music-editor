@@ -155,8 +155,8 @@ const EditorSidebar = ({ mobile = false }) => {
         {activeSidePanel === 'table' && <TableTab />}
         {/* ⭐ 3. ฝัง Component ของแท็บเสียง */}
         {activeSidePanel === 'velocity' && <VelocityTab />}
-        {activeSidePanel === 'sabat' && <SabatTab />}
-        {activeSidePanel === 'kro' && <KroTab />}
+        {activeSidePanel === 'sabat' && <SabatTab key={`sabat-${selectedSymbolId || 'project'}`} />}
+        {activeSidePanel === 'kro' && <KroTab key={`kro-${selectedSymbolId || 'project'}`} />}
       </div>
     </div>
   );

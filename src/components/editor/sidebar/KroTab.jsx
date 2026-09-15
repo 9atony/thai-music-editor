@@ -2,10 +2,10 @@ import React, { useContext, useState } from 'react';
 import { MusicContext } from '../../../contexts/MusicContext';
 
 const KroTab = () => {
-  const { layoutConfig, setLayoutConfig, symbols, updateSymbol, updateSymbols, selectedSymbolId } = useContext(MusicContext);
+  const { layoutConfig, setLayoutConfig, symbols, updateSymbol, updateSymbols, selectedSymbolId, setSelectedSymbolId, removeSymbol } = useContext(MusicContext);
 
   const selectedSym = symbols.find(s => s.id === selectedSymbolId && s.type === 'kro');
-  const [scope, setScope] = useState('project');
+  const [scope, setScope] = useState(selectedSym ? 'line' : 'project');
   const isProjectScope = scope === 'project' || !selectedSym;
   const kroCount = symbols.filter(symbol => symbol.type === 'kro').length;
 
@@ -72,6 +72,11 @@ const KroTab = () => {
           <p className="mt-2 text-[9px] leading-4 text-blue-700">
             {isProjectScope ? 'ค่าที่ปรับจะใช้กับเส้นกรอทุกเส้น และเส้นใหม่ที่เพิ่มในภายหลัง' : 'เลือกเส้นกรอบนโน้ตก่อน จึงจะปรับเฉพาะเส้นได้'}
           </p>
+          {selectedSym && !isProjectScope && (
+            <button type="button" onClick={() => { removeSymbol(selectedSym.id); setSelectedSymbolId(null); setScope('project'); }} className="mt-3 h-10 w-full rounded-lg border border-rose-200 bg-rose-50 text-[11px] font-black text-rose-600 active:scale-[0.98]">
+              ลบลูกกรอเส้นนี้
+            </button>
+          )}
         </div>
         
         {/* --- 1. หมวดการเล่นเสียง --- */}

@@ -149,6 +149,11 @@ const MobileEditControls = ({ onOpenMetronome, onOpenSettings, onOpenMusicXml, o
     convertMeasureToText,
     addAnnotationRow,
     expandSelectedMeasures,
+    addSymbol,
+    symbols,
+    selectedSymbolId,
+    setSelectedSymbolId,
+    removeSymbol,
     layoutConfig,
     setLayoutConfig,
     intervalMode,
@@ -178,6 +183,13 @@ const MobileEditControls = ({ onOpenMetronome, onOpenSettings, onOpenMusicXml, o
   const activeKeyboardMode = canUseCustomKeyboard ? keyboardMode : 'notes';
   const customKeys = normalizeCustomKeyboardKeys(layoutConfig?.customKeyboardKeys);
   const canExpand = Boolean(selectionRange?.start && selectionRange?.end && !selectionRange?.labelOnly);
+  const canCreateSymbol = Boolean(
+    selectionRange?.start
+    && selectionRange?.end
+    && !selectionRange?.labelOnly
+    && selectionRange.start.some((value, index) => value !== selectionRange.end[index]),
+  );
+  const selectedSymbol = symbols?.find((symbol) => symbol.id === selectedSymbolId);
   const selectedLabel = hasCell
     ? `บรรทัด ${selectedCell[0] + 1} · ห้อง ${selectedCell[1] + 1} · ช่อง ${selectedCell[2] + 1}`
     : 'แตะช่องโน้ตบนกระดาษก่อน';
@@ -417,6 +429,36 @@ const MobileEditControls = ({ onOpenMetronome, onOpenSettings, onOpenMusicXml, o
     setIsCellEditorOpen(false);
   };
 
+  const addMobileSymbol = (type) => {
+    if (!canCreateSymbol || isReadOnly || !addSymbol) return;
+    const start = [...selectionRange.start];
+    const end = [...selectionRange.end];
+    const startOrder = start[0] * 1000000 + start[1] * 1000 + start[2];
+    const endOrder = end[0] * 1000000 + end[1] * 1000 + end[2];
+    const symbolId = Date.now();
+    addSymbol(type, start, end, {
+      id: symbolId,
+      color: type === 'kro'
+        ? (layoutConfig.kroColor || '#3b82f6')
+        : (layoutConfig.sabatColor || '#1e293b'),
+      strokewidth: type === 'kro'
+        ? (layoutConfig.kroStrokeWidth || 2.5)
+        : (layoutConfig.sabatStrokeWidth || 2.5),
+      height: layoutConfig.symbolHeight ?? 20,
+      wraps: type === 'kro' && startOrder > endOrder,
+    });
+    setLayoutConfig((current) => ({ ...current, activeSymbol: type }));
+    setSelectionRange?.(null);
+    setSelectedSymbolId?.(symbolId);
+    window.dispatchEvent(new CustomEvent('tme-open-symbol-panel', { detail: { type } }));
+  };
+
+  const deleteSelectedSymbol = () => {
+    if (!selectedSymbol || isReadOnly) return;
+    removeSymbol?.(selectedSymbol.id);
+    setSelectedSymbolId?.(null);
+  };
+
   return (
     <footer className="relative z-40 shrink-0 rounded-t-3xl border-t border-slate-200 bg-white shadow-[0_-12px_30px_rgba(15,23,42,0.15)]">
       <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2">
@@ -489,6 +531,9 @@ const MobileEditControls = ({ onOpenMetronome, onOpenSettings, onOpenMusicXml, o
             <SmallAction icon={Copy} label="คัดลอก" onClick={copySelection} disabled={!hasCell || isReadOnly} />
             <SmallAction icon={Scissors} label="ตัด" onClick={cutSelection} disabled={!hasCell || isReadOnly} />
             <SmallAction icon={ClipboardPaste} label="วาง" onClick={pasteSelection} disabled={!hasCell || isReadOnly} />
+            <SmallAction icon={Waves} label="เพิ่มสะบัด" onClick={() => addMobileSymbol('sabat')} disabled={!canCreateSymbol || isReadOnly} />
+            <SmallAction icon={AudioLines} label="เพิ่มกรอ" onClick={() => addMobileSymbol('kro')} disabled={!canCreateSymbol || isReadOnly} />
+            {selectedSymbol && <SmallAction icon={Trash2} label="ลบเส้น" onClick={deleteSelectedSymbol} disabled={isReadOnly} danger />}
             <SmallAction icon={Plus} label="เพิ่มจังหวะ" onClick={addNoteColumn} disabled={!hasCell || isReadOnly} />
             <SmallAction icon={Minus} label="ลบจังหวะ" onClick={removeNoteColumn} disabled={!hasCell || isReadOnly} danger />
             <SmallAction icon={Plus} label="เพิ่มห้อง" onClick={addMeasure} disabled={!hasCell || isReadOnly} />
