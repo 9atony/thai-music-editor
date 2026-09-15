@@ -1,4 +1,5 @@
 import React, { useContext, useEffect, useRef, useState } from 'react';
+import { useReactToPrint } from 'react-to-print';
 import { MusicContext } from '../contexts/MusicContext';
 import Sheet from '../components/editor/Sheet'; 
 import MobileMetronomeMenu from '../components/editor/MobileMetronomeMenu';
@@ -50,6 +51,10 @@ const MobileEditor = ({ onBack }) => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [mobileMode, setMobileMode] = useState('listen');
   const [isDesktopViewport, setIsDesktopViewport] = useState(() => window.matchMedia('(min-width: 768px)').matches);
+  const handlePrint = useReactToPrint({
+    contentRef: sheetContainerRef,
+    documentTitle: 'Thai-Music-Note',
+  });
 
   useEffect(() => {
     const mediaQuery = window.matchMedia('(min-width: 768px)');
@@ -298,7 +303,12 @@ const MobileEditor = ({ onBack }) => {
           </div>
 
         </div>
-      </footer> : <MobileEditControls onOpenMetronome={() => setIsMetronomeOpen(true)} onOpenSettings={() => setIsSettingsOpen(true)} />}
+      </footer> : <MobileEditControls
+        onOpenMetronome={() => setIsMetronomeOpen(true)}
+        onOpenSettings={() => setIsSettingsOpen(true)}
+        onOpenMusicXml={() => setIsMusicXmlDialogOpen(true)}
+        onPrint={handlePrint}
+      />}
 
       {/* 4. Bottom Sheet (คิวเพลง, BPM) */}
       <div className={`fixed inset-0 z-[60] flex flex-col justify-end transition-all duration-300 ${isQueueOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}>

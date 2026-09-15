@@ -5,10 +5,13 @@ import {
   ChevronRight,
   ClipboardPaste,
   Copy,
+  Download,
   Drum,
   AudioLines,
+  FileDown,
   FilePlus2,
   FileText,
+  FolderOpen,
   Keyboard,
   Maximize2,
   Minus,
@@ -27,6 +30,7 @@ import {
   Tag,
   Trash2,
   Undo2,
+  Upload,
   Volume2,
   Waves,
   X,
@@ -36,6 +40,7 @@ import {
 import { MusicContext } from '../../contexts/MusicContext';
 import { useFeatureAccess } from '../../contexts/FeatureAccessContext';
 import { INSTRUMENT_CONFIG } from '../../utils/instrumentConfig';
+import { getFlattenedCol } from '../../utils/sheetUtils';
 import {
   CUSTOM_KEYBOARD_FEATURE_ID,
   CUSTOM_KEYBOARD_MAX_KEYS,
@@ -43,6 +48,18 @@ import {
   normalizeCustomKeyboardKeys,
   normalizeCustomText,
 } from '../../utils/customKeyboard';
+
+const FONT_OPTIONS = [
+  { value: "'TH Sarabun New', sans-serif", label: 'TH Sarabun New' },
+  { value: "'Sarabun', sans-serif", label: 'Sarabun' },
+  { value: "'Noto Sans Thai', sans-serif", label: 'Noto Sans Thai' },
+  { value: "'Prompt', sans-serif", label: 'Prompt' },
+  { value: "'Kanit', sans-serif", label: 'Kanit' },
+  { value: "'Mitr', sans-serif", label: 'Mitr' },
+  { value: "'Mali', cursive", label: 'Mali' },
+];
+
+const NOTE_STYLE_KEYS = ['fontSize', 'noteFontFamily', 'isBold', 'isItalic', 'color'];
 
 const formatNote = (key) => {
   const octaveMatch = key.eng?.match(/\d+/);
@@ -74,13 +91,23 @@ const SmallAction = ({ icon: Icon, label, onClick, disabled = false, active = fa
   </button>
 );
 
-const MobileEditControls = ({ onOpenMetronome, onOpenSettings }) => {
+const FileAction = ({ icon: Icon, label, accept, onFile }) => (
+  <label className="flex min-h-14 min-w-0 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border border-slate-200 bg-white px-2 text-center text-[10px] font-black text-slate-600 transition active:scale-95">
+    {React.createElement(Icon, { size: 19, strokeWidth: 2.4 })}
+    <span>{label}</span>
+    <input type="file" accept={accept} className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) onFile(file); event.target.value = ''; }} />
+  </label>
+);
+
+const MobileEditControls = ({ onOpenMetronome, onOpenSettings, onOpenMusicXml, onPrint }) => {
   const { canAccess } = useFeatureAccess();
   const {
     currentInstrument,
     changeInstrument,
     selectedCell,
     selectionRange,
+    sheetData,
+    rowTypes,
     inputNote,
     inputCustomText,
     appendCustomTextToCurrentCell,
@@ -91,6 +118,11 @@ const MobileEditControls = ({ onOpenMetronome, onOpenSettings }) => {
     canUndo,
     canRedo,
     saveProject,
+    newProject,
+    loadProject,
+    importThaiMusicXml,
+    exportThaiMusicXml,
+    stopPlayback,
     isPlaying,
     togglePlay,
     isReadOnly,
@@ -165,6 +197,116 @@ const MobileEditControls = ({ onOpenMetronome, onOpenSettings }) => {
   const openEditorPanel = (panel) => {
     setIsToolsOpen(false);
     window.dispatchEvent(new CustomEvent('tme-open-editor-panel', { detail: { panel } }));
+  };
+
+  const getStyleTargetKeys = () => {
+    const hasRange = selectionRange?.start && selectionRange?.end && (
+      selectionRange.labelOnly
+      || selectionRange.start.some((value, index) => value !== selectionRange.end[index])
+    );
+
+    if (!hasRange) {
+      return hasCell ? [`${selectedCell[0]}_${selectedCell[1]}_${selectedCell[2]}`] : [];
+    }
+
+    const minRow = Math.min(selectionRange.start[0], selectionRange.end[0]);
+    const maxRow = Math.max(selectionRange.start[0], selectionRange.end[0]);
+    if (selectionRange.labelOnly) {
+      const labelKeys = [];
+      for (let rowIndex = minRow; rowIndex <= maxRow; rowIndex += 1) {
+        if (String(rowTypes?.[rowIndex] || '').startsWith('double')) labelKeys.push(`${rowIndex}_0_0`);
+      }
+      return labelKeys;
+    }
+
+    const startCol = getFlattenedCol(
+      sheetData?.[selectionRange.start[0]],
+      rowTypes?.[selectionRange.start[0]],
+      selectionRange.start[1],
+      selectionRange.start[2],
+    );
+    const endCol = getFlattenedCol(
+      sheetData?.[selectionRange.end[0]],
+      rowTypes?.[selectionRange.end[0]],
+      selectionRange.end[1],
+      selectionRange.end[2],
+    );
+    const minCol = Math.min(startCol, endCol);
+    const maxCol = Math.max(startCol, endCol);
+    const keysToUpdate = [];
+
+    for (let rowIndex = minRow; rowIndex <= maxRow; rowIndex += 1) {
+      const row = sheetData?.[rowIndex];
+      const rowType = rowTypes?.[rowIndex];
+      if (!Array.isArray(row) || rowType === 'text' || rowType === 'page-break') continue;
+      for (let measureIndex = 0; measureIndex < row.length; measureIndex += 1) {
+        const isRowLabel = String(rowType || '').startsWith('double') && measureIndex === 0;
+        if (isRowLabel) {
+          if (selectionRange.includeRowLabels) keysToUpdate.push(`${rowIndex}_0_0`);
+          continue;
+        }
+        const measure = row[measureIndex];
+        if (!Array.isArray(measure)) continue;
+        for (let cellIndex = 0; cellIndex < measure.length; cellIndex += 1) {
+          const flattenedCol = getFlattenedCol(row, rowType, measureIndex, cellIndex);
+          if (flattenedCol >= minCol && flattenedCol <= maxCol) {
+            keysToUpdate.push(`${rowIndex}_${measureIndex}_${cellIndex}`);
+          }
+        }
+      }
+    }
+    return keysToUpdate;
+  };
+
+  const styleTargetKeys = getStyleTargetKeys();
+  const firstTargetStyle = layoutConfig?.customStyles?.[styleTargetKeys[0]] || {};
+  const isLabelSelection = Boolean(selectionRange?.labelOnly);
+  const selectedFontFamily = firstTargetStyle.noteFontFamily
+    || (isLabelSelection ? layoutConfig?.rowLabelFontFamily : null)
+    || layoutConfig?.noteFontFamily
+    || layoutConfig?.fontFamily
+    || "'Sarabun', sans-serif";
+  const selectedFontSize = Number(
+    firstTargetStyle.fontSize
+    ?? (isLabelSelection ? layoutConfig?.rowLabelFontSize : null)
+    ?? layoutConfig?.fontSize
+    ?? 16,
+  );
+  const allTargetsUse = (styleKey) => styleTargetKeys.length > 0 && styleTargetKeys.every((key) => {
+    const customValue = layoutConfig?.customStyles?.[key]?.[styleKey];
+    return customValue !== undefined ? Boolean(customValue) : Boolean(layoutConfig?.[styleKey]);
+  });
+
+  const applySelectedStyle = (styleKey, value) => {
+    if (styleTargetKeys.length === 0 || isReadOnly) return;
+    setLayoutConfig((current) => {
+      const customStyles = { ...(current.customStyles || {}) };
+      styleTargetKeys.forEach((key) => {
+        const currentStyle = customStyles[key] || {};
+        const fallbackValue = styleKey === 'fontSize'
+          ? (isLabelSelection ? current.rowLabelFontSize : current.fontSize) ?? 16
+          : current[styleKey];
+        const nextValue = typeof value === 'function' ? value(currentStyle[styleKey] ?? fallbackValue) : value;
+        customStyles[key] = { ...currentStyle, [styleKey]: nextValue };
+      });
+      return { ...current, customStyles };
+    });
+  };
+
+  const clearSelectedStyles = () => {
+    if (styleTargetKeys.length === 0 || isReadOnly) return;
+    setLayoutConfig((current) => {
+      const customStyles = { ...(current.customStyles || {}) };
+      styleTargetKeys.forEach((key) => {
+        if (!customStyles[key]) return;
+        const cleanedStyle = Object.fromEntries(
+          Object.entries(customStyles[key]).filter(([styleKey]) => !NOTE_STYLE_KEYS.includes(styleKey)),
+        );
+        if (Object.keys(cleanedStyle).length > 0) customStyles[key] = cleanedStyle;
+        else delete customStyles[key];
+      });
+      return { ...current, customStyles };
+    });
   };
 
   return (
@@ -306,6 +448,43 @@ const MobileEditControls = ({ onOpenMetronome, onOpenSettings }) => {
               <SmallAction icon={Volume2} label="น้ำหนักเสียง" onClick={() => openEditorPanel('velocity')} />
               <SmallAction icon={Waves} label="ลูกสะบัด" onClick={() => openEditorPanel('sabat')} />
               <SmallAction icon={AudioLines} label="ลูกกรอ" onClick={() => openEditorPanel('kro')} />
+            </div>
+            <p className="mb-2 mt-5 text-xs font-black text-slate-400">รูปแบบโน้ตที่เลือก</p>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+              <select
+                value={selectedFontFamily}
+                onChange={(event) => applySelectedStyle('noteFontFamily', event.target.value)}
+                disabled={styleTargetKeys.length === 0 || isReadOnly}
+                className="h-12 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700 outline-none disabled:opacity-40"
+                aria-label="แบบอักษรของโน้ตที่เลือก"
+              >
+                {FONT_OPTIONS.map((font) => <option key={font.value} value={font.value}>{font.label}</option>)}
+              </select>
+              <div className="mt-2 grid grid-cols-5 gap-2">
+                <button type="button" onClick={() => applySelectedStyle('fontSize', (value) => Math.max(10, Number(value || 16) - 2))} disabled={styleTargetKeys.length === 0 || isReadOnly} className="h-12 rounded-xl border border-slate-200 bg-white text-lg font-black text-slate-600 disabled:opacity-40" aria-label="ลดขนาดตัวโน้ต">A−</button>
+                <div className="flex h-12 items-center justify-center rounded-xl border border-slate-200 bg-white text-xs font-black text-slate-600">{selectedFontSize}</div>
+                <button type="button" onClick={() => applySelectedStyle('fontSize', (value) => Math.min(150, Number(value || 16) + 2))} disabled={styleTargetKeys.length === 0 || isReadOnly} className="h-12 rounded-xl border border-slate-200 bg-white text-lg font-black text-slate-600 disabled:opacity-40" aria-label="เพิ่มขนาดตัวโน้ต">A+</button>
+                <button type="button" onClick={() => applySelectedStyle('isBold', !allTargetsUse('isBold'))} disabled={styleTargetKeys.length === 0 || isReadOnly} className={`h-12 rounded-xl border text-lg font-black disabled:opacity-40 ${allTargetsUse('isBold') ? 'border-sky-500 bg-sky-500 text-white' : 'border-slate-200 bg-white text-slate-700'}`} aria-label="ตัวหนา">B</button>
+                <button type="button" onClick={() => applySelectedStyle('isItalic', !allTargetsUse('isItalic'))} disabled={styleTargetKeys.length === 0 || isReadOnly} className={`h-12 rounded-xl border text-lg font-black italic disabled:opacity-40 ${allTargetsUse('isItalic') ? 'border-sky-500 bg-sky-500 text-white' : 'border-slate-200 bg-white text-slate-700'}`} aria-label="ตัวเอียง">I</button>
+              </div>
+              <div className="mt-2 flex items-center gap-2">
+                <label className="flex h-12 min-w-0 flex-1 items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-600">
+                  <input type="color" value={firstTargetStyle.color || '#0f172a'} onChange={(event) => applySelectedStyle('color', event.target.value)} disabled={styleTargetKeys.length === 0 || isReadOnly} className="h-8 w-10 rounded border-0 bg-transparent p-0 disabled:opacity-40" />
+                  สีตัวโน้ต
+                </label>
+                <button type="button" onClick={clearSelectedStyles} disabled={styleTargetKeys.length === 0 || isReadOnly} className="h-12 rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-500 disabled:opacity-40">คืนค่าเดิม</button>
+              </div>
+              {styleTargetKeys.length === 0 && <p className="mt-2 text-center text-[10px] font-bold text-amber-600">แตะช่องโน้ตก่อนปรับรูปแบบ</p>}
+            </div>
+            <p className="mb-2 mt-5 text-xs font-black text-slate-400">ไฟล์และส่งออก</p>
+            <div className="grid grid-cols-3 gap-2">
+              <SmallAction icon={FilePlus2} label="โปรเจกต์ใหม่" onClick={() => openPanel(newProject)} />
+              <FileAction icon={FolderOpen} label="เปิดไฟล์ .tme" accept=".thai,.tme,.json" onFile={(file) => openPanel(() => loadProject?.(file))} />
+              <FileAction icon={Upload} label="นำเข้า TXML" accept=".txml,application/xml,text/xml" onFile={(file) => openPanel(() => importThaiMusicXml?.(file))} />
+              <SmallAction icon={Save} label="บันทึก .tme" onClick={() => openPanel(saveProject)} />
+              {canAccess('export-txml', userRole) && <SmallAction icon={Download} label="ส่งออก TXML" onClick={() => openPanel(exportThaiMusicXml)} />}
+              {canAccess('export-musicxml', userRole) && <SmallAction icon={Music2} label="MusicXML" onClick={() => openPanel(onOpenMusicXml)} />}
+              {canAccess('export-pdf', userRole) && <SmallAction icon={FileDown} label="ส่งออก PDF" onClick={() => openPanel(() => { stopPlayback?.(); onPrint?.(); })} />}
             </div>
             <p className="mb-2 mt-5 text-xs font-black text-slate-400">ขนาดกระดาษ</p>
             <div className="grid grid-cols-3 gap-2">
