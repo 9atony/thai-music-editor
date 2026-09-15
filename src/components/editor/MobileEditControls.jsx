@@ -1,5 +1,6 @@
 import React, { useContext, useState } from 'react';
 import {
+  Check,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -15,6 +16,7 @@ import {
   Keyboard,
   Maximize2,
   Minus,
+  MousePointer2,
   Music2,
   Pause,
   Play,
@@ -40,7 +42,7 @@ import {
 import { MusicContext } from '../../contexts/MusicContext';
 import { useFeatureAccess } from '../../contexts/FeatureAccessContext';
 import { INSTRUMENT_CONFIG } from '../../utils/instrumentConfig';
-import { getFlattenedCol } from '../../utils/sheetUtils';
+import { getFlattenedCol, hasNathapLeadingLabel } from '../../utils/sheetUtils';
 import {
   CUSTOM_KEYBOARD_FEATURE_ID,
   CUSTOM_KEYBOARD_MAX_KEYS,
@@ -106,6 +108,7 @@ const MobileEditControls = ({ onOpenMetronome, onOpenSettings, onOpenMusicXml, o
     changeInstrument,
     selectedCell,
     selectionRange,
+    setSelectionRange,
     sheetData,
     rowTypes,
     inputNote,
@@ -154,6 +157,7 @@ const MobileEditControls = ({ onOpenMetronome, onOpenSettings, onOpenMusicXml, o
   const [isToolsOpen, setIsToolsOpen] = useState(false);
   const [customDraft, setCustomDraft] = useState('');
   const [appendCustomText, setAppendCustomText] = useState(false);
+  const [rangeAnchor, setRangeAnchor] = useState(null);
 
   const hasCell = Array.isArray(selectedCell);
   const selectedInstrumentId = hasCell
@@ -309,6 +313,61 @@ const MobileEditControls = ({ onOpenMetronome, onOpenSettings, onOpenMusicXml, o
     });
   };
 
+  const toggleRangeSelection = () => {
+    if (!hasCell || isReadOnly) return;
+    if (!rangeAnchor) {
+      setRangeAnchor([...selectedCell]);
+      return;
+    }
+    setSelectionRange?.({ start: rangeAnchor, end: [...selectedCell], includeRowLabels: false });
+    setRangeAnchor(null);
+  };
+
+  const selectCurrentMeasure = () => {
+    if (!hasCell || isReadOnly) return;
+    const [rowIndex, measureIndex] = selectedCell;
+    const row = sheetData?.[rowIndex];
+    const rowType = rowTypes?.[rowIndex];
+    const isLeadingLabel = measureIndex === 0 && (
+      String(rowType || '').startsWith('double') || hasNathapLeadingLabel(row, rowType)
+    );
+    const measure = row?.[measureIndex];
+    if (isLeadingLabel || !Array.isArray(measure) || measure.length === 0) return;
+    setSelectionRange?.({
+      start: [rowIndex, measureIndex, 0],
+      end: [rowIndex, measureIndex, measure.length - 1],
+      includeRowLabels: false,
+    });
+    setRangeAnchor(null);
+  };
+
+  const selectCurrentRow = () => {
+    if (!hasCell || isReadOnly) return;
+    const rowIndex = selectedCell[0];
+    const row = sheetData?.[rowIndex];
+    const rowType = rowTypes?.[rowIndex];
+    if (!Array.isArray(row) || rowType === 'text' || rowType === 'page-break') return;
+    const firstMeasureIndex = (
+      String(rowType || '').startsWith('double') || hasNathapLeadingLabel(row, rowType)
+    ) ? 1 : 0;
+    const selectableMeasures = row
+      .map((measure, measureIndex) => ({ measure, measureIndex }))
+      .filter(({ measure, measureIndex }) => {
+        if (measureIndex < firstMeasureIndex || !Array.isArray(measure) || measure.length === 0) return false;
+        const marker = measure[0];
+        return marker !== '@HIDDEN' && !(typeof marker === 'string' && marker.startsWith('@TEXT_SPAN_'));
+      });
+    if (selectableMeasures.length === 0) return;
+    const first = selectableMeasures[0];
+    const last = selectableMeasures[selectableMeasures.length - 1];
+    setSelectionRange?.({
+      start: [rowIndex, first.measureIndex, 0],
+      end: [rowIndex, last.measureIndex, last.measure.length - 1],
+      includeRowLabels: false,
+    });
+    setRangeAnchor(null);
+  };
+
   return (
     <footer className="relative z-40 shrink-0 rounded-t-3xl border-t border-slate-200 bg-white shadow-[0_-12px_30px_rgba(15,23,42,0.15)]">
       <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2">
@@ -359,6 +418,17 @@ const MobileEditControls = ({ onOpenMetronome, onOpenSettings, onOpenMusicXml, o
             <button type="button" onClick={() => setIsToolsOpen(true)} className="flex h-12 min-w-[92px] shrink-0 items-center justify-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50 px-3 text-xs font-black text-indigo-700">
               <SlidersHorizontal size={17} /> เครื่องมือ
             </button>
+          </div>
+
+          <div className={`flex gap-2 overflow-x-auto border-b px-3 py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${rangeAnchor ? 'border-amber-200 bg-amber-50' : 'border-slate-100 bg-slate-50'}`}>
+            <button type="button" onClick={toggleRangeSelection} disabled={!hasCell || isReadOnly} className={`flex h-11 min-w-[126px] shrink-0 items-center justify-center gap-2 rounded-xl border px-3 text-xs font-black disabled:opacity-40 ${rangeAnchor ? 'border-amber-500 bg-amber-500 text-white' : 'border-sky-200 bg-white text-sky-700'}`}>
+              {rangeAnchor ? <Check size={18} /> : <MousePointer2 size={18} />}
+              {rangeAnchor ? 'จบช่วงที่นี่' : 'เริ่มเลือกช่วง'}
+            </button>
+            {rangeAnchor && <button type="button" onClick={() => setRangeAnchor(null)} className="flex h-11 min-w-[82px] shrink-0 items-center justify-center gap-1 rounded-xl border border-rose-200 bg-white px-3 text-xs font-black text-rose-600"><X size={17} /> ยกเลิก</button>}
+            <button type="button" onClick={selectCurrentMeasure} disabled={!hasCell || isReadOnly} className="flex h-11 min-w-[104px] shrink-0 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-600 disabled:opacity-40"><Table2 size={17} /> ทั้งห้อง</button>
+            <button type="button" onClick={selectCurrentRow} disabled={!hasCell || isReadOnly} className="flex h-11 min-w-[116px] shrink-0 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-600 disabled:opacity-40"><Rows3 size={17} /> ทั้งบรรทัด</button>
+            {rangeAnchor && <p className="flex min-w-[210px] shrink-0 items-center text-[10px] font-bold text-amber-700">แตะช่องปลายทางบนกระดาษ แล้วกด “จบช่วงที่นี่”</p>}
           </div>
 
           <div className="flex gap-2 overflow-x-auto px-3 py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
