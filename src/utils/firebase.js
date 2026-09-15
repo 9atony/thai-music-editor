@@ -1,5 +1,4 @@
 import { initializeApp } from "firebase/app";
-import { getAnalytics } from "firebase/analytics";
 import {
   connectAuthEmulator,
   getAuth,
@@ -12,7 +11,6 @@ import {
   addDoc, doc, updateDoc, deleteDoc, serverTimestamp,
   setDoc, getDoc, Timestamp, startAfter, runTransaction, connectFirestoreEmulator
 } from 'firebase/firestore'; 
-import { getStorage } from "firebase/storage";
 import { configureSystemAnalytics, recordSystemEvent } from './systemAnalytics.js';
 import { loadCachedUserProfile, normalizeUserProfile } from './profileCache.js';
 import { countDevEvent, recordFirestoreBytes, recordFirestoreRead, startDevTiming } from './devPerformance.js';
@@ -75,7 +73,6 @@ const app = initializeApp(firebaseConfig);
 // 3. Export Auth และ DB
 export const auth = getAuth(app);
 export const db = getFirestore(app);
-export const storage = getStorage(app);
 
 if (useFirebaseEmulator) {
   const firestoreAddress = parseEmulatorAddress(
@@ -91,7 +88,13 @@ if (useFirebaseEmulator) {
   connectFirestoreEmulator(db, firestoreAddress.host, firestoreAddress.port);
   connectAuthEmulator(auth, `http://${authAddress.host}:${authAddress.port}`, { disableWarnings: true });
 } else if (typeof window !== 'undefined') {
-  getAnalytics(app);
+  const initializeAnalytics = () => {
+    import('firebase/analytics')
+      .then(({ getAnalytics }) => getAnalytics(app))
+      .catch((error) => console.warn('Firebase Analytics is unavailable:', error));
+  };
+  if ('requestIdleCallback' in window) window.requestIdleCallback(initializeAnalytics, { timeout: 5000 });
+  else window.setTimeout(initializeAnalytics, 2000);
 }
 configureSystemAnalytics({ db, auth });
 

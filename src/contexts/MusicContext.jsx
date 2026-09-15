@@ -63,6 +63,7 @@ export const MusicProvider = ({ children }) => {
 
   const [pendingAction, setPendingAction] = useState({ isOpen: false, type: null, payload: null });
   const [autoSaveStatus, setAutoSaveStatus] = useState('idle');
+  const [operationNotice, setOperationNotice] = useState(null);
   const [recoveryFailure, setRecoveryFailure] = useState(null);
   const [isReadOnly, setIsReadOnly] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
@@ -81,6 +82,12 @@ export const MusicProvider = ({ children }) => {
   const loadFinishTimerRef = useRef(null);
   const autosaveIdentityRef = useRef({ uid: null, userProfile: null, projectId: null, sampleId: null });
   const autosaveCoordinatorRef = useRef(null);
+  const operationNoticeTimerRef = useRef(null);
+  const reportOperation = useCallback((message, tone = 'success') => {
+    if (operationNoticeTimerRef.current) clearTimeout(operationNoticeTimerRef.current);
+    setOperationNotice({ id: Date.now(), message, tone });
+    operationNoticeTimerRef.current = setTimeout(() => setOperationNotice(null), tone === 'error' ? 4500 : 2500);
+  }, []);
   const setReadOnlyMode = (readOnly) => {
     isReadOnlyRef.current = readOnly;
     setIsReadOnly(readOnly);
@@ -131,7 +138,7 @@ export const MusicProvider = ({ children }) => {
           return false;
         } else {
           console.error('Auto-save failed:', error);
-          setAutoSaveStatus('retrying');
+          setAutoSaveStatus(typeof navigator !== 'undefined' && navigator.onLine === false ? 'offline' : 'retrying');
           return true;
         }
       }
@@ -144,7 +151,32 @@ export const MusicProvider = ({ children }) => {
   }, []);
 
   useEffect(() => {
-    if (autoSaveStatus !== 'retrying') return undefined;
+    const handleOffline = () => setAutoSaveStatus('offline');
+    const handleOnline = () => {
+      if (autosaveCoordinatorRef.current?.hasPending()) {
+        setAutoSaveStatus('retrying');
+        void autosaveCoordinatorRef.current.retryNow();
+      } else {
+        setAutoSaveStatus((current) => current === 'offline' ? 'idle' : current);
+      }
+    };
+    window.addEventListener('offline', handleOffline);
+    window.addEventListener('online', handleOnline);
+    if (navigator.onLine === false) handleOffline();
+    return () => {
+      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('online', handleOnline);
+    };
+  }, []);
+
+  useEffect(() => () => {
+    if (operationNoticeTimerRef.current) clearTimeout(operationNoticeTimerRef.current);
+  }, []);
+
+  useEffect(() => {
+    const shouldWarn = autoSaveStatus === 'retrying'
+      || (autoSaveStatus === 'offline' && autosaveCoordinatorRef.current?.hasPending());
+    if (!shouldWarn) return undefined;
     const warnBeforeUnload = (event) => {
       event.preventDefault();
       event.returnValue = '';
@@ -573,13 +605,15 @@ export const MusicProvider = ({ children }) => {
 
         // ส่ง loadedRowTypes เข้าไปพร้อมกันตอน commitChange ตรงนี้เลย
         sheetEditor.commitChange(parsedSheetData, loadedRowTypes, data.sectionLabels || {}, data.symbols || [], loadedMargins);
+        reportOperation('เปิดไฟล์โปรเจกต์สำเร็จ');
       } catch (error) {
         console.error("Load project error:", error);
-        alert("ไฟล์ไม่ถูกต้อง หรือไฟล์เสียหายครับ!"); 
+        reportOperation('เปิดไฟล์ไม่สำเร็จ: ไฟล์ไม่ถูกต้องหรือเสียหาย', 'error');
       } finally {
         finishProjectLoad();
       }
     };
+    reader.onerror = () => reportOperation('อ่านไฟล์จากอุปกรณ์ไม่สำเร็จ', 'error');
     reader.readAsText(file);
   };
 
@@ -609,57 +643,75 @@ export const MusicProvider = ({ children }) => {
         if (imported.currentInstrument && INSTRUMENT_CONFIG[imported.currentInstrument]) setCurrentInstrument(INSTRUMENT_CONFIG[imported.currentInstrument]);
         audioPlayback.setPlaybackSequence(imported.playbackSequence || []);
         sheetEditor.commitChange(imported.sheetData, imported.rowTypes, imported.sectionLabels, [], imported.rowMargins);
+        reportOperation('นำเข้า ThaiMusicXML สำเร็จ');
       } catch (error) {
         console.error('ThaiMusicXML import error:', error);
-        alert(error.message || 'ไม่สามารถนำเข้าไฟล์ ThaiMusicXML ได้');
+        reportOperation(error.message || 'ไม่สามารถนำเข้าไฟล์ ThaiMusicXML ได้', 'error');
       } finally {
         finishProjectLoad();
       }
     };
+    reader.onerror = () => reportOperation('อ่านไฟล์ ThaiMusicXML ไม่สำเร็จ', 'error');
     reader.readAsText(file);
   };
 
   const exportThaiMusicXml = () => {
-    const xml = toThaiMusicXml({
-      songName,
-      headerDetails,
-      layoutConfig,
-      currentInstrument,
-      sheetData: sheetEditor.sheetData,
-      rowTypes: sheetEditor.rowTypes,
-      sectionLabels: sheetEditor.sectionLabels,
-      symbols: sheetEditor.symbols,
-      playbackSequence: audioPlayback.playbackSequence
-    });
-    const url = URL.createObjectURL(new Blob([xml], { type: 'application/xml;charset=utf-8' }));
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${projectName || 'thai-music'}.txml`;
-    link.click();
-    URL.revokeObjectURL(url);
+    try {
+      const xml = toThaiMusicXml({
+        songName,
+        headerDetails,
+        layoutConfig,
+        currentInstrument,
+        sheetData: sheetEditor.sheetData,
+        rowTypes: sheetEditor.rowTypes,
+        sectionLabels: sheetEditor.sectionLabels,
+        symbols: sheetEditor.symbols,
+        playbackSequence: audioPlayback.playbackSequence
+      });
+      const url = URL.createObjectURL(new Blob([xml], { type: 'application/xml;charset=utf-8' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${projectName || 'thai-music'}.txml`;
+      link.click();
+      URL.revokeObjectURL(url);
+      reportOperation('ส่งออก ThaiMusicXML สำเร็จ');
+      return true;
+    } catch (error) {
+      console.error('ThaiMusicXML export error:', error);
+      reportOperation('ส่งออก ThaiMusicXML ไม่สำเร็จ', 'error');
+      return false;
+    }
   };
 
   const exportMusicXml = ({ startingPitch = 'C4' } = {}) => {
-    // ลำดับการแปลงตั้งใจให้ผ่าน ThaiMusicXML v1.0 ก่อนเสมอ เพื่อให้ MusicXML
-    // ใช้โครงสร้างท่อน ห้อง และลำดับเล่นชุดเดียวกับไฟล์แลกเปลี่ยนของระบบ
-    const thaiMusicXml = toThaiMusicXml({
-      songName,
-      headerDetails,
-      layoutConfig,
-      currentInstrument,
-      sheetData: sheetEditor.sheetData,
-      rowTypes: sheetEditor.rowTypes,
-      sectionLabels: sheetEditor.sectionLabels,
-      symbols: sheetEditor.symbols,
-      playbackSequence: audioPlayback.playbackSequence
-    });
-    const musicXml = thaiMusicXmlToMusicXml(thaiMusicXml, { startingPitch, debug: true });
-    const url = URL.createObjectURL(new Blob([musicXml], { type: 'application/vnd.recordare.musicxml+xml;charset=utf-8' }));
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${projectName || 'thai-music'}.musicxml`;
-    link.click();
-    URL.revokeObjectURL(url);
+    try {
+      // ลำดับการแปลงตั้งใจให้ผ่าน ThaiMusicXML v1.0 ก่อนเสมอ เพื่อให้ MusicXML
+      // ใช้โครงสร้างท่อน ห้อง และลำดับเล่นชุดเดียวกับไฟล์แลกเปลี่ยนของระบบ
+      const thaiMusicXml = toThaiMusicXml({
+        songName,
+        headerDetails,
+        layoutConfig,
+        currentInstrument,
+        sheetData: sheetEditor.sheetData,
+        rowTypes: sheetEditor.rowTypes,
+        sectionLabels: sheetEditor.sectionLabels,
+        symbols: sheetEditor.symbols,
+        playbackSequence: audioPlayback.playbackSequence
+      });
+      const musicXml = thaiMusicXmlToMusicXml(thaiMusicXml, { startingPitch, debug: true });
+      const url = URL.createObjectURL(new Blob([musicXml], { type: 'application/vnd.recordare.musicxml+xml;charset=utf-8' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${projectName || 'thai-music'}.musicxml`;
+      link.click();
+      URL.revokeObjectURL(url);
+      reportOperation('ส่งออก MusicXML สำเร็จ');
+      return true;
+    } catch (error) {
+      console.error('MusicXML export error:', error);
+      reportOperation('ส่งออก MusicXML ไม่สำเร็จ', 'error');
+      return false;
+    }
   };
 
   const performLoadProjectFromFirebase = (projectData) => {
@@ -704,22 +756,30 @@ export const MusicProvider = ({ children }) => {
       finishTiming({ success: true });
     } catch (error) {
       console.error("โหลดโปรเจกต์ไม่สำเร็จ:", error);
-      alert("ไม่สามารถโหลดข้อมูลจาก Firebase ได้!");
+      reportOperation('ไม่สามารถโหลดโปรเจกต์จาก Cloud ได้', 'error');
     } finally {
       finishProjectLoad();
     }
   };
 
   const saveProject = () => {
-    const projectData = { 
-      name: projectName, songName, 
-      sheetData: sheetEditor.sheetData, rowTypes: sheetEditor.rowTypes, sectionLabels: sheetEditor.sectionLabels, symbols: sheetEditor.symbols, rowMargins: sheetEditor.rowMargins, 
-      layoutConfig, headerDetails, currentInstrument: currentInstrument.id, playbackSequence: audioPlayback.playbackSequence,
-      metronomeSettings: metronomeProjectSettings,
-      isLoopAll, isLoopOne, intervalMode, isReduceMode, isShowPlayMode 
-    };
-    const url = URL.createObjectURL(new Blob([JSON.stringify(projectData, null, 2)], { type: 'application/json' }));
-    const a = document.createElement('a'); a.href = url; a.download = `${projectName || 'my-song'}.tme`; a.click(); URL.revokeObjectURL(url);
+    try {
+      const projectData = {
+        name: projectName, songName,
+        sheetData: sheetEditor.sheetData, rowTypes: sheetEditor.rowTypes, sectionLabels: sheetEditor.sectionLabels, symbols: sheetEditor.symbols, rowMargins: sheetEditor.rowMargins,
+        layoutConfig, headerDetails, currentInstrument: currentInstrument.id, playbackSequence: audioPlayback.playbackSequence,
+        metronomeSettings: metronomeProjectSettings,
+        isLoopAll, isLoopOne, intervalMode, isReduceMode, isShowPlayMode
+      };
+      const url = URL.createObjectURL(new Blob([JSON.stringify(projectData, null, 2)], { type: 'application/json' }));
+      const a = document.createElement('a'); a.href = url; a.download = `${projectName || 'my-song'}.tme`; a.click(); URL.revokeObjectURL(url);
+      reportOperation('ดาวน์โหลดไฟล์ .tme สำเร็จ');
+      return true;
+    } catch (error) {
+      console.error('Project export error:', error);
+      reportOperation('ดาวน์โหลดไฟล์ .tme ไม่สำเร็จ', 'error');
+      return false;
+    }
   };
 
   const downloadRecoveryFailure = () => {
@@ -1213,11 +1273,16 @@ export const MusicProvider = ({ children }) => {
           </div>
         </div>
       )}
-      {autoSaveStatus === 'retrying' && (
+      {(autoSaveStatus === 'retrying' || (autoSaveStatus === 'offline' && autosaveCoordinatorRef.current?.hasPending())) && (
         <div className="fixed bottom-4 right-4 z-[9998] w-[calc(100%-2rem)] max-w-sm rounded-2xl border border-amber-200 bg-white p-4 shadow-2xl" style={{ fontFamily: 'Prompt, sans-serif' }}>
-          <p className="text-sm font-black text-amber-700">ยังบันทึกขึ้น Cloud ไม่สำเร็จ</p>
-          <p className="mt-1 text-xs leading-5 text-slate-500">สำเนาในเครื่องยังถูกเก็บไว้ และระบบจะลองบันทึกใหม่อัตโนมัติ กรุณาอย่าเพิ่งปิดหน้านี้</p>
-          <button type="button" onClick={() => autosaveCoordinatorRef.current?.retryNow()} className="mt-3 rounded-lg bg-amber-500 px-3 py-2 text-[11px] font-bold text-white hover:bg-amber-600">ลองบันทึกอีกครั้งตอนนี้</button>
+          <p className="text-sm font-black text-amber-700">{autoSaveStatus === 'offline' ? 'อุปกรณ์กำลังออฟไลน์' : 'ยังบันทึกขึ้น Cloud ไม่สำเร็จ'}</p>
+          <p className="mt-1 text-xs leading-5 text-slate-500">สำเนาในเครื่องยังถูกเก็บไว้ ระบบจะบันทึกใหม่ทันทีเมื่ออินเทอร์เน็ตกลับมา กรุณาอย่าเพิ่งปิดหน้านี้</p>
+          {autoSaveStatus !== 'offline' && <button type="button" onClick={() => autosaveCoordinatorRef.current?.retryNow()} className="mt-3 rounded-lg bg-amber-500 px-3 py-2 text-[11px] font-bold text-white hover:bg-amber-600">ลองบันทึกอีกครั้งตอนนี้</button>}
+        </div>
+      )}
+      {operationNotice && (
+        <div className={`fixed left-1/2 top-[max(1rem,env(safe-area-inset-top))] z-[10001] flex min-h-11 max-w-[calc(100%-2rem)] -translate-x-1/2 items-center rounded-full px-4 py-2 text-center text-xs font-black text-white shadow-2xl ${operationNotice.tone === 'error' ? 'bg-rose-600' : 'bg-emerald-600'}`} role="status" aria-live="polite" style={{ fontFamily: 'Prompt, sans-serif' }}>
+          {operationNotice.message}
         </div>
       )}
       {recoveryFailure && (

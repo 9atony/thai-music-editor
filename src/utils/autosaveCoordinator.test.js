@@ -115,3 +115,23 @@ test('saveNow reports success after its target revision is committed', async () 
 
   assert.equal(await coordinator.saveNow({ revision: 1 }), true);
 });
+
+test('retryNow immediately resumes a pending offline save', async () => {
+  let attempts = 0;
+  const coordinator = createAutosaveCoordinator({
+    delayMs: 0,
+    retryDelays: [60_000],
+    save: async () => {
+      attempts += 1;
+      if (attempts === 1) throw new Error('OFFLINE');
+    },
+  });
+  coordinator.resetBaseline();
+  coordinator.markDirty({ revision: 1 });
+  await wait(5);
+
+  assert.equal(coordinator.hasPending(), true);
+  await coordinator.retryNow();
+  assert.equal(attempts, 2);
+  assert.equal(coordinator.hasPending(), false);
+});

@@ -185,6 +185,7 @@ const MobileEditControls = ({ onOpenMetronome, onOpenSettings, onOpenMusicXml, o
   const [cellDraftMode, setCellDraftMode] = useState('notes');
   const [cellOriginalHtml, setCellOriginalHtml] = useState('');
   const [notice, setNotice] = useState(null);
+  const [confirmAction, setConfirmAction] = useState(null);
   const noticeTimerRef = useRef(null);
 
   useEffect(() => () => window.clearTimeout(noticeTimerRef.current), []);
@@ -234,6 +235,7 @@ const MobileEditControls = ({ onOpenMetronome, onOpenSettings, onOpenMusicXml, o
     saved: 'บันทึกขึ้น Cloud แล้ว',
     retrying: 'รอบันทึกขึ้น Cloud ใหม่',
     error: 'ยังบันทึกขึ้น Cloud ไม่สำเร็จ',
+    offline: 'ออฟไลน์ · เก็บสำเนาไว้ในเครื่อง',
   }[autoSaveStatus];
 
   const showNotice = (message, tone = 'success') => {
@@ -245,6 +247,19 @@ const MobileEditControls = ({ onOpenMetronome, onOpenSettings, onOpenMusicXml, o
   const runWithNotice = (callback, message) => {
     callback?.();
     showNotice(message);
+  };
+
+  const requestDestructiveAction = ({ title, description, action, successMessage }) => {
+    if (isReadOnly) return;
+    setConfirmAction({ title, description, action, successMessage });
+  };
+
+  const runConfirmedAction = () => {
+    const pending = confirmAction;
+    setConfirmAction(null);
+    if (!pending) return;
+    pending.action?.();
+    if (pending.successMessage) showNotice(pending.successMessage);
   };
 
   const updateCustomKeys = (nextKeys) => {
@@ -588,7 +603,7 @@ const MobileEditControls = ({ onOpenMetronome, onOpenSettings, onOpenMusicXml, o
         </button>
         <div className="min-w-0 flex-1 text-center">
           <p className="truncate text-xs font-black text-slate-700">{selectedLabel}</p>
-          <p className={`mt-0.5 text-[9px] font-semibold ${autoSaveStatus === 'error' || autoSaveStatus === 'retrying' ? 'text-amber-600' : 'text-slate-400'}`}>
+          <p className={`mt-0.5 text-[9px] font-semibold ${['error', 'retrying', 'offline'].includes(autoSaveStatus) ? 'text-amber-600' : 'text-slate-400'}`}>
             {autoSaveLabel || displayInstrument?.name || 'เครื่องดนตรีไทย'}
           </p>
         </div>
@@ -649,18 +664,18 @@ const MobileEditControls = ({ onOpenMetronome, onOpenSettings, onOpenMusicXml, o
             <SmallAction icon={Undo2} label="ย้อนกลับ" onClick={undo} disabled={!canUndo || isReadOnly} />
             <SmallAction icon={Redo2} label="ทำซ้ำ" onClick={redo} disabled={!canRedo || isReadOnly} />
             <SmallAction icon={isPlaying ? Pause : Play} label={isPlaying ? 'หยุด' : 'เล่น'} onClick={togglePlay} active={isPlaying} />
-            <SmallAction icon={Save} label="บันทึก" onClick={() => runWithNotice(saveProject, 'ดาวน์โหลดไฟล์ .tme แล้ว')} />
+            <SmallAction icon={Save} label="บันทึก" onClick={saveProject} />
             <SmallAction icon={Pencil} label={isSelectedRowLabel ? 'แก้ชื่อแถว' : isSelectedTextRow || isSelectedTextMeasure ? 'แก้ข้อความ' : isSelectedAnnotation ? 'แก้คำอธิบาย' : 'แก้ในช่อง'} onClick={openCellEditor} disabled={!canOpenContentEditor || isReadOnly} />
             <SmallAction icon={Copy} label="คัดลอก" onClick={() => runWithNotice(copySelection, 'คัดลอกแล้ว')} disabled={!hasCell || isReadOnly} />
             <SmallAction icon={Scissors} label="ตัด" onClick={() => runWithNotice(cutSelection, 'ตัดแล้ว')} disabled={!hasCell || isReadOnly} />
             <SmallAction icon={ClipboardPaste} label="วาง" onClick={() => runWithNotice(pasteSelection, 'วางแล้ว')} disabled={!hasCell || isReadOnly} />
             <SmallAction icon={Waves} label="เพิ่มสะบัด" onClick={() => addMobileSymbol('sabat')} disabled={!canCreateSymbol || isReadOnly} />
             <SmallAction icon={AudioLines} label="เพิ่มกรอ" onClick={() => addMobileSymbol('kro')} disabled={!canCreateSymbol || isReadOnly} />
-            {selectedSymbol && <SmallAction icon={Trash2} label="ลบเส้น" onClick={deleteSelectedSymbol} disabled={isReadOnly} danger />}
+            {selectedSymbol && <SmallAction icon={Trash2} label="ลบเส้น" onClick={() => requestDestructiveAction({ title: 'ลบเส้นสัญลักษณ์?', description: 'เส้นที่เลือกจะถูกลบออกจากโน้ต', action: deleteSelectedSymbol })} disabled={isReadOnly} danger />}
             <SmallAction icon={Plus} label="เพิ่มจังหวะ" onClick={addNoteColumn} disabled={!hasCell || isReadOnly} />
-            <SmallAction icon={Minus} label="ลบจังหวะ" onClick={removeNoteColumn} disabled={!hasCell || isReadOnly} danger />
+            <SmallAction icon={Minus} label="ลบจังหวะ" onClick={() => requestDestructiveAction({ title: 'ลบจังหวะนี้?', description: 'ช่องจังหวะที่เลือกและข้อมูลภายในจะถูกลบ', action: removeNoteColumn, successMessage: 'ลบจังหวะแล้ว' })} disabled={!hasCell || isReadOnly} danger />
             <SmallAction icon={Plus} label="เพิ่มห้อง" onClick={addMeasure} disabled={!hasCell || isReadOnly} />
-            <SmallAction icon={Minus} label="ลบห้อง" onClick={removeMeasure} disabled={!hasCell || isReadOnly} danger />
+            <SmallAction icon={Minus} label="ลบห้อง" onClick={() => requestDestructiveAction({ title: 'ลบห้องนี้?', description: 'โน้ตและข้อความทั้งหมดในห้องที่เลือกจะถูกลบ', action: removeMeasure, successMessage: 'ลบห้องแล้ว' })} disabled={!hasCell || isReadOnly} danger />
             <SmallAction icon={Plus} label="เพิ่มบรรทัด" onClick={addRow} disabled={!hasCell || isReadOnly} />
           </div>
 
@@ -720,7 +735,7 @@ const MobileEditControls = ({ onOpenMetronome, onOpenSettings, onOpenMusicXml, o
             <div className="grid grid-cols-3 gap-2">
               <SmallAction icon={Rows3} label="บรรทัดเดี่ยว" onClick={() => addRow?.()} disabled={isReadOnly} />
               <SmallAction icon={Rows3} label="บรรทัดคู่" onClick={() => addDoubleRow?.()} disabled={isReadOnly} />
-              <SmallAction icon={Trash2} label="ลบบรรทัด" onClick={() => removeRow?.()} disabled={isReadOnly} danger />
+              <SmallAction icon={Trash2} label="ลบบรรทัด" onClick={() => requestDestructiveAction({ title: 'ลบบรรทัดนี้?', description: 'ข้อมูลทั้งบรรทัดที่เลือกจะถูกลบออกจากกระดาษ', action: () => { removeRow?.(); setIsToolsOpen(false); }, successMessage: 'ลบบรรทัดแล้ว' })} disabled={!hasCell || isReadOnly} danger />
               <SmallAction icon={FilePlus2} label="ขึ้นหน้าใหม่" onClick={() => addPageBreak?.()} disabled={isReadOnly} />
               <SmallAction icon={FileText} label="ช่องข้อความ" onClick={() => convertMeasureToText?.()} disabled={!hasCell || isReadOnly} />
               <SmallAction icon={FileText} label="บรรทัดข้อความ" onClick={() => addTextRow?.()} disabled={!hasCell || isReadOnly} />
@@ -770,8 +785,8 @@ const MobileEditControls = ({ onOpenMetronome, onOpenSettings, onOpenMusicXml, o
               <SmallAction icon={FilePlus2} label="โปรเจกต์ใหม่" onClick={() => openPanel(newProject)} />
               <FileAction icon={FolderOpen} label="เปิดไฟล์ .tme" accept=".thai,.tme,.json" onFile={(file) => openPanel(() => loadProject?.(file))} />
               <FileAction icon={Upload} label="นำเข้า TXML" accept=".txml,application/xml,text/xml" onFile={(file) => openPanel(() => importThaiMusicXml?.(file))} />
-              <SmallAction icon={Save} label="บันทึก .tme" onClick={() => { openPanel(saveProject); showNotice('ดาวน์โหลดไฟล์ .tme แล้ว'); }} />
-              {canAccess('export-txml', userRole) && <SmallAction icon={Download} label="ส่งออก TXML" onClick={() => { openPanel(exportThaiMusicXml); showNotice('ส่งออก TXML แล้ว'); }} />}
+              <SmallAction icon={Save} label="บันทึก .tme" onClick={() => openPanel(saveProject)} />
+              {canAccess('export-txml', userRole) && <SmallAction icon={Download} label="ส่งออก TXML" onClick={() => openPanel(exportThaiMusicXml)} />}
               {canAccess('export-musicxml', userRole) && <SmallAction icon={Music2} label="MusicXML" onClick={() => openPanel(onOpenMusicXml)} />}
               {canAccess('export-pdf', userRole) && <SmallAction icon={FileDown} label="ส่งออก PDF" onClick={() => openPanel(() => { stopPlayback?.(); onPrint?.(); })} />}
             </div>
@@ -847,6 +862,19 @@ const MobileEditControls = ({ onOpenMetronome, onOpenSettings, onOpenMusicXml, o
       {notice && (
         <div className={`fixed left-1/2 top-[max(1rem,env(safe-area-inset-top))] z-[220] flex min-h-11 -translate-x-1/2 items-center gap-2 whitespace-nowrap rounded-full px-4 py-2 text-xs font-black text-white shadow-xl ${notice.tone === 'error' ? 'bg-rose-600' : 'bg-emerald-600'}`} role="status" aria-live="polite">
           <Check size={17} /> {notice.message}
+        </div>
+      )}
+      {confirmAction && (
+        <div className="fixed inset-0 z-[230] flex items-end justify-center bg-slate-950/50 p-0 sm:items-center sm:p-4" onClick={() => setConfirmAction(null)}>
+          <section className="w-full max-w-sm rounded-t-3xl bg-white p-5 pb-[calc(env(safe-area-inset-bottom)+1.25rem)] shadow-2xl sm:rounded-3xl sm:pb-5" onClick={(event) => event.stopPropagation()} role="alertdialog" aria-modal="true" aria-labelledby="mobile-confirm-title">
+            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-rose-100 text-rose-600"><Trash2 size={23} /></div>
+            <h3 id="mobile-confirm-title" className="text-center text-lg font-black text-slate-900">{confirmAction.title}</h3>
+            <p className="mt-2 text-center text-sm font-medium leading-6 text-slate-500">{confirmAction.description}</p>
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              <button type="button" onClick={() => setConfirmAction(null)} className="h-12 rounded-xl border border-slate-200 bg-white text-sm font-black text-slate-600">ยกเลิก</button>
+              <button type="button" onClick={runConfirmedAction} className="h-12 rounded-xl bg-rose-600 text-sm font-black text-white shadow-lg shadow-rose-600/20">ยืนยันลบ</button>
+            </div>
+          </section>
         </div>
       )}
     </footer>
