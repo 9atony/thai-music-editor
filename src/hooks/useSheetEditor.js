@@ -1,12 +1,19 @@
 import { expandFourNoteMeasures } from '../utils/expandFourNoteMeasures.js';
 import { useState, useRef, useEffect } from 'react';
 import {
-  getFlattenedCol, normalizeCellToken, splitThaiNoteToken, getIntervalPair,
+  getFlattenedCol, getLogicalMeasureWidth, normalizeCellToken, splitThaiNoteToken, getIntervalPair,
   shiftNoteString, createDefaultSheetData, createDefaultRowTypes, createDefaultRowMargins,
   hasNathapLeadingLabel
 } from '../utils/sheetUtils.js';
 import { INSTRUMENT_CONFIG } from '../utils/instrumentConfig.js';
 import { insertMeasureWithLogicalRowSplit } from '../utils/sheetRowSplit.js';
+import {
+  decodeCustomCellToken,
+  encodeCustomCellToken,
+  getCellDisplayText,
+  normalizeCustomText,
+  CUSTOM_CELL_MAX_LENGTH,
+} from '../utils/customKeyboard.js';
 
 export const useSheetEditor = ({
   isReadOnlyRef,
@@ -128,9 +135,10 @@ export const useSheetEditor = ({
     if (rowTypes[row] === 'page-break' || rowTypes[row] === 'text' || (rowTypes[row].startsWith('double') && meas === 0) || (meas === 0 && hasNathapLeadingLabel(sheetData[row], rowTypes[row]))) return;
 
     const normalizedToken = normalizeCellToken(token);
+    const isCustomToken = decodeCustomCellToken(normalizedToken) !== null;
     const newData = sheetData.map((rowData) => rowData.map((measure) => [...measure]));
 
-    if (intervalModeRef.current !== 'off' && rowTypes[row].startsWith('double')) {
+    if (!isCustomToken && intervalModeRef.current !== 'off' && rowTypes[row].startsWith('double')) {
         const isRightRow = rowTypes[row] === 'double-right';
         const rightRowIdx = isRightRow ? row : row - 1; 
         const leftRowIdx = isRightRow ? row + 1 : row;  
@@ -158,7 +166,7 @@ export const useSheetEditor = ({
     commitChange(newData);
     setSelectionRange(null);
     if (options.keepSelection !== false) setSelectedCell([row, meas, cell]);
-    if (options.preview !== false && normalizedToken !== '-' && onPreviewToken) {
+    if (!isCustomToken && options.preview !== false && normalizedToken !== '-' && onPreviewToken) {
       onPreviewToken(normalizedToken, options.volume ?? (layoutConfigRef.current.volume ?? 100), getCellInstrumentId(row, meas, cell));
     }
   };
@@ -278,6 +286,86 @@ export const useSheetEditor = ({
     }
 
     commitChange(newData);
+  };
+
+  const inputCustomText = (text) => {
+    if (isReadOnlyRef.current || !selectedCell) return;
+    const normalizedText = normalizeCustomText(text);
+    if (!normalizedText) return;
+    const encodedToken = encodeCustomCellToken(normalizedText);
+    const newData = sheetData.map(row => row.map(meas => [...meas]));
+    let isBlockSelection = false;
+
+    if (selectionRange?.start && selectionRange?.end) {
+      const { start: [sr, sm, sc], end: [er, em, ec] } = selectionRange;
+      isBlockSelection = sr !== er || sm !== em || sc !== ec;
+    }
+
+    if (isBlockSelection) {
+      const { start: [sr, sm, sc], end: [er, em, ec] } = selectionRange;
+      const minR = Math.min(sr, er), maxR = Math.max(sr, er);
+      const minCol = Math.min(
+        getFlattenedCol(sheetData[sr], rowTypes[sr], sm, sc),
+        getFlattenedCol(sheetData[er], rowTypes[er], em, ec),
+      );
+      const maxCol = Math.max(
+        getFlattenedCol(sheetData[sr], rowTypes[sr], sm, sc),
+        getFlattenedCol(sheetData[er], rowTypes[er], em, ec),
+      );
+
+      for (let r = minR; r <= maxR; r += 1) {
+        if (rowTypes[r] === 'page-break' || rowTypes[r] === 'text') continue;
+        let currentCol = 0;
+        for (let m = 0; m < sheetData[r].length; m += 1) {
+          if ((rowTypes[r].startsWith('double') || hasNathapLeadingLabel(sheetData[r], rowTypes[r])) && m === 0) continue;
+          const marker = sheetData[r][m]?.[0];
+          if (marker === '@HIDDEN' || (typeof marker === 'string' && marker.startsWith('@TEXT_SPAN_'))) {
+            currentCol += getLogicalMeasureWidth(sheetData[r], rowTypes[r], m);
+            continue;
+          }
+          for (let c = 0; c < sheetData[r][m].length; c += 1) {
+            if (currentCol >= minCol && currentCol <= maxCol) newData[r][m][c] = encodedToken;
+            currentCol += 1;
+          }
+        }
+      }
+      commitChange(newData);
+      setSelectionRange(null);
+      return;
+    }
+
+    const [row, meas, cell] = selectedCell;
+    if (rowTypes[row] === 'page-break' || rowTypes[row] === 'text'
+      || ((rowTypes[row].startsWith('double') || hasNathapLeadingLabel(sheetData[row], rowTypes[row])) && meas === 0)) return;
+    const marker = sheetData[row][meas]?.[0];
+    if (marker === '@HIDDEN' || (typeof marker === 'string' && marker.startsWith('@TEXT_SPAN_'))) return;
+
+    newData[row][meas][cell] = encodedToken;
+    commitChange(newData);
+    setSelectionRange(null);
+    moveSelectionToAdjacentCell('next');
+  };
+
+  const appendCustomTextToCurrentCell = (text) => {
+    if (isReadOnlyRef.current || !selectedCell) return;
+    const incomingText = normalizeCustomText(text);
+    if (!incomingText) return;
+    const [row, meas, cell] = selectedCell;
+    if (rowTypes[row] === 'page-break' || rowTypes[row] === 'text'
+      || ((rowTypes[row].startsWith('double') || hasNathapLeadingLabel(sheetData[row], rowTypes[row])) && meas === 0)) return;
+    const marker = sheetData[row][meas]?.[0];
+    if (marker === '@HIDDEN' || (typeof marker === 'string' && marker.startsWith('@TEXT_SPAN_'))) return;
+
+    const currentToken = sheetData[row][meas][cell];
+    const currentText = currentToken === '-'
+      ? ''
+      : (decodeCustomCellToken(currentToken) ?? getCellDisplayText(currentToken));
+    const mergedText = normalizeCustomText(`${currentText}${incomingText}`, CUSTOM_CELL_MAX_LENGTH);
+    const newData = sheetData.map(rowData => rowData.map(measure => [...measure]));
+    newData[row][meas][cell] = encodeCustomCellToken(mergedText);
+    commitChange(newData);
+    setSelectionRange(null);
+    setSelectedCell([row, meas, cell]);
   };
 
   const inputNote = (note) => {
@@ -1272,7 +1360,8 @@ export const useSheetEditor = ({
     clipboardData, setClipboardData, isDragging, setIsDragging, dragStart, setDragStart,
     history, historyIndex, setHistory, setHistoryIndex, commitChange, undo, redo,
     resetSheetState, updateCellToken, appendNoteToCurrentCell, trimCurrentCellToken,
-    inputNote, moveSelectionNext, moveSelectionPrev, moveSelectionToAdjacentCell,
+    inputNote, inputCustomText, appendCustomTextToCurrentCell,
+    moveSelectionNext, moveSelectionPrev, moveSelectionToAdjacentCell,
     startSelection, updateSelection, startRowLabelSelection, updateRowLabelSelection, endSelection, copySelection, pasteSelection, cutSelection,
     addRow, addDoubleRow, addPageBreak, addTextRow, updateTextRow, addAnnotationRow, addNathapRow, removeRow,
     addMeasure, removeMeasure, addNoteColumn, removeNoteColumn, expandSelectedMeasures, convertMeasureToText, updateMeasureText,

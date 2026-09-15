@@ -5,6 +5,7 @@ import React, { useState } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { useSheetEditor } from './useSheetEditor.js';
 import { DEFAULT_INSTRUMENT, createDefaultLayoutConfig } from '../utils/sheetUtils.js';
+import { decodeCustomCellToken } from '../utils/customKeyboard.js';
 
 test('the khayi action commits eight slots without optional playback dependencies', () => {
   let result;
@@ -82,4 +83,66 @@ test('delete and undo after a logical row split keep source rows valid', () => {
   assert.deepEqual(result.sheetData.map((row) => row.length), [8, 2]);
   assert.deepEqual(result.sheetData[0].map((entry) => entry[0]), Array.from({ length: 8 }, (_, index) => `n${index}`));
   assert.deepEqual(result.selectedCell, [1, 0, 0]);
+});
+
+test('custom keyboard text stays on the selected hand and can append without advancing', () => {
+  let result;
+  function EditorHarness() {
+    const editor = useSheetEditor({
+      isReadOnlyRef: { current: false },
+      currentInstrument: DEFAULT_INSTRUMENT,
+      intervalModeRef: { current: '8' },
+      isReduceModeRef: { current: false },
+      layoutConfigRef: { current: createDefaultLayoutConfig() },
+    });
+    const [step, setStep] = useState(0);
+
+    if (step === 0) {
+      editor.inputCustomText('รับ');
+      setStep(1);
+    } else if (step === 1) {
+      editor.setSelectedCell([0, 1, 0]);
+      setStep(2);
+    } else if (step === 2) {
+      editor.appendCustomTextToCurrentCell('พร้อม');
+      setStep(3);
+    } else {
+      result = editor;
+    }
+    return null;
+  }
+
+  renderToStaticMarkup(React.createElement(EditorHarness));
+  assert.equal(decodeCustomCellToken(result.sheetData[0][1][0]), 'รับพร้อม');
+  assert.equal(result.sheetData[1][1][0], '-');
+  assert.deepEqual(result.selectedCell, [0, 1, 0]);
+});
+
+test('custom keyboard fills every cell in a dragged block', () => {
+  let result;
+  function EditorHarness() {
+    const editor = useSheetEditor({
+      isReadOnlyRef: { current: false },
+      currentInstrument: DEFAULT_INSTRUMENT,
+      intervalModeRef: { current: 'off' },
+      isReduceModeRef: { current: false },
+      layoutConfigRef: { current: createDefaultLayoutConfig() },
+    });
+    const [step, setStep] = useState(0);
+
+    if (step === 0) {
+      editor.setSelectionRange({ start: [0, 1, 0], end: [0, 1, 2] });
+      setStep(1);
+    } else if (step === 1) {
+      editor.inputCustomText('พร้อม');
+      setStep(2);
+    } else {
+      result = editor;
+    }
+    return null;
+  }
+
+  renderToStaticMarkup(React.createElement(EditorHarness));
+  assert.deepEqual(result.sheetData[0][1].map(decodeCustomCellToken), ['พร้อม', 'พร้อม', 'พร้อม', null]);
+  assert.equal(result.selectionRange, null);
 });

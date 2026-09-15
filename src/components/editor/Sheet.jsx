@@ -1,9 +1,9 @@
-/* eslint-disable no-irregular-whitespace */
 import SectionLabel from './SectionLabel';
 import React, { useContext, forwardRef, useMemo, useEffect, useState, useCallback, useRef } from 'react';
 import { Copy, Plus, Trash2 } from 'lucide-react';
 import { MusicContext } from '../../contexts/MusicContext';
-import { getFlattenedCol, getLogicalMeasureWidth, hasNathapLeadingLabel } from '../../utils/sheetUtils';
+import { getFlattenedCol, getLogicalMeasureWidth, hasNathapLeadingLabel, splitThaiNoteToken } from '../../utils/sheetUtils';
+import { decodeCustomCellToken } from '../../utils/customKeyboard';
 import {
   areMeasurementsEquivalent,
   getLogicalElementHeight,
@@ -26,21 +26,6 @@ const hasVisibleHtml = (value) => String(value || '')
   .replace(/<[^>]*>/g, '')
   .replace(/&nbsp;/gi, ' ')
   .trim().length > 0;
-
-const THAI_NOTE_COMBINER_PATTERN = /[ั-๎​]/;
-const splitThaiNoteToken = (token) => {
-  if (!token || token === '-') return [];
-
-  return Array.from(String(token).replace(/\s+/g, '').trim()).reduce((parts, char) => {
-    if (!char || char === '-') return parts;
-    if (THAI_NOTE_COMBINER_PATTERN.test(char) && parts.length > 0) {
-      parts[parts.length - 1] += char;
-    } else {
-      parts.push(char);
-    }
-    return parts;
-  }, []);
-};
 
 // ==========================================
 // 2. Main Component
@@ -1306,7 +1291,8 @@ const Sheet = forwardRef((props, ref) => {
     const cellFontFamily = customStyle.noteFontFamily || noteFontFamily;
     const cellColor = customStyle.color || 'inherit'; 
 
-    const tokenParts = splitThaiNoteToken(note);
+    const customText = decodeCustomCellToken(note);
+    const tokenParts = customText === null ? splitThaiNoteToken(note) : [];
     const isGroupedToken = tokenParts.length > 1;
     // รักษาขนาดโน้ตให้ตรงกับขนาดหลักของโปรเจกต์เสมอ และลดลงเฉพาะเมื่อ
     // ความกว้างของช่องไม่พอจริง ๆ ไม่ให้ช่องที่มีโน้ต 2-3 ตัวเล็กกว่าช่องอื่นโดยไม่จำเป็น
@@ -1317,7 +1303,17 @@ const Sheet = forwardRef((props, ref) => {
         className={`inline-flex h-full w-full min-w-0 items-center justify-center ${isBold ? 'font-bold' : 'font-normal'} ${isItalic ? 'italic' : ''}`}
         style={{ fontFamily: cellFontFamily, padding: '0.12em 1px 0.16em', color: cellColor, lineHeight: 1.12 }}
       >
-        {isGroupedToken ? (
+        {customText !== null ? (
+          <span
+            className="tme-custom-text inline-flex w-full min-w-0 items-center justify-center overflow-hidden whitespace-nowrap px-0.5"
+            style={{
+              fontSize: `min(1em, ${Math.max(8, 92 / Math.max(1, Array.from(customText).length))}cqi)`,
+              lineHeight: 1.12,
+            }}
+          >
+            {customText}
+          </span>
+        ) : isGroupedToken ? (
           <span
             className="inline-flex w-full min-w-0 items-center justify-evenly overflow-visible whitespace-nowrap"
             style={{

@@ -1,5 +1,6 @@
 import { INSTRUMENT_CONFIG } from './instrumentConfig.js';
 import { normalizeCellToken, splitThaiNoteToken } from './sheetUtils.js';
+import { decodeCustomCellToken, encodeCustomCellToken } from './customKeyboard.js';
 
 export const THAI_MUSIC_XML_VERSION = '1.0';
 const NAMESPACE = 'https://thaimusicxml.anan.ovh/ns/1';
@@ -33,9 +34,11 @@ const makeElement = (documentXml, name, text) => {
 };
 
 const appendBeat = (documentXml, measure, token, isUnpitched, performance = null) => {
+  const customText = decodeCustomCellToken(token);
   const notes = splitThaiNoteToken(normalizeCellToken(token));
   if (!notes.length) {
     const rest = makeElement(documentXml, 'rest');
+    if (customText !== null) rest.setAttribute('custom-text', customText);
     if (performance?.type === 'sabat') {
       rest.setAttribute('ornament', 'sabat');
       rest.setAttribute('ornament-id', performance.id);
@@ -180,7 +183,10 @@ export const toThaiMusicXml = ({ songName, headerDetails, layoutConfig, currentI
 };
 
 const readBeat = (beat) => {
-  if (beat.localName === 'rest') return '-';
+  if (beat.localName === 'rest') {
+    const customText = beat.getAttribute('custom-text');
+    return customText ? encodeCustomCellToken(customText) : '-';
+  }
   const notes = beat.localName === 'group' ? getChildren(beat, 'note') : [beat];
   return normalizeCellToken(notes.map((note) => note.getAttribute('pitch') || note.getAttribute('sound') || '').join(''));
 };

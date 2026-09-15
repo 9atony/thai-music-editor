@@ -4,6 +4,13 @@ import { INSTRUMENT_CONFIG } from '../../utils/instrumentConfig';
 import { useFeatureAccess } from '../../contexts/FeatureAccessContext';
 import MetronomePanel from './MetronomePanel'; 
 import TempoTrackPanel from './TempoTrackPanel';
+import {
+  CUSTOM_KEYBOARD_FEATURE_ID,
+  CUSTOM_KEYBOARD_MAX_KEYS,
+  CUSTOM_KEYBOARD_MAX_LABEL_LENGTH,
+  normalizeCustomKeyboardKeys,
+  normalizeCustomText,
+} from '../../utils/customKeyboard';
 
 const ToolbarSection = ({ children, bodyClass = 'bg-white border border-slate-200', wrapperClass = '' }) => (
     <div className={`flex shrink-0 items-center justify-center ${wrapperClass}`}>
@@ -30,7 +37,8 @@ const ToolbarSection = ({ children, bodyClass = 'bg-white border border-slate-20
 const Keyboard = () => {
   const { canAccess } = useFeatureAccess();
   const {
-    currentInstrument, changeInstrument, inputNote, layoutConfig,
+    currentInstrument, changeInstrument, inputNote, inputCustomText, appendCustomTextToCurrentCell,
+    layoutConfig, setLayoutConfig,
     addRow, removeRow, addDoubleRow,
     addMeasure, removeMeasure, addNoteColumn, removeNoteColumn,
     copySelection, pasteSelection, cutSelection, addPageBreak,
@@ -42,7 +50,7 @@ const Keyboard = () => {
     convertMeasureToText,
     addAnnotationRow, expandSelectedMeasures, selectionRange,
     selectedCell, playbackCursor, isPlaying,
-    isTempoTrackOpen, setIsTempoTrackOpen,
+    isTempoTrackOpen, setIsTempoTrackOpen, isReadOnly,
     userRole // ⭐ ดึงยศจริงมาจาก Context
   } = useContext(MusicContext);
 
@@ -57,6 +65,11 @@ const Keyboard = () => {
   const [areNoteKeysVisible, setAreNoteKeysVisible] = useState(true);
   const [isInstMenuOpen, setIsInstMenuOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false); 
+  const [keyboardMode, setKeyboardMode] = useState('notes');
+  const [customKeyDraft, setCustomKeyDraft] = useState('');
+  const [editingCustomKeyId, setEditingCustomKeyId] = useState(null);
+  const [isManagingCustomKeys, setIsManagingCustomKeys] = useState(false);
+  const [customKeyError, setCustomKeyError] = useState('');
 
   const [isMetronomeExpanded, setIsMetronomeExpanded] = useState(false);
 
@@ -74,6 +87,63 @@ const Keyboard = () => {
 
   const isPercussion = displayInstrument?.type === 'percussion';
   const isKeyboardCollapsed = isMinimized && !isTempoTrackOpen;
+  const canUseCustomKeyboard = canAccess(CUSTOM_KEYBOARD_FEATURE_ID, userRole);
+  const activeKeyboardMode = canUseCustomKeyboard ? keyboardMode : 'notes';
+  const customKeyboardKeys = normalizeCustomKeyboardKeys(layoutConfig?.customKeyboardKeys);
+
+  const updateCustomKeyboardKeys = (nextKeys) => {
+    if (!canUseCustomKeyboard || isReadOnly || !setLayoutConfig) return;
+    setLayoutConfig((current) => ({
+      ...current,
+      customKeyboardKeys: normalizeCustomKeyboardKeys(nextKeys),
+    }));
+  };
+
+  const resetCustomKeyForm = () => {
+    setCustomKeyDraft('');
+    setEditingCustomKeyId(null);
+    setCustomKeyError('');
+  };
+
+  const handleCustomKeySubmit = (event) => {
+    event.preventDefault();
+    if (!canUseCustomKeyboard || isReadOnly) return;
+    const label = normalizeCustomText(customKeyDraft);
+    if (!label) {
+      setCustomKeyError('กรุณาพิมพ์คำที่ต้องการสร้างเป็นปุ่ม');
+      return;
+    }
+    if (!editingCustomKeyId && customKeyboardKeys.length >= CUSTOM_KEYBOARD_MAX_KEYS) {
+      setCustomKeyError(`สร้างได้สูงสุด ${CUSTOM_KEYBOARD_MAX_KEYS} ปุ่มต่อโปรเจกต์`);
+      return;
+    }
+
+    if (editingCustomKeyId) {
+      updateCustomKeyboardKeys(customKeyboardKeys.map((key) => (
+        key.id === editingCustomKeyId ? { ...key, label } : key
+      )));
+    } else {
+      let sequence = customKeyboardKeys.length + 1;
+      while (customKeyboardKeys.some((key) => key.id === `custom-${sequence}`)) sequence += 1;
+      const generatedId = `custom-${sequence}`;
+      updateCustomKeyboardKeys([...customKeyboardKeys, { id: generatedId, label }]);
+    }
+    resetCustomKeyForm();
+  };
+
+  const handleCustomKeyClick = (label, event) => {
+    if (!canUseCustomKeyboard || isReadOnly) return;
+    if (event?.shiftKey) appendCustomTextToCurrentCell?.(label);
+    else inputCustomText?.(label);
+  };
+
+  const moveCustomKey = (index, direction) => {
+    const targetIndex = index + direction;
+    if (targetIndex < 0 || targetIndex >= customKeyboardKeys.length) return;
+    const nextKeys = [...customKeyboardKeys];
+    [nextKeys[index], nextKeys[targetIndex]] = [nextKeys[targetIndex], nextKeys[index]];
+    updateCustomKeyboardKeys(nextKeys);
+  };
 
   const getFormattedStr = (eng, thai) => {
     const numMatch = eng.match(/\d+/);
@@ -521,16 +591,44 @@ const Keyboard = () => {
 
         {!isTempoTrackOpen && <div className="flex items-center justify-end gap-3 px-4 py-1">
         {areNoteKeysVisible && <div className="min-w-0 flex-1 truncate text-[10px] font-semibold text-slate-500">
-          คลิกปุ่มโน้ตเพื่อเติมโน้ตเพิ่มในช่องเดียวกัน แล้วกด “จบช่อง” เพื่อเลื่อนไปช่องถัดไป
+          {activeKeyboardMode === 'custom'
+            ? 'คลิกปุ่มเพื่อใส่คำและไปช่องถัดไป · กด Shift พร้อมคลิกเพื่อเติมต่อในช่องเดิม'
+            : 'คลิกปุ่มโน้ตเพื่อใส่โน้ตและไปช่องถัดไป · กด Shift พร้อมคลิกเพื่อเติมต่อในช่องเดิม'}
         </div>}
           <button type="button" onClick={() => setAreNoteKeysVisible(visible => !visible)} aria-expanded={areNoteKeysVisible} aria-controls="note-keyboard-panel" className="shrink-0 rounded-lg border border-slate-200 bg-white px-2.5 py-0.5 text-[11px] font-bold text-slate-600 hover:bg-sky-50">
             {areNoteKeysVisible ? 'ซ่อนแป้นคีย์บอร์ด' : 'แสดงแป้นคีย์บอร์ด'}
           </button>
         </div>}
         <div id="note-keyboard-panel" hidden={isTempoTrackOpen || !areNoteKeysVisible}>
+          <div className="flex items-center justify-between gap-3 border-y border-slate-200 bg-white/80 px-3 py-1.5">
+            <div className="flex items-center gap-1 rounded-xl bg-slate-100 p-1">
+              <button type="button" onClick={() => setKeyboardMode('notes')} aria-pressed={activeKeyboardMode === 'notes'} className={`rounded-lg px-3 py-1.5 text-[11px] font-black transition ${activeKeyboardMode === 'notes' ? 'bg-white text-sky-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                แป้นโน้ต
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!canUseCustomKeyboard) {
+                    alert('คีย์บอร์ดคำกำหนดเองยังไม่เปิดให้ใช้กับบัญชีระดับนี้ครับ');
+                    return;
+                  }
+                  setKeyboardMode('custom');
+                }}
+                aria-pressed={activeKeyboardMode === 'custom'}
+                className={`flex items-center gap-1 rounded-lg px-3 py-1.5 text-[11px] font-black transition ${activeKeyboardMode === 'custom' ? 'bg-white text-violet-700 shadow-sm' : canUseCustomKeyboard ? 'text-slate-500 hover:text-violet-700' : 'cursor-not-allowed text-slate-300'}`}
+              >
+                {!canUseCustomKeyboard && <span aria-hidden="true">🔒</span>}
+                คำกำหนดเอง
+              </button>
+            </div>
+            {activeKeyboardMode === 'custom' && canUseCustomKeyboard && (
+              <button type="button" onClick={() => setIsManagingCustomKeys((value) => !value)} aria-expanded={isManagingCustomKeys} className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-1.5 text-[10px] font-black text-violet-700 hover:bg-violet-100">
+                {isManagingCustomKeys ? 'เสร็จสิ้น' : 'จัดการปุ่ม'}
+              </button>
+            )}
+          </div>
 
-
-        <div className="relative z-0 flex w-full overflow-hidden">
+          {activeKeyboardMode === 'notes' ? <div className="relative z-0 flex w-full overflow-hidden">
           <div className="flex-1 overflow-x-auto pb-1 pt-0 custom-scrollbar transition-all duration-300">
             <div className="flex bg-slate-800 p-1 rounded-xl shadow-inner w-max mx-auto gap-[2px]">
               {displayInstrument.keys.map((kOriginal, i) => {
@@ -577,7 +675,74 @@ const Keyboard = () => {
               })}
             </div>
           </div>
-        </div>
+        </div> : (
+          <div className="border-b border-violet-100 bg-violet-50/40">
+            {isManagingCustomKeys && !isReadOnly && (
+              <div className="border-b border-violet-100 bg-white px-3 py-3">
+                <form onSubmit={handleCustomKeySubmit} className="mx-auto flex max-w-3xl flex-wrap items-start gap-2">
+                  <div className="min-w-[180px] flex-1">
+                    <input
+                      type="text"
+                      value={customKeyDraft}
+                      maxLength={CUSTOM_KEYBOARD_MAX_LABEL_LENGTH}
+                      onChange={(event) => {
+                        setCustomKeyDraft(event.target.value);
+                        setCustomKeyError('');
+                      }}
+                      className="h-10 w-full rounded-xl border border-violet-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
+                      placeholder="พิมพ์คำ เช่น ทิง หรือ พร้อม"
+                      aria-label="คำสำหรับสร้างปุ่มกำหนดเอง"
+                    />
+                    {customKeyError && <p className="mt-1 px-1 text-[10px] font-semibold text-rose-600">{customKeyError}</p>}
+                  </div>
+                  <button type="submit" className="h-10 rounded-xl bg-violet-600 px-4 text-xs font-black text-white shadow-sm hover:bg-violet-700">
+                    {editingCustomKeyId ? 'บันทึกคำ' : 'เพิ่มปุ่ม'}
+                  </button>
+                  {editingCustomKeyId && <button type="button" onClick={resetCustomKeyForm} className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-500 hover:bg-slate-50">ยกเลิก</button>}
+                  <span className="flex h-10 items-center text-[10px] font-bold text-slate-400">{customKeyboardKeys.length}/{CUSTOM_KEYBOARD_MAX_KEYS} ปุ่ม</span>
+                </form>
+
+                {customKeyboardKeys.length > 0 && (
+                  <div className="mx-auto mt-3 flex max-h-36 max-w-4xl flex-wrap gap-2 overflow-y-auto rounded-xl bg-slate-50 p-2">
+                    {customKeyboardKeys.map((key, index) => (
+                      <div key={key.id} className="flex items-center overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+                        <span className="max-w-40 truncate px-2.5 py-1.5 text-xs font-bold text-slate-700">{key.label}</span>
+                        <button type="button" onClick={() => moveCustomKey(index, -1)} disabled={index === 0} title="เลื่อนไปทางซ้าย" className="border-l border-slate-100 px-1.5 py-1.5 text-[10px] text-slate-500 hover:bg-slate-50 disabled:text-slate-200">←</button>
+                        <button type="button" onClick={() => moveCustomKey(index, 1)} disabled={index === customKeyboardKeys.length - 1} title="เลื่อนไปทางขวา" className="border-l border-slate-100 px-1.5 py-1.5 text-[10px] text-slate-500 hover:bg-slate-50 disabled:text-slate-200">→</button>
+                        <button type="button" onClick={() => { setEditingCustomKeyId(key.id); setCustomKeyDraft(key.label); setCustomKeyError(''); }} title="แก้ไขคำ" className="border-l border-slate-100 px-2 py-1.5 text-[10px] font-bold text-sky-600 hover:bg-sky-50">แก้</button>
+                        <button type="button" onClick={() => { updateCustomKeyboardKeys(customKeyboardKeys.filter((item) => item.id !== key.id)); if (editingCustomKeyId === key.id) resetCustomKeyForm(); }} title="ลบปุ่ม" className="border-l border-slate-100 px-2 py-1.5 text-[10px] font-bold text-rose-600 hover:bg-rose-50">ลบ</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="w-full overflow-x-auto px-3 pb-2 pt-1 custom-scrollbar">
+              {customKeyboardKeys.length > 0 ? (
+                <div className="mx-auto flex w-max gap-1 rounded-xl bg-violet-950 p-1 shadow-inner">
+                  {customKeyboardKeys.map((key) => (
+                    <button
+                      key={key.id}
+                      type="button"
+                      disabled={isReadOnly}
+                      onPointerDown={(event) => event.preventDefault()}
+                      onClick={(event) => handleCustomKeyClick(key.label, event)}
+                      className="flex h-[82px] min-w-20 max-w-40 shrink-0 items-center justify-center rounded-b-lg border border-violet-200 border-b-[5px] bg-white px-4 text-center text-base font-black text-violet-950 shadow-sm transition hover:bg-violet-50 active:translate-y-1 active:border-b disabled:cursor-not-allowed disabled:opacity-50"
+                      title={`ใส่คำ “${key.label}”`}
+                    >
+                      <span className="max-w-full break-words leading-tight">{key.label}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="mx-auto flex max-w-lg items-center justify-center rounded-xl border border-dashed border-violet-200 bg-white px-4 py-5 text-center text-xs font-semibold text-slate-500">
+                  ยังไม่มีปุ่มคำกำหนดเอง กด “จัดการปุ่ม” เพื่อสร้างปุ่มแรกของโปรเจกต์นี้
+                </div>
+              )}
+            </div>
+          </div>
+        )}
         </div>
       </div>
     </div>

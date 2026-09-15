@@ -14,6 +14,7 @@ import {
   summarizeAggregate,
   toProjectSummary,
 } from './projectStorage.js';
+import { encodeCustomCellToken } from './customKeyboard.js';
 
 const project = (overrides = {}) => ({
   name: 'เพลงทดสอบ',
@@ -159,7 +160,15 @@ test('a single project document keeps a safety margin below the Firestore hard l
 });
 
 test('.tme editor payload survives a storage round trip unchanged', () => {
-  const original = project({ sectionLabels: { 0: [{ text: 'ท่อน 1' }] } });
+  const original = project({
+    sectionLabels: { 0: [{ text: 'ท่อน 1' }] },
+    sheetData: [[[encodeCustomCellToken('ทิง')]]],
+    layoutConfig: {
+      bpm: 120,
+      tempoTrack: [{ bpm: 120 }],
+      customKeyboardKeys: [{ id: 'custom-1', label: 'ทิง' }],
+    },
+  });
   const stored = createProjectStorageDocuments(original, 'user-1');
   const reopened = resolveProjectDocuments('project-1', stored.metadata, stored.content);
   const restored = { ...reopened, sheetData: parseStoredSheetData(reopened.sheetData) };

@@ -1,4 +1,4 @@
-import { INSTRUMENT_CONFIG } from '../utils/instrumentConfig';
+import { INSTRUMENT_CONFIG } from '../utils/instrumentConfig.js';
 
 const FEATURE_GROUPS = [
   { id: 'editor', name: 'ตัวแก้ไขโน้ตเพลง', description: 'สร้างและแก้ไขโน้ตเพลงไทย', free: true, premium: true, group: 'workspace' },
@@ -6,6 +6,7 @@ const FEATURE_GROUPS = [
   { id: 'templates', name: 'เทมเพลต', description: 'เริ่มงานจากแบบฟอร์มสำเร็จรูป', free: true, premium: true, group: 'workspace' },
   { id: 'samples', name: 'เพลงตัวอย่าง', description: 'เปิดดูและฟังเพลงตัวอย่าง', free: true, premium: true, group: 'workspace' },
   { id: 'settings', name: 'การตั้งค่าบัญชี', description: 'ตั้งค่าการใช้งานส่วนตัว', free: true, premium: true, group: 'workspace' },
+  { id: 'custom-keyboard', name: 'คีย์บอร์ดคำกำหนดเอง', description: 'สร้างปุ่มคำเฉพาะและกรอกลงในตารางโน้ต', free: false, premium: true, group: 'workspace' },
   { id: 'metronome', name: 'เครื่องประกอบจังหวะ', description: 'เมโทรโนมและ Speed Trainer', free: true, premium: true, group: 'tools' },
   { id: 'arranger', name: 'จัดวงดนตรี (Arranger)', description: 'สร้างไทม์ไลน์และมิกซ์วงดนตรี', free: false, premium: true, group: 'tools' },
   { id: 'export-pdf', name: 'ส่งออก PDF', description: 'พิมพ์หรือบันทึกโน้ตเป็น PDF', free: true, premium: true, group: 'exports' },

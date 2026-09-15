@@ -11,6 +11,7 @@ import {
   shiftNoteString,
   splitThaiNoteToken,
 } from './sheetUtils.js';
+import { encodeCustomCellToken } from './customKeyboard.js';
 
 test('creates four default right-hand and left-hand staff pairs', () => {
   const sheetData = createDefaultSheetData();
@@ -55,6 +56,13 @@ test('normalizes empty note input and preserves compact note tokens', () => {
   assert.equal(normalizeCellToken('  '), '-');
   assert.equal(normalizeCellToken(' ด ร '), 'ดร');
   assert.deepEqual(splitThaiNoteToken('ดร'), ['ด', 'ร']);
+});
+
+test('custom text remains silent and is not parsed as Thai notes', () => {
+  const token = encodeCustomCellToken('รับ พร้อม');
+  assert.equal(normalizeCellToken(token), token);
+  assert.deepEqual(splitThaiNoteToken(token), []);
+  assert.equal(shiftNoteString(token, 1), token);
 });
 
 test('normalizes a nathap row beneath a double row with its label', () => {

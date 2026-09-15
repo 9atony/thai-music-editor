@@ -1,4 +1,5 @@
 import { INSTRUMENT_CONFIG } from './instrumentConfig.js';
+import { decodeCustomCellToken, encodeCustomCellToken } from './customKeyboard.js';
 
 export const hasNathapLeadingLabel = (row, rType = 'nathap') => (
   rType === 'nathap'
@@ -110,11 +111,14 @@ export const TOKEN_REGEX = new RegExp(`(${PERC_PATTERN}|${NOTE_PATTERN})`, 'g');
 
 export const normalizeCellToken = (value) => {
   if (typeof value !== 'string') return value && value !== '-' ? String(value) : '-';
+  const customText = decodeCustomCellToken(value);
+  if (customText !== null) return encodeCustomCellToken(customText);
   const compact = value.replace(/\s+/g, '').trim();
   return compact === '' ? '-' : compact;
 };
 
 export const splitThaiNoteToken = (token) => {
+  if (decodeCustomCellToken(token) !== null) return [];
   const normalized = normalizeCellToken(token);
   if (!normalized || normalized === '-') return [];
   return normalized.match(TOKEN_REGEX) || [];
@@ -255,5 +259,6 @@ export const createDefaultLayoutConfig = () => ({
   marginTop: 48, marginBottom: 48, marginLeft: 48, marginRight: 48,
   headerBottomSpacing: 8,
   marginUnit: 'px', textLineHeight: 1.5, textFontSize: 16,
+  customKeyboardKeys: [],
   customStyles: {}
 });
