@@ -37,6 +37,7 @@ import {
   MAINTAINABLE_TOOL_FEATURES,
 } from '../data/featureCatalog';
 import { useFeatureAccess } from '../contexts/FeatureAccessContext';
+import { showAppNotice } from '../utils/appNotice';
 
 const GIB = 1024 * 1024 * 1024;
 const PREMIUM_BYTES = 5 * 1024 * 1024;
@@ -194,6 +195,7 @@ const AdminDashboard = ({ userProfile }) => {
     setAccessSaveError('');
     try {
       await saveAccess(nextAccess);
+      showAppNotice('บันทึกสิทธิ์การใช้งานแล้ว', 'success');
     } catch (error) {
       console.error('บันทึกสิทธิ์การใช้งานไม่สำเร็จ:', error);
       setAccessSaveError('บันทึกไม่สำเร็จ โปรดตรวจสอบสิทธิ์ Firestore แล้วลองอีกครั้ง');
@@ -210,6 +212,7 @@ const AdminDashboard = ({ userProfile }) => {
     setMaintenanceSaveError('');
     try {
       await setToolMaintenance(feature.id, nextEnabled);
+      showAppNotice(nextEnabled ? `ปิด ${feature.name} ชั่วคราวแล้ว` : `เปิด ${feature.name} ให้ใช้งานแล้ว`, 'success');
     } catch (error) {
       console.error('บันทึกสถานะปิดปรับปรุงไม่สำเร็จ:', error);
       setMaintenanceSaveError('บันทึกสถานะไม่สำเร็จ โปรดตรวจสอบสิทธิ์ Firestore แล้วลองอีกครั้ง');
@@ -245,6 +248,7 @@ const AdminDashboard = ({ userProfile }) => {
         endsAt: Number.isNaN(endDate.getTime()) ? new Date() : endDate,
         message: siteMaintenanceMessage,
       });
+      showAppNotice(enabled ? 'ตั้งเวลาปิดปรับปรุงเว็บไซต์แล้ว' : 'เปิดเว็บไซต์ให้ใช้งานแล้ว', 'success');
     } catch (error) {
       console.error('บันทึกสถานะปิดปรับปรุงเว็บไซต์ไม่สำเร็จ:', error);
       setSiteMaintenanceSaveError(error?.message === 'MAINTENANCE_END_REQUIRED'
@@ -396,7 +400,7 @@ const AdminDashboard = ({ userProfile }) => {
       }
     } catch (error) {
       console.error('เปลี่ยนสิทธิ์ไม่สำเร็จ:', error);
-      alert('ไม่สามารถเปลี่ยนสิทธิ์ผู้ใช้ได้');
+      showAppNotice('ไม่สามารถเปลี่ยนสิทธิ์ผู้ใช้ได้', 'error');
     } finally {
       setIsUpdating(false);
     }
@@ -410,7 +414,7 @@ const AdminDashboard = ({ userProfile }) => {
       await fetchDashboardData();
     } catch (error) {
       console.error('ต่ออายุ Premium ไม่สำเร็จ:', error);
-      alert('ไม่สามารถต่ออายุ Premium ได้');
+      showAppNotice('ไม่สามารถต่ออายุ Premium ได้', 'error');
     } finally {
       setIsUpdating(false);
     }

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useWorkspace, MIN_TRACK_LANE_HEIGHT, MAX_TRACK_LANE_HEIGHT, DEFAULT_TRACK_LANE_HEIGHT, COLLAPSED_TRACK_HEIGHT } from '../../../contexts/WorkspaceContext';
 import { INSTRUMENT_CONFIG } from '../../../utils/instrumentConfig';
 import { auth, fetchAllProjectSummaries, fetchProjectById } from '../../../utils/firebase';
+import { showAppNotice } from '../../../utils/appNotice';
 
 const BLACK_SCROLLBAR_STYLE = `
   .track-panel-scroll,
@@ -173,7 +174,7 @@ export default function TrackPanel() {
     const file = event.dataTransfer?.files?.[0];
     if (file) {
       if (!/\.(tme|json|thai)$/i.test(file.name)) {
-        alert('รองรับไฟล์ .tme, .thai และ .json');
+        showAppNotice('รองรับไฟล์ .tme, .thai และ .json', 'warning');
         return;
       }
       const reader = new FileReader();

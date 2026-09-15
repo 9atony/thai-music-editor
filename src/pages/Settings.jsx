@@ -6,6 +6,7 @@ import { MusicContext } from '../contexts/MusicContext';
 import { APP_METADATA } from '../config/appMetadata';
 import { auth, fetchAllProjects, getUserStorageUsage } from '../utils/firebase';
 import PageHeader from '../components/layout/PageHeader';
+import { showAppNotice } from '../utils/appNotice';
 
 const sections = [
   { id: 'account', label: 'บัญชีและแผน', description: 'สมาชิกและพื้นที่ใช้งาน', Icon: CircleUserRound },
@@ -73,16 +74,20 @@ const Settings = ({ userProfile }) => {
     setIsExporting(true);
     try {
       const projects = await fetchAllProjects(auth.currentUser.uid);
-      if (!projects.length) return window.alert('ยังไม่มีโครงการที่บันทึกไว้สำหรับสำรองข้อมูล');
+      if (!projects.length) {
+        showAppNotice('ยังไม่มีโครงการที่บันทึกไว้สำหรับสำรองข้อมูล', 'warning');
+        return;
+      }
       const zip = new JSZip();
       projects.forEach((project) => {
         const safeName = (project.name || project.songName || 'โครงการไม่มีชื่อ').replace(/[^a-zA-Z0-9ก-๙\s]/g, '_').trim();
         zip.file(`${safeName}_${project.id.slice(0, 5)}.tme`, JSON.stringify(project, null, 2));
       });
       saveAs(await zip.generateAsync({ type: 'blob' }), 'ThaiMusicEditor_Backup.zip');
+      showAppNotice('สร้างไฟล์สำรองข้อมูลสำเร็จ', 'success');
     } catch (error) {
       console.error('สำรองข้อมูลทั้งหมดไม่สำเร็จ:', error);
-      window.alert('ไม่สามารถสร้างไฟล์สำรองได้ กรุณาลองใหม่อีกครั้ง');
+      showAppNotice('ไม่สามารถสร้างไฟล์สำรองได้ กรุณาลองใหม่อีกครั้ง', 'error');
     } finally {
       setIsExporting(false);
     }

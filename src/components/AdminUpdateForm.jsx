@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../utils/firebase'; 
 import { collection, addDoc, Timestamp, getDocs, query, orderBy, deleteDoc, doc } from 'firebase/firestore';
+import { showAppNotice } from '../utils/appNotice';
 
 const AdminUpdateForm = ({ onClose, onUpdateSuccess }) => {
   // ควบคุมว่ากำลังเปิดหน้า "สร้าง" หรือ "ประวัติ"
@@ -76,9 +77,10 @@ const AdminUpdateForm = ({ onClose, onUpdateSuccess }) => {
       await deleteDoc(doc(db, "updates", id));
       setHistory(history.filter(item => item.id !== id)); // ลบออกจากหน้าจอ
       if (onUpdateSuccess) onUpdateSuccess(); // อัปเดตหน้า Home ด้วย
+      showAppNotice('ลบประกาศแล้ว', 'success');
     } catch (error) {
       console.error("Error deleting document:", error);
-      alert("เกิดข้อผิดพลาดในการลบ");
+      showAppNotice('เกิดข้อผิดพลาดในการลบ', 'error');
     }
   };
 

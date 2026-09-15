@@ -3,6 +3,7 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { INSTRUMENT_CONFIG } from '../utils/instrumentConfig';
 import { getIntervalPair } from '../utils/sheetUtils';
 import { auth, createArrangerProject, getArrangerProject, saveArrangerProject } from '../utils/firebase';
+import { showAppNotice } from '../utils/appNotice';
 import {
   initAudioContext,
   playNote,
@@ -1264,7 +1265,7 @@ export const WorkspaceProvider = ({ children }) => {
       });
     } catch (error) {
       console.error('เกิดข้อผิดพลาดในการนำเข้าโปรเจกต์จากเว็บ:', error);
-      alert('ไม่สามารถนำเข้าโปรเจกต์จากเว็บได้ครับ');
+      showAppNotice('ไม่สามารถนำเข้าโปรเจกต์จากเว็บได้ครับ', 'error');
     }
   };
 
@@ -1738,7 +1739,7 @@ export const WorkspaceProvider = ({ children }) => {
       }));
     } catch (error) {
       console.error('เกิดข้อผิดพลาดในการอ่านไฟล์ .tme:', error);
-      alert('ไฟล์ที่นำเข้าไม่ถูกต้อง หรือโครงสร้างข้อมูลยังไม่ตรงกับระบบ Arranger');
+      showAppNotice('ไฟล์ที่นำเข้าไม่ถูกต้อง หรือโครงสร้างข้อมูลยังไม่ตรงกับระบบ Arranger', 'error');
     }
   };
 
@@ -1840,7 +1841,7 @@ export const WorkspaceProvider = ({ children }) => {
       
     } catch (error) {
       console.error('เกิดข้อผิดพลาดในการโหลดโปรเจกต์:', error);
-      alert('ไฟล์โปรเจกต์ไม่ถูกต้อง หรือไม่สามารถอ่านข้อมูลได้ครับ');
+      showAppNotice('ไฟล์โปรเจกต์ไม่ถูกต้อง หรือไม่สามารถอ่านข้อมูลได้ครับ', 'error');
     }
   };
 

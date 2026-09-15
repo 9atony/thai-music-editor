@@ -10,6 +10,7 @@ import TmeIcon from '../assets/icon.webp';
 import AdminUpdateForm from '../components/AdminUpdateForm'; // 👈 นำเข้าฟอร์มแอดมิน
 import PageHeader from '../components/layout/PageHeader';
 import { APP_METADATA } from '../config/appMetadata';
+import { showAppNotice } from '../utils/appNotice';
 
 const Home = ({ onNewProject, onPageChange, userProfile, isMobile = false }) => {
   const { newProject, loadProjectFromFirebase, loadProject } = useContext(MusicContext);
@@ -104,7 +105,7 @@ const Home = ({ onNewProject, onPageChange, userProfile, isMobile = false }) => 
       onNewProject();
     } catch (error) {
       console.error('Unable to open project:', error);
-      window.alert('ไม่สามารถเปิดโปรเจกต์นี้ได้ กรุณาลองใหม่อีกครั้ง');
+      showAppNotice('ไม่สามารถเปิดโปรเจกต์นี้ได้ กรุณาลองใหม่อีกครั้ง', 'error');
     }
   };
 

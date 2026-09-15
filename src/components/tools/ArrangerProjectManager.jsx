@@ -19,6 +19,7 @@ import {
 } from '../../utils/firebase';
 import { ARRANGER_PROJECT_SESSION_KEY } from '../../contexts/WorkspaceContext';
 import ProjectStatusBar from '../projects/ProjectStatusBar';
+import { showAppNotice } from '../../utils/appNotice';
 
 const PROJECT_COLORS = [
   'from-rose-500 to-orange-400',
@@ -133,7 +134,7 @@ export default function ArrangerProjectManager({ onOpen, userRole = 'user' }) {
       openProject(project.id);
     } catch (error) {
       console.error('สร้างโปรเจกต์จัดวงไม่สำเร็จ:', error);
-      alert('ไม่สามารถสร้างโปรเจกต์จัดวงได้ กรุณาลองใหม่อีกครั้ง');
+      showAppNotice('ไม่สามารถสร้างโปรเจกต์จัดวงได้ กรุณาลองใหม่อีกครั้ง', 'error');
     } finally {
       setIsCreating(false);
     }
@@ -150,7 +151,7 @@ export default function ArrangerProjectManager({ onOpen, userRole = 'user' }) {
       setProjects((current) => current.filter((project) => project.id !== projectId));
     } catch (error) {
       console.error('ลบโปรเจกต์จัดวงไม่สำเร็จ:', error);
-      alert('ไม่สามารถลบโปรเจกต์จัดวงได้ กรุณาลองใหม่อีกครั้ง');
+      showAppNotice('ไม่สามารถลบโปรเจกต์จัดวงได้ กรุณาลองใหม่อีกครั้ง', 'error');
     }
   };
 

@@ -6,6 +6,8 @@ import { auth, db, getUserProfile } from '../utils/firebase';
 import { cacheUserProfile, invalidateUserProfile, normalizeUserProfile, setProfileAuthUser } from '../utils/profileCache';
 import { recordFirestoreRead, startDevTiming } from '../utils/devPerformance';
 
+const AUTH_LOAD_TIMEOUT_MS = 6000;
+
 const AuthProfileContext = createContext({
   user: null,
   profile: null,
@@ -32,6 +34,12 @@ export const AuthProfileProvider = ({ children }) => {
   useEffect(() => {
     let unsubscribeProfile = () => {};
     let expirationTimer = null;
+    let authResolved = false;
+    const authLoadTimeout = window.setTimeout(() => {
+      // Firebase Auth can remain pending indefinitely on a broken network.
+      // Let public pages render; a later auth callback still restores the user.
+      if (!authResolved && !userRef.current) setIsLoading(false);
+    }, AUTH_LOAD_TIMEOUT_MS);
 
     const scheduleExpirationRefresh = (uid, rawProfile) => {
       if (expirationTimer) clearTimeout(expirationTimer);
@@ -45,6 +53,8 @@ export const AuthProfileProvider = ({ children }) => {
     };
 
     const unsubscribeAuth = onAuthStateChanged(auth, (nextUser) => {
+      authResolved = true;
+      window.clearTimeout(authLoadTimeout);
       unsubscribeProfile();
       unsubscribeProfile = () => {};
       if (expirationTimer) clearTimeout(expirationTimer);
@@ -89,6 +99,7 @@ export const AuthProfileProvider = ({ children }) => {
     return () => {
       unsubscribeProfile();
       unsubscribeAuth();
+      window.clearTimeout(authLoadTimeout);
       if (expirationTimer) clearTimeout(expirationTimer);
     };
   }, [applyProfile]);

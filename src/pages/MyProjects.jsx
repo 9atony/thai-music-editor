@@ -14,6 +14,7 @@ import { FolderKanban } from 'lucide-react';
 import PageHeader from '../components/layout/PageHeader';
 import ProjectStatusBar from '../components/projects/ProjectStatusBar';
 import { recordSystemEvent } from '../utils/systemAnalytics';
+import { showAppNotice } from '../utils/appNotice';
 
 const MyProjects = ({ onNewProject, onOpenArrangerProjects, userProfile, userId }) => {
   const { newProject, loadProjectFromFirebase, loadProject } = useContext(MusicContext);
@@ -177,7 +178,7 @@ const MyProjects = ({ onNewProject, onOpenArrangerProjects, userProfile, userId 
       onNewProject();
     } catch (error) {
       console.error('Unable to open project:', error);
-      window.alert('ไม่สามารถเปิดโปรเจกต์นี้ได้ กรุณาลองใหม่อีกครั้ง');
+      showAppNotice('ไม่สามารถเปิดโปรเจกต์นี้ได้ กรุณาลองใหม่อีกครั้ง', 'error');
     }
   };
 
@@ -193,7 +194,7 @@ const MyProjects = ({ onNewProject, onOpenArrangerProjects, userProfile, userId 
       setRenameModalOpen(false);
     } catch (error) {
       console.error('เปลี่ยนชื่อโปรเจกต์ไม่สำเร็จ:', error);
-      alert("เกิดข้อผิดพลาดในการเปลี่ยนชื่อครับ");
+      showAppNotice('เกิดข้อผิดพลาดในการเปลี่ยนชื่อครับ', 'error');
     }
   };
 
@@ -228,7 +229,7 @@ const MyProjects = ({ onNewProject, onOpenArrangerProjects, userProfile, userId 
     } catch (error) {
       console.error('เกิดข้อผิดพลาดในการทำซ้ำโปรเจกต์:', error);
       if (error.message === 'STORAGE_LIMIT_EXCEEDED') setStorageLimitModalOpen(true);
-      else alert('ไม่สามารถทำซ้ำโปรเจกต์ได้ครับ');
+      else showAppNotice('ไม่สามารถทำซ้ำโปรเจกต์ได้ครับ', 'error');
     } finally {
       setDuplicatingProjectId(null);
     }
@@ -240,7 +241,7 @@ const MyProjects = ({ onNewProject, onOpenArrangerProjects, userProfile, userId 
 
     const uid = auth.currentUser?.uid;
     if (!uid) {
-      alert("เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่ก่อนลบโปรเจกต์ครับ");
+      showAppNotice('เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่ก่อนลบโปรเจกต์ครับ', 'error');
       return;
     }
 
@@ -255,7 +256,7 @@ const MyProjects = ({ onNewProject, onOpenArrangerProjects, userProfile, userId 
       const message = error?.code === 'permission-denied'
         ? 'ไม่มีสิทธิ์ลบโปรเจกต์นี้ กรุณาเข้าสู่ระบบใหม่ หรือตรวจสอบ Firestore Rules'
         : `ไม่สามารถลบโปรเจกต์ได้${error?.message ? `: ${error.message}` : ''}`;
-      alert(message);
+      showAppNotice(message, 'error');
     } finally {
       setDeletingProjectId(null);
     }

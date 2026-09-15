@@ -11,6 +11,7 @@ import {
   normalizeCustomKeyboardKeys,
   normalizeCustomText,
 } from '../../utils/customKeyboard';
+import { showAppNotice } from '../../utils/appNotice';
 
 const ToolbarSection = ({ children, bodyClass = 'bg-white border border-slate-200', wrapperClass = '' }) => (
     <div className={`flex shrink-0 items-center justify-center ${wrapperClass}`}>
@@ -406,7 +407,7 @@ const Keyboard = () => {
                           const hasAccess = canAccess(`instrument:${inst.id}`, userRole);
                           
                           if (!hasAccess) {
-                            alert(`เครื่องดนตรี "${inst.name}" สำหรับสมาชิก Premium เท่านั้นครับ\nสนใจอัปเกรดเพื่อใช้งานฟังก์ชันขั้นสูงหรือไม่?`);
+                            showAppNotice(`เครื่องดนตรี "${inst.name}" สำหรับสมาชิก Premium เท่านั้นครับ`, 'warning');
                             setIsInstMenuOpen(false);
                             return;
                           }
@@ -635,7 +636,7 @@ const Keyboard = () => {
                 type="button"
                 onClick={() => {
                   if (!canUseCustomKeyboard) {
-                    alert('คีย์บอร์ดคำกำหนดเองยังไม่เปิดให้ใช้กับบัญชีระดับนี้ครับ');
+                    showAppNotice('คีย์บอร์ดคำกำหนดเองยังไม่เปิดให้ใช้กับบัญชีระดับนี้ครับ', 'warning');
                     return;
                   }
                   setKeyboardMode('custom');

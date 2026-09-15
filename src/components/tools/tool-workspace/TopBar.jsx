@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
+import { showAppNotice } from '../../../utils/appNotice';
 
 export default function TopBar({ onBack }) {
   const {
@@ -73,7 +74,7 @@ export default function TopBar({ onBack }) {
           stopPlayback();
           const saved = await saveProject();
           if (saved) onBack?.();
-          else alert('ยังบันทึกโปรเจกต์ไม่ได้ กรุณาลองใหม่อีกครั้งก่อนออกจากหน้านี้');
+          else showAppNotice('ยังบันทึกโปรเจกต์ไม่ได้ กรุณาลองใหม่อีกครั้งก่อนออกจากหน้านี้', 'error');
         }}
         className="w-9 h-9 shrink-0 flex items-center justify-center rounded-lg hover:bg-white/10 text-white/50 hover:text-white transition-colors"
         title="กลับหน้ารวมเครื่องมือ"

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { collection, addDoc, getDocs } from 'firebase/firestore';
 // แก้ไข Path ชี้ไปยัง utils/firebase ในโปรเจกต์หลัก
 import { db } from '../../utils/firebase'; 
+import { showAppNotice } from '../../utils/appNotice';
 
 export default function TunerDashboard() {
   const [songName, setSongName] = useState("");
@@ -73,7 +74,7 @@ export default function TunerDashboard() {
         setSelectedIndex(null);
         setSkeletonResult(null);
       } catch {
-        alert("รูปแบบไฟล์ไม่ถูกต้อง");
+        showAppNotice('รูปแบบไฟล์ไม่ถูกต้อง', 'error');
       }
     };
     reader.readAsText(file);
@@ -97,7 +98,7 @@ export default function TunerDashboard() {
         setSkeletonResult(data.skeleton);
       }
     } catch {
-      alert("ไม่สามารถเชื่อมต่อ Python ได้");
+      showAppNotice('ไม่สามารถเชื่อมต่อ Python ได้', 'error');
     }
     setIsLoading(false);
   };
@@ -125,11 +126,11 @@ export default function TunerDashboard() {
       if (selectedIndex < phrases.length - 1) {
         handleSelectPhrase(selectedIndex + 1);
       } else {
-        alert("ทดสอบครบทุกบรรทัดแล้วครับ!");
+        showAppNotice('ทดสอบครบทุกบรรทัดแล้วครับ', 'success');
       }
     } catch (error) {
       console.error("Error saving document: ", error);
-      alert("เกิดข้อผิดพลาดในการบันทึกข้อมูล");
+      showAppNotice('เกิดข้อผิดพลาดในการบันทึกข้อมูล', 'error');
     }
     setIsSaving(false);
   };
@@ -140,7 +141,7 @@ export default function TunerDashboard() {
       const dataset = querySnapshot.docs.map(doc => doc.data());
       
       if (dataset.length === 0) {
-        alert("ยังไม่มีข้อมูลในฐานข้อมูลครับ");
+        showAppNotice('ยังไม่มีข้อมูลในฐานข้อมูลครับ', 'warning');
         return;
       }
 
@@ -165,7 +166,7 @@ export default function TunerDashboard() {
       
     } catch (error) {
       console.error("Export error:", error);
-      alert("เกิดข้อผิดพลาดในการดึงข้อมูล");
+      showAppNotice('เกิดข้อผิดพลาดในการดึงข้อมูล', 'error');
     }
   };
 

@@ -7,10 +7,12 @@ import { MusicProvider } from './contexts/MusicContext.jsx'
 import { FeatureAccessProvider } from './contexts/FeatureAccessContext.jsx'
 import { AuthProfileProvider } from './contexts/AuthProfileContext.jsx'
 import ErrorBoundary from './components/ErrorBoundary.jsx'
+import AppNoticeHost from './components/AppNoticeHost.jsx'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <ErrorBoundary>
+      <AppNoticeHost />
       {/* 2. ต้องมี MusicProvider ครอบ App เอาไว้แบบนี้ครับ */}
       <AuthProfileProvider>
         <MusicProvider>

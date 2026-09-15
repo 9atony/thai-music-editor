@@ -4,6 +4,7 @@ import { collection, onSnapshot, addDoc, doc, updateDoc, deleteDoc, serverTimest
 import TmeIcon from '../assets/icon.webp';
 import { Music2 } from 'lucide-react';
 import PageHeader from '../components/layout/PageHeader';
+import { showAppNotice } from '../utils/appNotice';
 
 const Samples = ({ onOpenProject, userProfile }) => {
   const isAdmin = userProfile?.role === 'admin';
@@ -73,10 +74,10 @@ const Samples = ({ onOpenProject, userProfile }) => {
     if (window.confirm(`ต้องการลบเพลง "${sample.name}" ใช่หรือไม่?`)) {
       try {
         await deleteDoc(doc(db, 'samples', sample.id));
-        alert('ลบข้อมูลเรียบร้อยแล้ว');
+        showAppNotice('ลบข้อมูลเรียบร้อยแล้ว', 'success');
       } catch (error) {
         console.error('ลบเพลงตัวอย่างไม่สำเร็จ:', error);
-        alert('เกิดข้อผิดพลาดในการลบข้อมูล');
+        showAppNotice('เกิดข้อผิดพลาดในการลบข้อมูล', 'error');
       }
     }
   };
@@ -132,9 +133,10 @@ const Samples = ({ onOpenProject, userProfile }) => {
         await addDoc(collection(db, 'samples'), dataToSave);
       }
       setIsModalOpen(false);
+      showAppNotice(editingId ? 'อัปเดตเพลงตัวอย่างแล้ว' : 'เพิ่มเพลงตัวอย่างแล้ว', 'success');
     } catch (error) {
       console.error('บันทึกเพลงตัวอย่างไม่สำเร็จ:', error);
-      alert('เกิดข้อผิดพลาดในการบันทึกข้อมูล');
+      showAppNotice('เกิดข้อผิดพลาดในการบันทึกข้อมูล', 'error');
     } finally {
       setIsUploading(false);
     }
@@ -145,7 +147,7 @@ const Samples = ({ onOpenProject, userProfile }) => {
     if (file && file.name.endsWith('.tme')) {
       setFormData({ ...formData, file });
     } else {
-      alert('กรุณาอัปโหลดไฟล์นามสกุล .tme เท่านั้น');
+      showAppNotice('กรุณาอัปโหลดไฟล์นามสกุล .tme เท่านั้น', 'warning');
       e.target.value = null;
     }
   };

@@ -8,6 +8,7 @@ import { useAuthProfile } from './AuthProfileContext';
 
 const FEATURE_ACCESS_DOCUMENT = 'feature_access';
 const SITE_MAINTENANCE_DOCUMENT = 'site_maintenance';
+const SITE_MAINTENANCE_LOAD_TIMEOUT_MS = 6000;
 const DEFAULT_SITE_MAINTENANCE = Object.freeze({
   enabled: false,
   endsAt: null,
@@ -45,25 +46,42 @@ export const FeatureAccessProvider = ({ children, role = 'user' }) => {
   const [maintenanceClock, setMaintenanceClock] = useState(() => Date.now());
 
   useEffect(() => {
+    let active = true;
+    const finishSiteMaintenanceLoad = (nextState, error = null) => {
+      if (!active) return;
+      setSiteMaintenanceState(nextState);
+      setSiteMaintenanceError(error);
+      setIsSiteMaintenanceLoading(false);
+    };
+    const loadTimeout = window.setTimeout(() => {
+      // A stalled network must not leave the whole public website behind a
+      // loading screen forever. The live listener stays active and can still
+      // apply the real maintenance state when Firebase reconnects.
+      finishSiteMaintenanceLoad(DEFAULT_SITE_MAINTENANCE, new Error('SITE_MAINTENANCE_LOAD_TIMEOUT'));
+    }, SITE_MAINTENANCE_LOAD_TIMEOUT_MS);
     const unsubscribe = onSnapshot(doc(db, 'system_settings', SITE_MAINTENANCE_DOCUMENT), (snapshot) => {
+      if (!active) return;
       const data = snapshot.data();
-      setSiteMaintenanceState(data ? {
+      window.clearTimeout(loadTimeout);
+      finishSiteMaintenanceLoad(data ? {
         enabled: data.enabled === true,
         endsAt: data.endsAt || null,
         message: typeof data.message === 'string' ? data.message : '',
       } : DEFAULT_SITE_MAINTENANCE);
-      setSiteMaintenanceError(null);
-      setIsSiteMaintenanceLoading(false);
       setMaintenanceClock(Date.now());
     }, (error) => {
+      if (!active) return;
       // Fail open if the public status document cannot be read. A temporary
       // Firebase outage must not accidentally lock every user out of the app.
       console.error('Unable to subscribe to site maintenance:', error);
-      setSiteMaintenanceState(DEFAULT_SITE_MAINTENANCE);
-      setSiteMaintenanceError(error);
-      setIsSiteMaintenanceLoading(false);
+      window.clearTimeout(loadTimeout);
+      finishSiteMaintenanceLoad(DEFAULT_SITE_MAINTENANCE, error);
     });
-    return unsubscribe;
+    return () => {
+      active = false;
+      window.clearTimeout(loadTimeout);
+      unsubscribe();
+    };
   }, []);
 
   const maintenanceEndsAtMs = siteMaintenanceEndsAtMs(siteMaintenance);

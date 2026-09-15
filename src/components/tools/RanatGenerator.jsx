@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../utils/firebase';
+import { showAppNotice } from '../../utils/appNotice';
 
 const getRandomIndex = (length) => Math.floor(Math.random() * length);
 
@@ -68,7 +69,7 @@ export default function RanatGenerator() {
           setSkeleton(null);
         }
       } catch {
-        alert("รูปแบบไฟล์ไม่ถูกต้อง กรุณาอัปโหลดไฟล์ .tme หรือ .json ที่ถูกต้อง");
+        showAppNotice('รูปแบบไฟล์ไม่ถูกต้อง กรุณาอัปโหลดไฟล์ .tme หรือ .json ที่ถูกต้อง', 'error');
       }
     };
     reader.readAsText(file);
@@ -99,7 +100,7 @@ export default function RanatGenerator() {
       }
     } catch (error) {
       console.error("Extraction error:", error);
-      alert("ไม่สามารถติดต่อ AI Service ได้ กรุณาลองใหม่อีกครั้ง");
+      showAppNotice('ไม่สามารถติดต่อ AI Service ได้ กรุณาลองใหม่อีกครั้ง', 'error');
     }
     
     setIsExtracting(false); 
@@ -109,7 +110,7 @@ export default function RanatGenerator() {
     if (selectedIndex === null) return;
     
     if (!skeleton) {
-      alert("รอสักครู่ ระบบกำลังประมวลผลโครงสร้างหลักครับ");
+      showAppNotice('รอสักครู่ ระบบกำลังประมวลผลโครงสร้างหลักครับ', 'info');
       return;
     }
 
@@ -138,11 +139,11 @@ export default function RanatGenerator() {
       } else {
         setDictionaryResults([]);
         setGeneratedRanat(null);
-        alert(`ไม่พบรูปแบบการตีระดับ ${levelToGenerate} สำหรับโครงสร้าง '${skeleton}' ในฐานข้อมูลครับ`);
+        showAppNotice(`ไม่พบรูปแบบการตีระดับ ${levelToGenerate} สำหรับโครงสร้าง '${skeleton}' ในฐานข้อมูลครับ`, 'warning');
       }
     } catch (error) {
       console.error("Generation error:", error);
-      alert("เกิดข้อผิดพลาดในการเชื่อมต่อฐานข้อมูล");
+      showAppNotice('เกิดข้อผิดพลาดในการเชื่อมต่อฐานข้อมูล', 'error');
     }
     
     setIsLoading(false);

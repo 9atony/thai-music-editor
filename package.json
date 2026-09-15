@@ -12,9 +12,11 @@
     "firebase:reconcile": "node scripts/reconcile-firestore-storage.mjs",
     "firebase:rules:test": "firebase emulators:exec --only firestore --project demo-thai-music-editor \"node --test --test-concurrency=1 test/firestore.rules.test.js\"",
     "firebase:qa": "firebase emulators:exec --only firestore --project demo-thai-music-editor \"node --test --test-concurrency=1 test/firestore.rules.test.js test/firestore.phase36.test.js\"",
+    "firebase:e2e": "firebase emulators:exec --only firestore,auth --project demo-thai-music-editor \"playwright test e2e/mobile-editor.spec.js\"",
     "firebase:release-check": "npm run lint:firestore && npm test && npm run build && npm run firebase:qa",
     "lint": "eslint .",
     "test": "node --test",
+    "test:e2e": "playwright test",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -29,6 +31,7 @@
   "devDependencies": {
     "@eslint/js": "^9.39.4",
     "@firebase/rules-unit-testing": "^5.0.2",
+    "@playwright/test": "^1.63.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",

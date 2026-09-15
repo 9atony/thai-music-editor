@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { collection, addDoc, getDocs, deleteDoc, doc } from 'firebase/firestore';
 import { db } from '../../utils/firebase'; 
+import { showAppNotice } from '../../utils/appNotice';
 
 // ⭐ ฟังก์ชันกำจัด HTML Tags และช่องว่างส่วนเกินออกจากข้อความ
 const stripHtml = (value = '') => String(value || '').replace(/<[^>]+>/g, '').replace(/&nbsp;/ig, ' ').trim();
@@ -61,7 +62,7 @@ export default function RanatDictionary() {
         }
       } catch (error) {
         console.error("Error deleting document: ", error);
-        alert("เกิดข้อผิดพลาดในการลบข้อมูล");
+        showAppNotice('เกิดข้อผิดพลาดในการลบข้อมูล', 'error');
       }
     }
   };
@@ -115,7 +116,7 @@ export default function RanatDictionary() {
         switchView('preview');
         setIsSidebarOpen(false); // ปิดเมนูบนมือถือเมื่ออัปโหลดเสร็จ
       } catch {
-        alert("รูปแบบไฟล์ไม่ถูกต้อง หรือไม่พบข้อมูล");
+        showAppNotice('รูปแบบไฟล์ไม่ถูกต้อง หรือไม่พบข้อมูล', 'error');
       }
     };
     reader.readAsText(file);
@@ -124,7 +125,7 @@ export default function RanatDictionary() {
 
   const saveToDictionary = async () => {
     if (!targetSkeleton.trim()) {
-      alert("กรุณาระบุ 'โครงสร้างทำนองหลัก' ก่อนบันทึกครับ");
+      showAppNotice("กรุณาระบุ 'โครงสร้างทำนองหลัก' ก่อนบันทึกครับ", 'warning');
       return;
     }
     
@@ -137,7 +138,7 @@ export default function RanatDictionary() {
         timestamp: new Date()
       });
       
-      alert("✅ บันทึกทางระนาดลงพจนานุกรมสำเร็จ!");
+      showAppNotice('บันทึกทางระนาดลงพจนานุกรมสำเร็จ', 'success');
       setGroupedPhrases([]);
       setTargetSkeleton("");
       setSongName("");
@@ -147,7 +148,7 @@ export default function RanatDictionary() {
       setIsSidebarOpen(false); // ปิดเมนูเมื่อบันทึกเสร็จ
     } catch (error) {
       console.error("Error saving document: ", error);
-      alert("เกิดข้อผิดพลาดในการบันทึกข้อมูล");
+      showAppNotice('เกิดข้อผิดพลาดในการบันทึกข้อมูล', 'error');
     }
     setIsSaving(false);
   };

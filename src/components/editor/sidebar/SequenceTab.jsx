@@ -1,5 +1,6 @@
 import React, { useContext, useState } from 'react';
 import { MusicContext } from '../../../contexts/MusicContext';
+import { showAppNotice } from '../../../utils/appNotice';
 
 // ⭐ ฟังก์ชันสำหรับล้างแท็ก HTML ให้เหลือแต่ข้อความล้วน (ใช้เฉพาะตอนโชว์หน้าจอ)
 const getPlainText = (html) => {
@@ -72,7 +73,7 @@ const SequenceTab = () => {
     if (newSeq.length > 0) {
       setPlaybackSequence(newSeq);
     } else {
-      alert('ไม่พบป้ายกำกับบนกระดาษครับ กรุณาสร้างป้ายกำกับ (เช่น ท่อน 1) ก่อนกดสแกน');
+      showAppNotice('ไม่พบป้ายกำกับบนกระดาษครับ กรุณาสร้างป้ายกำกับ (เช่น ท่อน 1) ก่อนกดสแกน', 'warning');
     }
   };
 

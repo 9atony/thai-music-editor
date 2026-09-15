@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../../utils/firebase';
 import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
+import { showAppNotice } from '../../utils/appNotice';
 
 const RhythmManager = () => {
   const [activeTab, setActiveTab] = useState('ching');
@@ -56,10 +57,10 @@ const RhythmManager = () => {
         if (jsonData.sheetData) {
           processRhythms(jsonData);
         } else {
-          alert("ไฟล์ไม่ถูกต้อง ไม่พบโครงสร้างข้อมูล (sheetData)");
+          showAppNotice('ไฟล์ไม่ถูกต้อง ไม่พบโครงสร้างข้อมูล (sheetData)', 'error');
         }
       } catch {
-        alert("ไม่สามารถอ่านไฟล์ได้ โปรดตรวจสอบว่าเป็นไฟล์ .tme ที่ถูกต้อง");
+        showAppNotice('ไม่สามารถอ่านไฟล์ได้ โปรดตรวจสอบว่าเป็นไฟล์ .tme ที่ถูกต้อง', 'error');
       }
     };
     reader.readAsText(file);
@@ -216,7 +217,7 @@ const RhythmManager = () => {
       setExtractedRhythms(newRhythms);
       setUploadStatus(null);
     } else {
-      alert("ไม่พบข้อมูลจังหวะที่มีตัวโน้ตในบรรทัดใดเลยครับ");
+      showAppNotice('ไม่พบข้อมูลจังหวะที่มีตัวโน้ตในบรรทัดใดเลยครับ', 'warning');
       setExtractedRhythms([]);
     }
   };
@@ -273,7 +274,7 @@ const RhythmManager = () => {
       });
       setAllRhythms(updated);
     } catch {
-      alert("เกิดข้อผิดพลาดในการลบข้อมูล");
+      showAppNotice('เกิดข้อผิดพลาดในการลบข้อมูล', 'error');
     }
   };
 
@@ -319,7 +320,7 @@ const RhythmManager = () => {
       setAllRhythms(updated);
       setEditingItem(null);
     } catch {
-      alert("เกิดข้อผิดพลาดในการแก้ไข");
+      showAppNotice('เกิดข้อผิดพลาดในการแก้ไข', 'error');
     } finally {
       setIsSavingEdit(false);
     }
