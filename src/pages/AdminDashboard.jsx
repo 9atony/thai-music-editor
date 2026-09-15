@@ -42,6 +42,13 @@ const GIB = 1024 * 1024 * 1024;
 const PREMIUM_BYTES = 5 * 1024 * 1024;
 const BUILT_IN_TEMPLATE_COUNT = 4;
 
+const toDateTimeLocalValue = (date) => {
+  const offset = date.getTimezoneOffset() * 60000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+};
+
+const defaultMaintenanceEnd = () => toDateTimeLocalValue(new Date(Date.now() + (2 * 60 * 60 * 1000)));
+
 const SYSTEM_COLLECTIONS = [
   { id: 'samples', label: 'เพลงตัวอย่าง', Icon: FileMusic, color: 'text-sky-600 bg-sky-50' },
   { id: 'updates', label: 'ข่าวและประกาศ', Icon: Activity, color: 'text-emerald-600 bg-emerald-50' },
@@ -156,13 +163,20 @@ const AdminDashboard = ({ userProfile }) => {
   const {
     access: featureAccess,
     maintenance: toolMaintenance,
+    siteMaintenance,
+    isSiteMaintenanceActive,
     saveAccess,
     setToolMaintenance,
+    setSiteMaintenance,
   } = useFeatureAccess();
   const [isSavingAccess, setIsSavingAccess] = useState(false);
   const [accessSaveError, setAccessSaveError] = useState('');
   const [savingMaintenanceId, setSavingMaintenanceId] = useState(null);
   const [maintenanceSaveError, setMaintenanceSaveError] = useState('');
+  const [siteMaintenanceEnd, setSiteMaintenanceEnd] = useState(defaultMaintenanceEnd);
+  const [siteMaintenanceMessage, setSiteMaintenanceMessage] = useState('');
+  const [isSavingSiteMaintenance, setIsSavingSiteMaintenance] = useState(false);
+  const [siteMaintenanceSaveError, setSiteMaintenanceSaveError] = useState('');
 
   const isAdmin = userProfile?.role === 'admin';
   const featureGroups = Object.entries(FEATURE_GROUP_DETAILS).map(([id, details]) => ({
@@ -201,6 +215,43 @@ const AdminDashboard = ({ userProfile }) => {
       setMaintenanceSaveError('บันทึกสถานะไม่สำเร็จ โปรดตรวจสอบสิทธิ์ Firestore แล้วลองอีกครั้ง');
     } finally {
       setSavingMaintenanceId(null);
+    }
+  };
+
+  useEffect(() => {
+    const savedEnd = siteMaintenance.endsAt?.toDate?.();
+    setSiteMaintenanceEnd(savedEnd && !Number.isNaN(savedEnd.getTime())
+      ? toDateTimeLocalValue(savedEnd)
+      : defaultMaintenanceEnd());
+    setSiteMaintenanceMessage(siteMaintenance.message || 'กำลังปรับปรุงระบบเพื่อให้ใช้งานได้ดียิ่งขึ้น กรุณากลับมาอีกครั้งเมื่อครบเวลาที่กำหนด');
+  }, [siteMaintenance]);
+
+  const updateSiteMaintenance = async (enabled) => {
+    const endDate = new Date(siteMaintenanceEnd);
+    if (enabled && (Number.isNaN(endDate.getTime()) || endDate.getTime() <= Date.now())) {
+      setSiteMaintenanceSaveError('กรุณาระบุวันและเวลาสิ้นสุดที่อยู่ในอนาคต');
+      return;
+    }
+    const confirmation = enabled
+      ? `ยืนยันปิดใช้งานทั้งเว็บไซต์จนถึง ${endDate.toLocaleString('th-TH')}? ผู้ใช้ทั่วไปและ Premium ที่เปิดเว็บอยู่จะถูกนำไปหน้าปรับปรุงทันที`
+      : 'ยืนยันเปิดเว็บไซต์ให้ผู้ใช้ทุกคนใช้งานทันที?';
+    if (!window.confirm(confirmation)) return;
+
+    setIsSavingSiteMaintenance(true);
+    setSiteMaintenanceSaveError('');
+    try {
+      await setSiteMaintenance({
+        enabled,
+        endsAt: Number.isNaN(endDate.getTime()) ? new Date() : endDate,
+        message: siteMaintenanceMessage,
+      });
+    } catch (error) {
+      console.error('บันทึกสถานะปิดปรับปรุงเว็บไซต์ไม่สำเร็จ:', error);
+      setSiteMaintenanceSaveError(error?.message === 'MAINTENANCE_END_REQUIRED'
+        ? 'กรุณาระบุวันและเวลาสิ้นสุดที่อยู่ในอนาคต'
+        : 'บันทึกสถานะเว็บไซต์ไม่สำเร็จ โปรดตรวจสอบสิทธิ์ Firestore แล้วลองอีกครั้ง');
+    } finally {
+      setIsSavingSiteMaintenance(false);
     }
   };
 
@@ -591,7 +642,63 @@ const AdminDashboard = ({ userProfile }) => {
       )}
 
       {activeSection === 'tool-maintenance' && (
-        <section className="mx-auto max-w-4xl">
+        <section className="mx-auto max-w-4xl space-y-5">
+          <div className={`overflow-hidden rounded-3xl border bg-white shadow-sm ${isSiteMaintenanceActive ? 'border-rose-200' : 'border-slate-200'}`}>
+            <div className={`border-b px-5 py-6 md:px-7 ${isSiteMaintenanceActive ? 'border-rose-200 bg-gradient-to-r from-rose-50 via-white to-orange-50' : 'border-slate-200 bg-gradient-to-r from-slate-50 via-white to-sky-50'}`}>
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div className="flex items-start gap-4">
+                  <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-white shadow-lg ${isSiteMaintenanceActive ? 'bg-rose-600 shadow-rose-500/20' : 'bg-slate-900 shadow-slate-900/20'}`}><Clock3 size={21} /></span>
+                  <div>
+                    <p className={`text-[10px] font-black uppercase tracking-[0.18em] ${isSiteMaintenanceActive ? 'text-rose-600' : 'text-slate-500'}`}>Site maintenance control</p>
+                    <h2 className="mt-1 text-xl font-black text-slate-900">ปิดปรับปรุงทั้งเว็บไซต์</h2>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">ผู้ใช้ที่เปิดเว็บอยู่จะเห็นหน้าปรับปรุงทันที และระบบจะเปิดกลับอัตโนมัติเมื่อครบเวลา ส่วน Admin เข้าใช้งานได้ตามปกติ</p>
+                  </div>
+                </div>
+                <span className={`rounded-full border px-3 py-1.5 text-[10px] font-black ${isSiteMaintenanceActive ? 'border-rose-300 bg-rose-100 text-rose-800' : 'border-emerald-200 bg-emerald-100 text-emerald-700'}`}>
+                  {isSiteMaintenanceActive ? 'กำลังปิดปรับปรุงทั้งเว็บ' : siteMaintenance.enabled ? 'ครบเวลาปรับปรุงแล้ว' : 'เว็บไซต์เปิดใช้งานปกติ'}
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-4 p-4 sm:p-5 md:p-7">
+              <div className="grid gap-4 md:grid-cols-2">
+                <label className="block">
+                  <span className="mb-2 block text-xs font-black text-slate-700">ปิดปรับปรุงถึงวันและเวลา</span>
+                  <input
+                    type="datetime-local"
+                    value={siteMaintenanceEnd}
+                    min={toDateTimeLocalValue(now)}
+                    onChange={(event) => setSiteMaintenanceEnd(event.target.value)}
+                    disabled={isSavingSiteMaintenance}
+                    className="h-12 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-sky-400 focus:bg-white focus:ring-2 focus:ring-sky-100 disabled:opacity-60"
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-2 block text-xs font-black text-slate-700">ข้อความแจ้งผู้ใช้งาน</span>
+                  <input
+                    type="text"
+                    value={siteMaintenanceMessage}
+                    maxLength={240}
+                    onChange={(event) => setSiteMaintenanceMessage(event.target.value)}
+                    disabled={isSavingSiteMaintenance}
+                    placeholder="แจ้งรายละเอียดการปรับปรุง"
+                    className="h-12 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-sky-400 focus:bg-white focus:ring-2 focus:ring-sky-100 disabled:opacity-60"
+                  />
+                </label>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => updateSiteMaintenance(!isSiteMaintenanceActive)}
+                disabled={isSavingSiteMaintenance}
+                className={`flex h-12 w-full items-center justify-center gap-2 rounded-xl text-sm font-black text-white transition active:scale-[0.99] disabled:cursor-wait disabled:opacity-60 ${isSiteMaintenanceActive ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-rose-600 hover:bg-rose-700'}`}
+              >
+                {isSavingSiteMaintenance ? 'กำลังบันทึก...' : isSiteMaintenanceActive ? 'เปิดเว็บไซต์ทันที' : 'เริ่มปิดปรับปรุงทั้งเว็บไซต์'}
+              </button>
+              {siteMaintenanceSaveError && <p className="rounded-xl bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-700">{siteMaintenanceSaveError}</p>}
+            </div>
+          </div>
+
           <div className="overflow-hidden rounded-3xl border border-amber-100 bg-white shadow-sm">
             <div className="border-b border-amber-100 bg-gradient-to-r from-amber-50 via-white to-orange-50 px-5 py-6 md:px-7">
               <div className="flex items-start gap-4">

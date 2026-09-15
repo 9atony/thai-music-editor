@@ -142,6 +142,32 @@ emulatorTest('only admins can change tool maintenance while signed-in users can 
   }, { merge: true }));
 });
 
+emulatorTest('site maintenance is public but only admins can write a valid schedule', async () => {
+  const adminDatabase = testEnvironment.authenticatedContext(ADMIN_ID).firestore();
+  const ownerDatabase = testEnvironment.authenticatedContext(OWNER_ID).firestore();
+  const publicDatabase = testEnvironment.unauthenticatedContext().firestore();
+  const validSchedule = {
+    enabled: true,
+    endsAt: Timestamp.fromDate(new Date('2099-01-01T00:00:00.000Z')),
+    message: 'Scheduled maintenance',
+    updatedAt: Timestamp.now(),
+    updatedBy: ADMIN_ID,
+  };
+
+  await assertSucceeds(setDoc(doc(adminDatabase, 'system_settings/site_maintenance'), validSchedule));
+  const publicSnapshot = await assertSucceeds(getDoc(doc(publicDatabase, 'system_settings/site_maintenance')));
+  assert.equal(publicSnapshot.data().enabled, true);
+  await assertFails(setDoc(doc(ownerDatabase, 'system_settings/site_maintenance'), {
+    ...validSchedule,
+    updatedBy: OWNER_ID,
+  }));
+  await assertFails(setDoc(doc(adminDatabase, 'system_settings/site_maintenance'), {
+    ...validSchedule,
+    unexpected: true,
+  }));
+  await assertFails(getDoc(doc(publicDatabase, 'system_settings/feature_access')));
+});
+
 emulatorTest('invalid storage aggregate values are rejected', async () => {
   const database = testEnvironment.authenticatedContext(OWNER_ID).firestore();
   const aggregateRef = doc(database, `users/${OWNER_ID}/meta/storage`);

@@ -5,6 +5,7 @@ import Landing from './pages/Landing';
 import DesktopLayout from './components/layout/DesktopLayout';
 import MobileLayout from './components/mobile/MobileLayout'; 
 import Home from './pages/Home';
+import SiteMaintenance from './components/SiteMaintenance';
 
 const DesktopEditor = React.lazy(() => import('./views/DesktopEditor'));
 const MobileEditor = React.lazy(() => import('./views/MobileEditor'));
@@ -23,6 +24,7 @@ import { useFeatureAccess } from './contexts/FeatureAccessContext';
 import { primeAudioEngine } from './utils/audioEngine';
 import { recordSystemEvent, setAnalyticsPage, startSystemAnalytics } from './utils/systemAnalytics';
 import { markEditorOpenStart } from './utils/devPerformance';
+import { logoutUser } from './utils/firebase';
 
 const VIEW_SESSION_KEY = 'thaiMusicEditorCurrentView';
 const VIEW_PERSISTED_KEY = 'thaiMusicEditorLastView';
@@ -54,7 +56,12 @@ function App() {
   const [editorMode, setEditorMode] = useState(() => sessionStorage.getItem(EDITOR_MODE_SESSION_KEY) || 'normal');
   const [toolsVisit, setToolsVisit] = useState(0);
   const isAdmin = userProfile?.role === 'admin';
-  const { canAccess } = useFeatureAccess();
+  const {
+    canAccess,
+    siteMaintenance,
+    isSiteMaintenanceActive,
+    isSiteMaintenanceLoading,
+  } = useFeatureAccess();
   const isAboutRoute = typeof window !== 'undefined' && window.location.pathname === '/about';
   const isContactRoute = typeof window !== 'undefined' && window.location.pathname === '/contact';
   const PublicPage = isContactRoute ? Contact : About;
@@ -148,8 +155,24 @@ function App() {
     };
   }, [currentView]);
 
-  if (isCheckingAuth) {
+  if (isCheckingAuth || isSiteMaintenanceLoading) {
     return <div className="min-h-screen bg-slate-50 flex items-center justify-center font-sans text-slate-500 font-medium">กำลังตรวจสอบข้อมูล...</div>;
+  }
+
+  if (isSiteMaintenanceActive && !isAdmin && !showLogin) {
+    return (
+      <SiteMaintenance
+        maintenance={siteMaintenance}
+        isAuthenticated={isAuthenticated}
+        onAdminAccess={async () => {
+          try {
+            if (isAuthenticated) await logoutUser();
+          } finally {
+            setShowLogin(true);
+          }
+        }}
+      />
+    );
   }
 
   if (window.location.pathname === '/' && ['#features', '#guide'].includes(window.location.hash)) {
