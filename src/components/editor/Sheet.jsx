@@ -196,17 +196,62 @@ const Sheet = forwardRef((props, ref) => {
       touches[0].clientY - touches[1].clientY
     );
 
+    const restorePinchPreview = (pinch) => {
+      const pagesElement = pinch?.pagesElement;
+      if (!pagesElement) return;
+      pagesElement.style.transform = pinch.previousTransform;
+      pagesElement.style.transformOrigin = pinch.previousTransformOrigin;
+      pagesElement.style.willChange = pinch.previousWillChange;
+      pagesElement.style.pointerEvents = pinch.previousPointerEvents;
+    };
+
+    const applyPinchPreview = (pinch) => {
+      if (!pinch?.pagesElement) return;
+      const nextZoom = pinch.previewZoom;
+      const visualScale = nextZoom / pinch.zoom;
+      pinch.pagesElement.style.transform = `scale(${visualScale})`;
+
+      const scale = nextZoom / 100;
+      container.scrollLeft = Math.max(0, pinch.pagesOffsetLeft + (pinch.contentX * scale) - pinch.centerX);
+      container.scrollTop = Math.max(0, pinch.pagesOffsetTop + (pinch.contentY * scale) - pinch.centerY);
+    };
+
     const handleTouchStart = (event) => {
       if (event.touches.length !== 2) return;
+      if (pinchScrollRafRef.current !== null) {
+        cancelAnimationFrame(pinchScrollRafRef.current);
+        pinchScrollRafRef.current = null;
+      }
       const rect = container.getBoundingClientRect();
+      const pagesElement = container.querySelector('#sheet-pages');
+      const pagesOffsetLeft = pagesElement?.offsetLeft || 0;
+      const pagesOffsetTop = pagesElement?.offsetTop || 0;
+      const zoomScale = zoomTargetRef.current / 100;
       const centerX = (event.touches[0].clientX + event.touches[1].clientX) / 2 - rect.left;
       const centerY = (event.touches[0].clientY + event.touches[1].clientY) / 2 - rect.top;
       pinchZoomRef.current = {
         distance: getTouchDistance(event.touches),
         zoom: zoomTargetRef.current,
-        contentX: (container.scrollLeft + centerX) / (zoomTargetRef.current / 100),
-        contentY: (container.scrollTop + centerY) / (zoomTargetRef.current / 100)
+        previewZoom: zoomTargetRef.current,
+        centerX,
+        centerY,
+        contentX: (container.scrollLeft + centerX - pagesOffsetLeft) / zoomScale,
+        contentY: (container.scrollTop + centerY - pagesOffsetTop) / zoomScale,
+        pagesOffsetLeft,
+        pagesOffsetTop,
+        containerLeft: rect.left,
+        containerTop: rect.top,
+        pagesElement,
+        previousTransform: pagesElement?.style.transform || '',
+        previousTransformOrigin: pagesElement?.style.transformOrigin || '',
+        previousWillChange: pagesElement?.style.willChange || '',
+        previousPointerEvents: pagesElement?.style.pointerEvents || ''
       };
+      if (pagesElement) {
+        pagesElement.style.transformOrigin = '0 0';
+        pagesElement.style.willChange = 'transform';
+        pagesElement.style.pointerEvents = 'none';
+      }
       event.preventDefault();
     };
 
@@ -219,24 +264,46 @@ const Sheet = forwardRef((props, ref) => {
       event.stopPropagation();
       const nextZoom = Math.max(30, Math.min(200, pinch.zoom * (distance / pinch.distance)));
       zoomTargetRef.current = nextZoom;
-      // Apply directly instead of waiting for the wheel/trackpad animation.
-      // A pinch must follow the fingers on every touchmove event.
-      setZoom(nextZoom);
+      pinch.previewZoom = nextZoom;
+      pinch.centerX = (event.touches[0].clientX + event.touches[1].clientX) / 2 - pinch.containerLeft;
+      pinch.centerY = (event.touches[0].clientY + event.touches[1].clientY) / 2 - pinch.containerTop;
 
-      const rect = container.getBoundingClientRect();
-      const centerX = (event.touches[0].clientX + event.touches[1].clientX) / 2 - rect.left;
-      const centerY = (event.touches[0].clientY + event.touches[1].clientY) / 2 - rect.top;
-      if (pinchScrollRafRef.current !== null) cancelAnimationFrame(pinchScrollRafRef.current);
+      // Preview with a compositor transform while the fingers are moving.
+      // React commits the expensive layout only once, when the pinch ends.
+      if (pinchScrollRafRef.current !== null) return;
       pinchScrollRafRef.current = requestAnimationFrame(() => {
-        const scale = nextZoom / 100;
-        container.scrollLeft = Math.max(0, pinch.contentX * scale - centerX);
-        container.scrollTop = Math.max(0, pinch.contentY * scale - centerY);
+        applyPinchPreview(pinchZoomRef.current);
         pinchScrollRafRef.current = null;
       });
     };
 
     const handleTouchEnd = (event) => {
-      if (event.touches.length < 2) pinchZoomRef.current = null;
+      if (event.touches.length >= 2) return;
+      const pinch = pinchZoomRef.current;
+      if (!pinch) return;
+
+      if (pinchScrollRafRef.current !== null) {
+        cancelAnimationFrame(pinchScrollRafRef.current);
+        pinchScrollRafRef.current = null;
+      }
+
+      const finalZoom = pinch.previewZoom;
+      const finalCenterX = pinch.centerX;
+      const finalCenterY = pinch.centerY;
+      restorePinchPreview(pinch);
+      pinchZoomRef.current = null;
+      zoomTargetRef.current = finalZoom;
+      setZoom(finalZoom);
+
+      // Re-anchor the same point after CSS zoom has updated the real layout.
+      pinchScrollRafRef.current = requestAnimationFrame(() => {
+        const scale = finalZoom / 100;
+        const pagesOffsetLeft = pinch.pagesElement?.offsetLeft || 0;
+        const pagesOffsetTop = pinch.pagesElement?.offsetTop || 0;
+        container.scrollLeft = Math.max(0, pagesOffsetLeft + (pinch.contentX * scale) - finalCenterX);
+        container.scrollTop = Math.max(0, pagesOffsetTop + (pinch.contentY * scale) - finalCenterY);
+        pinchScrollRafRef.current = null;
+      });
     };
 
     container.addEventListener('wheel', handleTrackpadZoom, { passive: false });
@@ -250,6 +317,7 @@ const Sheet = forwardRef((props, ref) => {
       container.removeEventListener('touchmove', handleTouchMove);
       container.removeEventListener('touchend', handleTouchEnd);
       container.removeEventListener('touchcancel', handleTouchEnd);
+      restorePinchPreview(pinchZoomRef.current);
       pinchZoomRef.current = null;
       if (pinchScrollRafRef.current !== null) {
         cancelAnimationFrame(pinchScrollRafRef.current);
