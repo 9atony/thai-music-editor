@@ -40,10 +40,14 @@ const Sheet = forwardRef((props, ref) => {
     playbackCursor, isPlaying, symbols = [], addSymbol, removeSymbol,
     selectedSymbolId, setSelectedSymbolId, updateTextRow,
     removeRow, addNathapRow, addMeasure, addTextRow, rowMargins, commitChange,
-    setToolbarMode, stopPlayback, updateCellToken, isReadOnly,
+    setToolbarMode, stopPlayback, updateCellToken, isReadOnly: contextIsReadOnly,
     moveSelectionNext, updateMeasureText,
     isAutoScroll
   } = useContext(MusicContext);
+
+  // A view can temporarily be read-only (for example the mobile "ดูและฟัง"
+  // tab) without changing the project's persistent read-only state.
+  const isReadOnly = contextIsReadOnly || props.readOnly === true;
 
   // --- States & Refs ---
   const [pageSvgPaths, setPageSvgPaths] = useState({});
@@ -1602,7 +1606,7 @@ return (
                   {editingSongName ? (
                      <div
                         id="song-name-editor"
-                        contentEditable
+                        contentEditable={!isReadOnly}
                         suppressContentEditableWarning
                         autoFocus
                         onMouseDown={(e) => e.stopPropagation()}
@@ -1692,7 +1696,7 @@ return (
                             id="detail-editor"
                             data-id={detail.id}
                             data-field="label"
-                            contentEditable
+                            contentEditable={!isReadOnly}
                             suppressContentEditableWarning
                             autoFocus
                             onMouseDown={(e) => e.stopPropagation()}
@@ -1748,7 +1752,7 @@ return (
                             id="detail-editor"
                             data-id={detail.id}
                             data-field="value"
-                            contentEditable
+                            contentEditable={!isReadOnly}
                             suppressContentEditableWarning
                             autoFocus
                             onMouseDown={(e) => e.stopPropagation()}
@@ -1859,7 +1863,7 @@ return (
                       >
                         <div
   id={`text-row-${rIndex}`} 
-  contentEditable
+  contentEditable={!isReadOnly}
   suppressContentEditableWarning
   onFocus={() => {
     if (selectedCell[0] !== rIndex) setSelectedCell([rIndex, 0, 0]);
@@ -2138,7 +2142,7 @@ return (
                               <div className="w-full h-full px-2 py-1 bg-white hover:bg-slate-50 transition-colors">
                                 <div
                                   id={`annotation-${actualRIndex}-${actualMIndex}`}
-                                  contentEditable
+                                  contentEditable={!isReadOnly}
                                   suppressContentEditableWarning
                                   className="w-full h-full outline-none cursor-text overflow-hidden break-words text-slate-600 text-center font-bold"
                                   style={{ fontFamily: textFontFamily, fontSize: `${Math.max((layoutConfig.textFontSize || 16) * 0.85, 13)}px` }}
@@ -2222,7 +2226,7 @@ return (
                                 data-text-measure-editor="true"
                                 data-row-index={actualRIndex}
                                 data-measure-index={actualMIndex}
-                                contentEditable
+                                contentEditable={!isReadOnly}
                                 suppressContentEditableWarning
                                 // ⭐ ปลดล็อกสมบูรณ์แบบ: ใช้ block คู่กับ text-center เพื่อให้ Toolbar สามารถส่งคำสั่ง align-left/right มาทับได้ 100%
                                 className={`w-full h-full outline-none cursor-text overflow-hidden break-words px-1 pt-0.5 block text-center ${isAnnotationCurrent ? 'text-slate-500' : 'text-slate-800'}`}
@@ -2272,7 +2276,7 @@ return (
                             <div className="w-full h-full p-1 hover:bg-slate-100/50 transition-colors">
                               <div
                                 id={`annotation-${actualRIndex}-${actualMIndex}`} // ⭐ ใส่ ID ให้ระบบโฟกัสถูกช่อง
-                                contentEditable
+                                contentEditable={!isReadOnly}
                                 suppressContentEditableWarning
                                 // ⭐ ปลดล็อก: ถอดคำสั่ง text-center, flex, justify-center ออก เพื่อให้อิสระในการจัดหน้าซ้าย-ขวา-กลาง
                                 className="w-full h-full outline-none cursor-text overflow-hidden break-words text-slate-600 px-1 pt-0.5"
@@ -2578,12 +2582,14 @@ return (
                   const handleAddNextRow = (event) => {
                     event.preventDefault();
                     event.stopPropagation();
+                    if (isReadOnly) return;
                     if (addNathapRow) addNathapRow([rIndex, lastMeasureIndex, 0]);
                   };
 
                   const handleAddMeasureAtEnd = (event) => {
                     event.preventDefault();
                     event.stopPropagation();
+                    if (isReadOnly) return;
                     if (addMeasure) addMeasure([rIndex, lastMeasureIndex, 0]);
                   };
                   // Labels extend outside their staff. Keep their parent above

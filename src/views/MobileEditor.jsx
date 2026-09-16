@@ -212,6 +212,7 @@ const MobileEditor = ({ onBack }) => {
            <Sheet
              key={mobileMode}
              ref={sheetContainerRef}
+             readOnly={mobileMode === 'listen'}
              defaultZoom={mobileMode === 'edit' ? 160 : (isDesktopViewport ? 70 : 48)}
              hideZoomControls={mobileMode === 'listen' && !isDesktopViewport}
            />
