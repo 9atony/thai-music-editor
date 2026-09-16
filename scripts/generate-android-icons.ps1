@@ -21,14 +21,14 @@ $densitySizes = [ordered]@{
 $sourceImage = [System.Drawing.Bitmap]::FromFile($sourcePath)
 
 try {
-    # The supplied artwork contains generous white space. Crop to the mark before
-    # adding Android-safe padding so the logo stays readable without being clipped.
-    $crop = [System.Drawing.Rectangle]::new(70, 425, 1115, 375)
+    # Preserve the supplied square composition. The whitespace is intentional and
+    # keeps the complete TME mark inside Android's circular and rounded masks.
+    $sourceRect = [System.Drawing.Rectangle]::new(0, 0, $sourceImage.Width, $sourceImage.Height)
 
     function Save-LauncherBitmap {
         param(
             [int]$Size,
-            [double]$LogoWidthRatio,
+            [double]$ArtworkSizeRatio,
             [bool]$TransparentBackground,
             [string]$OutputPath
         )
@@ -59,8 +59,8 @@ try {
                 $graphics.Clear([System.Drawing.Color]::White)
             }
 
-            $targetWidth = [int][Math]::Round($Size * $LogoWidthRatio)
-            $targetHeight = [int][Math]::Round($targetWidth * $crop.Height / $crop.Width)
+            $targetWidth = [int][Math]::Round($Size * $ArtworkSizeRatio)
+            $targetHeight = [int][Math]::Round($targetWidth * $sourceRect.Height / $sourceRect.Width)
             $targetX = [int][Math]::Round(($Size - $targetWidth) / 2)
             $targetY = [int][Math]::Round(($Size - $targetHeight) / 2)
             $target = [System.Drawing.Rectangle]::new($targetX, $targetY, $targetWidth, $targetHeight)
@@ -69,15 +69,15 @@ try {
                 $graphics.DrawImage(
                     $sourceImage,
                     $target,
-                    $crop.X,
-                    $crop.Y,
-                    $crop.Width,
-                    $crop.Height,
+                    $sourceRect.X,
+                    $sourceRect.Y,
+                    $sourceRect.Width,
+                    $sourceRect.Height,
                     [System.Drawing.GraphicsUnit]::Pixel,
                     $imageAttributes
                 )
             } else {
-                $graphics.DrawImage($sourceImage, $target, $crop, [System.Drawing.GraphicsUnit]::Pixel)
+                $graphics.DrawImage($sourceImage, $target, $sourceRect, [System.Drawing.GraphicsUnit]::Pixel)
             }
 
             $directory = Split-Path -Parent $OutputPath
@@ -97,12 +97,12 @@ try {
         $legacySize = [int]$entry.Value
         $foregroundSize = [int]($legacySize * 2.25)
 
-        Save-LauncherBitmap -Size $legacySize -LogoWidthRatio 0.84 -TransparentBackground $false -OutputPath (Join-Path $directory 'ic_launcher.png')
-        Save-LauncherBitmap -Size $legacySize -LogoWidthRatio 0.84 -TransparentBackground $false -OutputPath (Join-Path $directory 'ic_launcher_round.png')
-        Save-LauncherBitmap -Size $foregroundSize -LogoWidthRatio 0.72 -TransparentBackground $true -OutputPath (Join-Path $directory 'ic_launcher_foreground.png')
+        Save-LauncherBitmap -Size $legacySize -ArtworkSizeRatio 1 -TransparentBackground $false -OutputPath (Join-Path $directory 'ic_launcher.png')
+        Save-LauncherBitmap -Size $legacySize -ArtworkSizeRatio 1 -TransparentBackground $false -OutputPath (Join-Path $directory 'ic_launcher_round.png')
+        Save-LauncherBitmap -Size $foregroundSize -ArtworkSizeRatio 1 -TransparentBackground $true -OutputPath (Join-Path $directory 'ic_launcher_foreground.png')
     }
 
-    Save-LauncherBitmap -Size 512 -LogoWidthRatio 0.84 -TransparentBackground $false -OutputPath (Join-Path $projectRoot 'resources\icon-512.png')
+    Save-LauncherBitmap -Size 512 -ArtworkSizeRatio 1 -TransparentBackground $false -OutputPath (Join-Path $projectRoot 'resources\icon-512.png')
 } finally {
     $sourceImage.Dispose()
 }
