@@ -1,9 +1,11 @@
 import SectionLabel from './SectionLabel';
 import React, { useContext, forwardRef, useMemo, useEffect, useState, useCallback, useRef } from 'react';
+import { flushSync } from 'react-dom';
 import { Copy, Plus, Trash2 } from 'lucide-react';
 import { MusicContext } from '../../contexts/MusicContext';
 import { getFlattenedCol, getLogicalMeasureWidth, hasNathapLeadingLabel, splitThaiNoteToken } from '../../utils/sheetUtils';
 import { decodeCustomCellToken } from '../../utils/customKeyboard';
+import { getAnchoredScrollPosition, getPinchPreviewTranslation } from '../../utils/sheetZoom';
 import {
   areMeasurementsEquivalent,
   getLogicalElementHeight,
@@ -209,11 +211,19 @@ const Sheet = forwardRef((props, ref) => {
       if (!pinch?.pagesElement) return;
       const nextZoom = pinch.previewZoom;
       const visualScale = nextZoom / pinch.zoom;
-      pinch.pagesElement.style.transform = `scale(${visualScale})`;
+      const translation = getPinchPreviewTranslation({
+        anchorX: pinch.anchorX,
+        anchorY: pinch.anchorY,
+        startCenterX: pinch.startCenterX,
+        startCenterY: pinch.startCenterY,
+        centerX: pinch.centerX,
+        centerY: pinch.centerY,
+        visualScale,
+      });
 
-      const scale = nextZoom / 100;
-      container.scrollLeft = Math.max(0, pinch.pagesOffsetLeft + (pinch.contentX * scale) - pinch.centerX);
-      container.scrollTop = Math.max(0, pinch.pagesOffsetTop + (pinch.contentY * scale) - pinch.centerY);
+      // Keep the entire gesture on the compositor. Writing scrollLeft/scrollTop
+      // on every touchmove forces layout and makes Android WebView visibly jerk.
+      pinch.pagesElement.style.transform = `translate3d(${translation.x}px, ${translation.y}px, 0) scale(${visualScale})`;
     };
 
     const handleTouchStart = (event) => {
@@ -235,6 +245,10 @@ const Sheet = forwardRef((props, ref) => {
         previewZoom: zoomTargetRef.current,
         centerX,
         centerY,
+        startCenterX: centerX,
+        startCenterY: centerY,
+        anchorX: container.scrollLeft + centerX - pagesOffsetLeft,
+        anchorY: container.scrollTop + centerY - pagesOffsetTop,
         contentX: (container.scrollLeft + centerX - pagesOffsetLeft) / zoomScale,
         contentY: (container.scrollTop + centerY - pagesOffsetTop) / zoomScale,
         pagesOffsetLeft,
@@ -290,19 +304,33 @@ const Sheet = forwardRef((props, ref) => {
       const finalZoom = pinch.previewZoom;
       const finalCenterX = pinch.centerX;
       const finalCenterY = pinch.centerY;
-      restorePinchPreview(pinch);
       pinchZoomRef.current = null;
       zoomTargetRef.current = finalZoom;
-      setZoom(finalZoom);
 
-      // Re-anchor the same point after CSS zoom has updated the real layout.
-      pinchScrollRafRef.current = requestAnimationFrame(() => {
-        const scale = finalZoom / 100;
-        const pagesOffsetLeft = pinch.pagesElement?.offsetLeft || 0;
-        const pagesOffsetTop = pinch.pagesElement?.offsetTop || 0;
-        container.scrollLeft = Math.max(0, pagesOffsetLeft + (pinch.contentX * scale) - finalCenterX);
-        container.scrollTop = Math.max(0, pagesOffsetTop + (pinch.contentY * scale) - finalCenterY);
-        pinchScrollRafRef.current = null;
+      if (Math.abs(finalZoom - pinch.zoom) < 0.01) {
+        restorePinchPreview(pinch);
+        return;
+      }
+
+      // Commit the real CSS zoom before removing the preview transform. Keeping
+      // both changes in one frame avoids the old-size flash when the fingers lift.
+      flushSync(() => setZoom(finalZoom));
+      restorePinchPreview(pinch);
+
+      const scale = finalZoom / 100;
+      const pagesOffsetLeft = pinch.pagesElement?.offsetLeft || 0;
+      const pagesOffsetTop = pinch.pagesElement?.offsetTop || 0;
+      container.scrollLeft = getAnchoredScrollPosition({
+        pagesOffset: pagesOffsetLeft,
+        contentPoint: pinch.contentX,
+        scale,
+        center: finalCenterX,
+      });
+      container.scrollTop = getAnchoredScrollPosition({
+        pagesOffset: pagesOffsetTop,
+        contentPoint: pinch.contentY,
+        scale,
+        center: finalCenterY,
       });
     };
 
