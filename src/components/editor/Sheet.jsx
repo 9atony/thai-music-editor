@@ -453,7 +453,7 @@ const Sheet = forwardRef((props, ref) => {
     const guideWidth = getRowInsertGuideWidth(rowIndex);
 
     return (
-      <div className="group/row-insert print-hidden absolute -bottom-2 left-0 z-40 flex h-4 items-center" style={{ width: guideWidth }}>
+      <div className="sheet-structure-control group/row-insert print-hidden absolute -bottom-2 left-0 z-40 flex h-4 items-center" style={{ width: guideWidth }}>
         <div className="h-0.5 w-full bg-transparent transition-colors duration-150 group-hover/row-insert:bg-blue-500 group-hover/row-insert:shadow-[0_0_5px_rgba(59,130,246,0.75)]" />
         <button
           type="button"
@@ -1706,9 +1706,10 @@ return (
                     <h1 
                       className={`font-bold ${hasHeaderDetails ? 'mb-2' : 'mb-0'} uppercase tracking-tight cursor-text hover:bg-slate-100/50 rounded transition-colors print:hover:bg-transparent min-h-[1.5em]`}
                       style={{ fontSize: `${layoutConfig.songNameSize}px`, fontFamily: pageFontFamily }}
-                      onDoubleClick={(e) => {
-                        e.stopPropagation();
-                        if (setToolbarMode) setToolbarMode('text');
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
+                          if (isReadOnly) return;
+                          if (setToolbarMode) setToolbarMode('text');
                         initialSongNameRef.current = songName || ''; 
                         setEditingSongName(true);
                       }}
@@ -2185,7 +2186,7 @@ return (
                         >
                           {canInsertMeasureAtBoundary && (
                             <div
-                              className="group/measure-insert print-hidden absolute -right-2 -top-2 z-40 w-4"
+                              className="sheet-structure-control group/measure-insert print-hidden absolute -right-2 -top-2 z-40 w-4"
                               style={{ bottom: linkedGuideHeight > 0 ? `-${linkedGuideHeight}px` : 0 }}
                             >
                               <div className="absolute right-[7px] top-2 bottom-0 w-0.5 bg-transparent transition-colors duration-150 group-hover/measure-insert:bg-sky-500 group-hover/measure-insert:shadow-[0_0_5px_rgba(14,165,233,0.8)]" />
@@ -2721,7 +2722,7 @@ return (
                               </button>
                             </div>
 
-                            <div className="group/row-insert print-hidden absolute -bottom-2 left-0 z-50 flex h-4 items-center" style={{ width: getRowInsertGuideWidth(rIndex) }}>
+                            <div className="sheet-structure-control group/row-insert print-hidden absolute -bottom-2 left-0 z-50 flex h-4 items-center" style={{ width: getRowInsertGuideWidth(rIndex) }}>
                               <div className="h-0.5 w-full bg-transparent transition-colors duration-150 group-hover/row-insert:bg-blue-500 group-hover/row-insert:shadow-[0_0_5px_rgba(59,130,246,0.75)]" />
                               <button
                                 type="button"

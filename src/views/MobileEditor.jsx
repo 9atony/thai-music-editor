@@ -205,10 +205,22 @@ const MobileEditor = ({ onBack }) => {
       {/* 2. Sheet Area */}
       <main className="relative z-0 isolate flex min-h-0 flex-1 flex-col overflow-hidden bg-slate-200">
         <div
+          id="mobile-sheet-surface"
+          data-mobile-mode={mobileMode}
           className={`flex-1 w-full h-full transition-opacity duration-300 ${isPlaying ? 'opacity-90' : 'opacity-100'} ${
             mobileMode === 'listen' ? '[&_[contenteditable]]:pointer-events-none [&_input]:pointer-events-none' : ''
           }`}
         >
+           <style>{`
+             #mobile-sheet-surface[data-mobile-mode="listen"] #sheet-pages button,
+             #mobile-sheet-surface[data-mobile-mode="listen"] #sheet-pages [role="separator"],
+             #mobile-sheet-surface[data-mobile-mode="listen"] .sheet-structure-control {
+               display: none !important;
+             }
+             #mobile-sheet-surface[data-mobile-mode="listen"] #sheet-pages [contenteditable="true"] {
+               pointer-events: none !important;
+             }
+           `}</style>
            <Sheet
              key={mobileMode}
              ref={sheetContainerRef}
