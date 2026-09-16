@@ -2,10 +2,14 @@ import { initializeApp } from "firebase/app";
 import {
   connectAuthEmulator,
   getAuth,
+  indexedDBLocalPersistence,
+  initializeAuth,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut,
 } from "firebase/auth";
+import { Capacitor } from '@capacitor/core';
+import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
 import { 
   getFirestore, collection, query, orderBy, limit, getDocs, 
   addDoc, doc, updateDoc, deleteDoc, serverTimestamp,
@@ -71,7 +75,9 @@ const parseEmulatorAddress = (address, fallbackHost, fallbackPort) => {
 const app = initializeApp(firebaseConfig);
 
 // 3. Export Auth และ DB
-export const auth = getAuth(app);
+export const auth = Capacitor.isNativePlatform()
+  ? initializeAuth(app, { persistence: indexedDBLocalPersistence })
+  : getAuth(app);
 export const db = getFirestore(app);
 
 if (useFirebaseEmulator) {
@@ -335,8 +341,13 @@ export const fetchAllProjects = async (uid) => {
 };
 
 export const loginUser = (email, password) => signInWithEmailAndPassword(auth, email, password);
-export const logoutUser = () => {
+export const logoutUser = async () => {
   storageAggregateInitializers = new WeakMap();
+  if (Capacitor.isNativePlatform()) {
+    await FirebaseAuthentication.signOut().catch((error) => {
+      console.warn('Native Firebase sign-out did not complete:', error);
+    });
+  }
   return signOut(auth);
 };
 

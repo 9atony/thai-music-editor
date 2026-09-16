@@ -1,12 +1,15 @@
 import { useState, useEffect } from 'react';
+import { Capacitor } from '@capacitor/core';
 
 const useDevice = () => {
   const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
     const handleResize = () => {
+      const isNativeApp = Capacitor.isNativePlatform();
       // เช็กความกว้างหน้าจอ ถ้าต่ำกว่า 768px (ขนาดมาตรฐานมือถือ/แท็บเล็ตแนวตั้ง) ให้มองว่าเป็น Mobile
-      setIsMobile(window.innerWidth < 768);
+      // แอป Android ใช้ Mobile Editor เสมอ แม้ WebView จะรายงาน viewport แบบเดสก์ท็อป
+      setIsMobile(isNativeApp || window.innerWidth < 768);
     };
 
     // เช็กครั้งแรกทันทีที่เปิดเว็บ

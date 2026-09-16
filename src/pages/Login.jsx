@@ -8,10 +8,14 @@ import {
   setPersistence, 
   browserLocalPersistence, 
   browserSessionPersistence,
+  indexedDBLocalPersistence,
   signInWithPopup,
+  signInWithCredential,
   GoogleAuthProvider,
   updateProfile 
 } from 'firebase/auth';
+import { Capacitor } from '@capacitor/core';
+import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
 
 import { auth } from '../utils/firebase';
 import { db } from '../utils/firebase'; 
@@ -44,7 +48,9 @@ const Login = ({ onLoginSuccess, onBackToLanding }) => {
     }
 
     try {
-      const persistenceType = rememberMe ? browserLocalPersistence : browserSessionPersistence;
+      const persistenceType = Capacitor.isNativePlatform()
+        ? indexedDBLocalPersistence
+        : rememberMe ? browserLocalPersistence : browserSessionPersistence;
       await setPersistence(auth, persistenceType);
 
       if (isSignUp) {
@@ -98,8 +104,16 @@ const Login = ({ onLoginSuccess, onBackToLanding }) => {
     const provider = new GoogleAuthProvider();
     
     try {
-      // 1. ล็อกอินด้วย Google Popup
-      const result = await signInWithPopup(auth, provider);
+      // Android ใช้ Google Sign-In แบบ Native แล้วส่ง credential กลับเข้า
+      // Firebase JS SDK เพื่อให้ Firestore และ context เดิมทำงานร่วมกันได้
+      const result = Capacitor.isNativePlatform()
+        ? await (async () => {
+            const nativeResult = await FirebaseAuthentication.signInWithGoogle({ skipNativeAuth: true });
+            const idToken = nativeResult.credential?.idToken;
+            if (!idToken) throw new Error('GOOGLE_ID_TOKEN_MISSING');
+            return signInWithCredential(auth, GoogleAuthProvider.credential(idToken));
+          })()
+        : await signInWithPopup(auth, provider);
       const user = result.user;
 
       // ⭐ 2. เช็กว่ามีข้อมูลใน Firestore หรือยัง ถ้ายังให้สร้างประวัติเริ่มต้นไว้ (ป้องกันกรณีสมัครครั้งแรกผ่าน Google)

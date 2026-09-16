@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "481298501401",
+    "project_id": "thai-music-editor",
+    "storage_bucket": "thai-music-editor.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:481298501401:android:ff83f368ca49f377a0ff88",
+        "android_client_info": {
+          "package_name": "com.thaimusiceditor.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "481298501401-3oj1u4cvobe5l4n5m4d9d01pafg85ktn.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.thaimusiceditor.app",
+            "certificate_hash": "e71bb469562a32d6dc7f09b691c345d1bf2b1629"
+          }
+        },
+        {
+          "client_id": "481298501401-cqm4c14ssj3shdr98ga0sne2f35v0lva.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBeGhsiX6aHJa9CO_Jr13CuIdl4VIi6MeM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "481298501401-cqm4c14ssj3shdr98ga0sne2f35v0lva.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
