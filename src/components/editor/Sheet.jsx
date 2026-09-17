@@ -2569,6 +2569,16 @@ return (
                               <span className="pointer-events-none absolute right-0 top-0 h-full w-0.5 bg-transparent transition-colors group-hover:bg-sky-500" />
                             </div>
                           )}
+                          {isLabelMeasure && isNathapCurrent && rowBorderVisibility.bottom && (
+                            <span
+                              aria-hidden="true"
+                              className="pointer-events-none absolute inset-x-0 bottom-0 z-30"
+                              style={{
+                                height: `${layoutConfig.outerBorderWidth ?? 1}px`,
+                                backgroundColor: layoutConfig.borderColor || '#0f172a',
+                              }}
+                            />
+                          )}
                         </div>
                       );
                   };
