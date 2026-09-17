@@ -6,6 +6,7 @@ import { MusicContext } from '../../contexts/MusicContext';
 import { getFlattenedCol, getLogicalMeasureWidth, hasNathapLeadingLabel, splitThaiNoteToken } from '../../utils/sheetUtils';
 import { decodeCustomCellToken } from '../../utils/customKeyboard';
 import { getAnchoredScrollPosition, getPinchPreviewTranslation } from '../../utils/sheetZoom';
+import { getSheetRowBorderVisibility } from '../../utils/sheetRowBorders';
 import {
   areMeasurementsEquivalent,
   getLogicalElementHeight,
@@ -2128,6 +2129,12 @@ return (
                       const isAnnotationCurrent = actualRType === 'annotation';
 
                       const isNathapCurrent = actualRType === 'nathap';
+                      const rowBorderVisibility = getSheetRowBorderVisibility({
+                        rowType: actualRType,
+                        previousRowType: rowTypes[actualRIndex - 1],
+                        nextRowType: rowTypes[actualRIndex + 1],
+                      });
+                      const outerBorder = `${layoutConfig.outerBorderWidth ?? 1}px solid ${layoutConfig.borderColor || '#0f172a'}`;
                       // ⭐ เช็กว่าบรรทัดหน้าทับนี้ถูกสร้างให้มีความยาว 9 ห้อง (มีช่องซ้ายสุด) หรือไม่ ถ้ามี 8 ห้องห้ามแสดงป้ายกำกับ
                       const nathapHasLabel = isNathapCurrent && hasNathapLeadingLabel(sheetData[actualRIndex], actualRType);
                       const isLabelMeasure = (isDoubleCurrent && localMIdx === 0) || (nathapHasLabel && localMIdx === 0);
@@ -2200,11 +2207,12 @@ return (
                             gridColumn: `span ${spanCount}`, 
                             gridTemplateColumns: isLabelMeasure ? '1fr' : (isTextMeasure || isAnnotationCurrent ? '1fr' : `repeat(${measure.length}, minmax(0, 1fr))`),
                             height: (isAnnotationCurrent || isNathapCurrent) ? `${layoutConfig.measureHeight * 0.75}px` : `${layoutConfig.measureHeight}px`,
-                            // ⭐ ดึงขอบบนออกและปรับสีพื้นหลังให้กลมกลืน (ใช้ร่วมกันทั้งคำอธิบายและหน้าทับ)
-                            borderTop: (isAnnotationCurrent || isNathapCurrent) ? 'none' : `${layoutConfig.outerBorderWidth ?? 1}px solid ${layoutConfig.borderColor || '#0f172a'}`,
-                            borderBottom: isDoubleRightCurrent ? 'none' : `${layoutConfig.outerBorderWidth ?? 1}px solid ${layoutConfig.borderColor || '#0f172a'}`,
-                            borderRight: `${layoutConfig.outerBorderWidth ?? 1}px solid ${layoutConfig.borderColor || '#0f172a'}`,
-                            borderLeft: isFirstInLine || isLabelMeasure ? `${layoutConfig.outerBorderWidth ?? 1}px solid ${layoutConfig.borderColor || '#0f172a'}` : 'none',
+                            // Give each internal companion separator to the lower
+                            // row so an old project's next label cannot paint over it.
+                            borderTop: rowBorderVisibility.top ? outerBorder : 'none',
+                            borderBottom: rowBorderVisibility.bottom ? outerBorder : 'none',
+                            borderRight: outerBorder,
+                            borderLeft: isFirstInLine || isLabelMeasure ? outerBorder : 'none',
                             borderTopLeftRadius: (isFirstInLine && !isDoubleLeftCurrent && !isAnnotationCurrent && !isNathapCurrent) ? `${layoutConfig.borderRadius}px` : 0,
                             borderBottomLeftRadius: (isFirstInLine && !isDoubleRightCurrent) ? `${layoutConfig.borderRadius}px` : 0,
                             borderTopRightRadius: (isLastInLine && !isDoubleLeftCurrent && !isAnnotationCurrent && !isNathapCurrent) ? `${layoutConfig.borderRadius}px` : 0,
