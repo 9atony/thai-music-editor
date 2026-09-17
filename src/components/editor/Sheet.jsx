@@ -2194,7 +2194,7 @@ return (
                       return (
                         <div 
                           key={actualMIndex} 
-                          className={`grid bg-white relative h-full w-full overflow-visible ${isTextMeasureSelected ? 'ring-2 ring-inset ring-sky-500' : ''}`}
+                          className={`grid box-border bg-white relative h-full w-full ${isLabelMeasure ? 'overflow-hidden' : 'overflow-visible'} ${isTextMeasureSelected ? 'ring-2 ring-inset ring-sky-500' : ''}`}
                           onMouseEnter={(event) => {
                             if (!isTextMeasure) return;
                             if ((event.buttons & 1) !== 0 && updateSelection) {
@@ -2244,13 +2244,17 @@ return (
                           )}
                           {isLabelMeasure ? (
                             isNathapCurrent ? (
-                              <div className="w-full h-full px-2 py-1 bg-white hover:bg-slate-50 transition-colors">
+                              <div className="box-border h-full w-full overflow-hidden bg-white">
                                 <div
                                   id={`annotation-${actualRIndex}-${actualMIndex}`}
                                   contentEditable={!isReadOnly}
                                   suppressContentEditableWarning
-                                  className="w-full h-full outline-none cursor-text overflow-hidden break-words text-slate-600 text-center font-bold"
-                                  style={{ fontFamily: textFontFamily, fontSize: `${Math.max((layoutConfig.textFontSize || 16) * 0.85, 13)}px` }}
+                                  className={`box-border flex h-full w-full items-center justify-center overflow-hidden break-words px-1 text-center tracking-wide text-slate-700 outline-none ${(layoutConfig.customStyles?.[`${actualRIndex}_0_0`]?.isBold ?? layoutConfig.isBold) ? 'font-bold' : 'font-normal'} ${(layoutConfig.customStyles?.[`${actualRIndex}_0_0`]?.isItalic ?? layoutConfig.isItalic) ? 'italic' : ''} ${isReadOnly ? 'cursor-default' : 'cursor-text hover:bg-slate-100'}`}
+                                  style={{
+                                    fontFamily: layoutConfig.customStyles?.[`${actualRIndex}_0_0`]?.noteFontFamily || layoutConfig.rowLabelFontFamily || noteFontFamily,
+                                    fontSize: `${layoutConfig.customStyles?.[`${actualRIndex}_0_0`]?.fontSize ?? layoutConfig.rowLabelFontSize ?? (layoutConfig.fontSize || 16)}px`,
+                                    lineHeight: 1.1,
+                                  }}
                                   onMouseDown={(e) => {
                                     e.stopPropagation();
                                     if (selectedCell[0] !== actualRIndex || selectedCell[1] !== actualMIndex) {
@@ -2568,16 +2572,6 @@ return (
                             >
                               <span className="pointer-events-none absolute right-0 top-0 h-full w-0.5 bg-transparent transition-colors group-hover:bg-sky-500" />
                             </div>
-                          )}
-                          {isLabelMeasure && isNathapCurrent && rowBorderVisibility.bottom && (
-                            <span
-                              aria-hidden="true"
-                              className="pointer-events-none absolute inset-x-0 bottom-0 z-30"
-                              style={{
-                                height: `${layoutConfig.outerBorderWidth ?? 1}px`,
-                                backgroundColor: layoutConfig.borderColor || '#0f172a',
-                              }}
-                            />
                           )}
                         </div>
                       );
