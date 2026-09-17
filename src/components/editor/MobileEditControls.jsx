@@ -677,6 +677,7 @@ const MobileEditControls = ({ onOpenMetronome, onOpenSettings, onOpenMusicXml, o
             <SmallAction icon={Plus} label="เพิ่มห้อง" onClick={addMeasure} disabled={!hasCell || isReadOnly} />
             <SmallAction icon={Minus} label="ลบห้อง" onClick={() => requestDestructiveAction({ title: 'ลบห้องนี้?', description: 'โน้ตและข้อความทั้งหมดในห้องที่เลือกจะถูกลบ', action: removeMeasure, successMessage: 'ลบห้องแล้ว' })} disabled={!hasCell || isReadOnly} danger />
             <SmallAction icon={Plus} label="เพิ่มบรรทัด" onClick={addRow} disabled={!hasCell || isReadOnly} />
+            <SmallAction icon={Trash2} label="ลบบรรทัด" onClick={() => requestDestructiveAction({ title: 'ลบบรรทัดนี้?', description: 'ข้อมูลทั้งบรรทัดที่เลือกจะถูกลบออกจากกระดาษ', action: removeRow, successMessage: 'ลบบรรทัดแล้ว' })} disabled={!hasCell || isReadOnly} danger />
           </div>
 
           {activeKeyboardMode === 'notes' ? (
